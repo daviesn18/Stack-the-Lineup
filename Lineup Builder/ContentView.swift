@@ -1,24 +1,40 @@
-//
-//  ContentView.swift
-//  Lineup Builder
-//
-//  Created by Nick Davies on 2/28/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @StateObject var store = LineupStore()
+    @State private var showingWelcome = !UserDefaults.standard.bool(forKey: "hasCompletedTutorial")
+    @State private var showingArchive = false
 
-#Preview {
-    ContentView()
+    var body: some View {
+        TabView {
+            PlayersView()
+                .tabItem {
+                    Label("Players", systemImage: "person.3.fill")
+                }
+
+            LineupView(showingArchive: $showingArchive)
+                .tabItem {
+                    Label("Lineup", systemImage: "list.number")
+                }
+
+            DefensiveGridView(showingArchive: $showingArchive)
+                .tabItem {
+                    Label("Positions", systemImage: "baseball.diamond.bases")
+                }
+
+            GameLogsView()
+                .tabItem {
+                    Label("History", systemImage: "clock.arrow.circlepath")
+                }
+        }
+        .environmentObject(store)
+        .tint(.blue)
+        .sheet(isPresented: $showingWelcome) {
+            WelcomeView()
+        }
+        .sheet(isPresented: $showingArchive) {
+            ArchiveGameSheet()
+                .environmentObject(store)
+        }
+    }
 }
