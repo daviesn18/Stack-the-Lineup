@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject var store = LineupStore()
+    @EnvironmentObject var purchaseManager: PurchaseManager
     @State private var showingWelcome = !UserDefaults.standard.bool(forKey: "hasCompletedTutorial")
     @State private var showingArchive = false
 
@@ -29,6 +30,11 @@ struct ContentView: View {
         }
         .environmentObject(store)
         .tint(.blue)
+        .onAppear {
+            Analytics.signal("app.opened", parameters: [
+                "playerCount": "\(store.players.count)"
+            ])
+        }
         .sheet(isPresented: $showingWelcome) {
             WelcomeView()
         }

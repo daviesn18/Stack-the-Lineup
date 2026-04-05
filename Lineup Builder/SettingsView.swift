@@ -4,31 +4,98 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
     @AppStorage("complianceChecksEnabled") private var complianceChecksEnabled = true
     @State private var showingTutorial = false
     @State private var showingQuickTips = false
     @State private var showingResetConfirmation = false
-    
+    @State private var showingPaywall = false
+
     var body: some View {
         NavigationStack {
             List {
-                // Help Section
+
+                // MARK: - Pro Status
+                Section {
+                    if purchaseManager.isPro {
+                        HStack(spacing: 12) {
+                            Image(systemName: "star.circle.fill")
+                                .foregroundColor(.blue)
+                                .font(.title3)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Stack the Lineup Pro")
+                                    .font(.subheadline.bold())
+                                Text("All features unlocked")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                        }
+                    } else {
+                        Button {
+                            showingPaywall = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "star.circle")
+                                    .foregroundColor(.blue)
+                                    .font(.title3)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Upgrade to Pro")
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(.primary)
+                                    Text("Coaches Guide PDF, Game History & AI Insights")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Button {
+                            Task { await purchaseManager.restore() }
+                        } label: {
+                            HStack {
+                                if purchaseManager.isLoading {
+                                    ProgressView().scaleEffect(0.8)
+                                } else {
+                                    Text("Restore Purchase")
+                                }
+                            }
+                        }
+                        .disabled(purchaseManager.isLoading)
+
+                        if let error = purchaseManager.purchaseError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+                } header: {
+                    Text("Subscription")
+                }
+
+                // MARK: - Help
                 Section("Help & Support") {
                     Button {
                         showingTutorial = true
                     } label: {
                         Label("View Tutorial", systemImage: "play.circle.fill")
                     }
-                    
+
                     Button {
                         showingQuickTips = true
                     } label: {
                         Label("Quick Tips", systemImage: "lightbulb.fill")
                     }
                 }
-                
-                // Fair Play Rules Settings
+
+                // MARK: - Fair Play Rules
                 Section {
                     Toggle(isOn: $complianceChecksEnabled) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -49,8 +116,8 @@ struct SettingsView: View {
                         Text("Fair play rules are disabled. You can assign positions freely without warnings.")
                     }
                 }
-                
-                // App Information
+
+                // MARK: - About
                 Section("About") {
                     HStack {
                         Text("App Name")
@@ -58,14 +125,14 @@ struct SettingsView: View {
                         Text("Stack the Lineup")
                             .foregroundColor(.secondary)
                     }
-                    
+
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("1.0")
+                        Text("2.0")
                             .foregroundColor(.secondary)
                     }
-                    
+
                     Button {
                         if let url = URL(string: "mailto:support@stackthelineup.com") {
                             UIApplication.shared.open(url)
@@ -80,8 +147,8 @@ struct SettingsView: View {
                         }
                     }
                 }
-                
-                // Data Management
+
+                // MARK: - Data
                 Section {
                     Button(role: .destructive) {
                         showingResetConfirmation = true
@@ -107,6 +174,10 @@ struct SettingsView: View {
             .sheet(isPresented: $showingQuickTips) {
                 QuickTipsView()
             }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
+                    .environmentObject(purchaseManager)
+            }
             .confirmationDialog("Reset All Data?", isPresented: $showingResetConfirmation, titleVisibility: .visible) {
                 Button("Reset Everything", role: .destructive) {
                     resetAllData()
@@ -117,17 +188,12 @@ struct SettingsView: View {
             }
         }
     }
-    
+
     private func resetAllData() {
-        // Clear all app data
         store.clearAllPlayers()
-        store.teamName = ""
-        store.teamColor = .blue
-        
-        // Reset tutorial flag
+        store.updateTeamName("")
+        store.updateTeamColor(.blue)
         UserDefaults.standard.set(false, forKey: "hasCompletedTutorial")
-        
-        // Reset fair play rules
         complianceChecksEnabled = true
     }
 }
@@ -137,4 +203,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environmentObject(LineupStore())
+        .environmentObject(PurchaseManager())
 }

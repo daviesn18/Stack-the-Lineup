@@ -126,6 +126,7 @@ struct PositionSummaryView: View {
         let activePlayers = store.lineup.activePlayers(from: store.players)
         let noInfield = store.lineup.playersWithoutInfield(players: activePlayers)
         let noOutfield = store.lineup.playersWithoutOutfield(players: activePlayers)
+        let underMinimum = store.lineup.playersUnderFieldingMinimum(players: activePlayers)
         let hasAssignments = store.lineup.innings.contains(where: { !$0.assignments.isEmpty })
 
         // Consecutive bench warnings
@@ -136,7 +137,7 @@ struct PositionSummaryView: View {
             })
         }
 
-        if !noInfield.isEmpty || !noOutfield.isEmpty || !consecutiveBenchPlayers.isEmpty {
+        if !noInfield.isEmpty || !noOutfield.isEmpty || !consecutiveBenchPlayers.isEmpty || !underMinimum.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Fair Play Warnings", systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline.bold())
@@ -170,6 +171,17 @@ struct PositionSummaryView: View {
                             .font(.caption.bold())
                             .foregroundColor(.red)
                         Text(consecutiveBenchPlayers.map(\.displayName).joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if !underMinimum.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Under 4 Innings Fielded")
+                            .font(.caption.bold())
+                            .foregroundColor(.orange)
+                        Text(underMinimum.map(\.displayName).joined(separator: ", "))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -210,17 +222,17 @@ struct PositionSummaryView: View {
                 }
             }
 
-            // Bench
+            // Bench + Absent in one section so Absent is always visible without scrolling
             Section {
                 positionMenuButton(player: player, inning: inning, position: .bench, current: position)
+                positionMenuButton(player: player, inning: inning, position: .absent, current: position)
             }
 
             // Clear option
             if position != nil {
                 Section {
                     Button(role: .destructive) {
-                        store.lineup.innings[inning].removeAssignment(for: player)
-                        store.save()
+                        store.removeAssignment(player: player, inning: inning)
                     } label: {
                         Label("Remove", systemImage: "xmark.circle")
                     }
@@ -231,7 +243,7 @@ struct PositionSummaryView: View {
                 if let pos = position {
                     Text(pos.rawValue)
                         .font(.caption2.bold())
-                        .foregroundColor(.primary)
+                        .foregroundColor(pos.isAbsent ? Color(.systemGray) : .primary)
                 } else {
                     Text("—")
                         .font(.caption2)
@@ -242,6 +254,7 @@ struct PositionSummaryView: View {
                     .foregroundColor(.secondary)
             }
             .frame(width: inningWidth, height: 32)
+            .background(position?.isAbsent == true ? Color(.systemGray4).opacity(0.4) : Color.clear)
             .contentShape(Rectangle())
         }
     }
@@ -253,11 +266,7 @@ struct PositionSummaryView: View {
         let isCurrentPlayerPosition = current == position
 
         Button {
-            if !position.isBench, let existing = occupant, existing.id != player.id {
-                store.lineup.innings[inning].removeAssignment(for: existing)
-            }
-            store.lineup.innings[inning].assign(player: player, position: position)
-            store.save()
+            store.assignPosition(player: player, inning: inning, position: position)
         } label: {
             HStack {
                 if occupiedByOther, let other = occupant {
@@ -268,9 +277,10 @@ struct PositionSummaryView: View {
                 } else {
                     Text(position.displayName)
                 }
-            }
-            if isCurrentPlayerPosition {
-                Image(systemName: "checkmark")
+                Spacer()
+                if isCurrentPlayerPosition {
+                    Image(systemName: "checkmark")
+                }
             }
         }
     }

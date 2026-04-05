@@ -2,12 +2,15 @@ import SwiftUI
 
 struct LineupView: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     @AppStorage("complianceChecksEnabled") private var complianceChecksEnabled = true
     @State private var showingClearOptions = false
     @State private var showingSaveConfirmation = false
     @State private var generatedPDF: PDFDocument? = nil
     @Binding var showingArchive: Bool
     @State private var showingTips = false
+    @State private var showingPaywall = false
+    @State private var lockedPDF: PDFDocument? = nil
 
     // Ordered active players
     var orderedPlayers: [Player] {
@@ -30,13 +33,19 @@ struct LineupView: View {
             Form {
                 // Game Info
                 Section("Game Info") {
-                    DatePicker("Game Date", selection: $store.lineup.gameDate, displayedComponents: .date)
+                    DatePicker("Game Date", selection: Binding(
+                        get: { store.lineup.gameDate },
+                        set: { store.updateGameDate($0) }
+                    ), displayedComponents: .date)
                     HStack {
                         Text("Opponent")
                         Spacer()
-                        TextField("Opponent Name", text: $store.lineup.opponent)
-                            .multilineTextAlignment(.trailing)
-                            .autocorrectionDisabled()
+                        TextField("Opponent Name", text: Binding(
+                            get: { store.lineup.opponent },
+                            set: { store.updateOpponent($0) }
+                        ))
+                        .multilineTextAlignment(.trailing)
+                        .autocorrectionDisabled()
                     }
                 }
 
@@ -47,13 +56,13 @@ struct LineupView: View {
                         RosterRow(player: player, index: index + 1)
                     }
                     .onMove { from, to in
-                        store.lineup.battingOrder.move(fromOffsets: from, toOffset: to)
+                        store.moveBattingOrder(from: from, to: to)
                     }
 
                     // 2. Active players not yet in batting order
                     ForEach(unorderedPlayers) { player in
                         RosterRow(player: player, index: nil, onAdd: {
-                            store.lineup.battingOrder.append(player.id)
+                            store.addToBattingOrder(player: player)
                         })
                     }
 
@@ -91,18 +100,48 @@ struct LineupView: View {
                         Label("Save Lineup", systemImage: "icloud.and.arrow.up")
                     }
 
+                    // Free — Batting Order PDF
                     Button {
-                        let doc = PDFGenerator.generate(type: .battingOrder, lineup: store.lineup, players: store.players, teamName: store.teamName, teamColor: store.teamColor, showFairPlayRules: complianceChecksEnabled)
+                        let doc = PDFGenerator.generate(
+                            type: .battingOrder,
+                            lineup: store.lineup,
+                            players: store.players,
+                            teamName: store.teamName,
+                            teamColor: store.teamColor,
+                            showFairPlayRules: complianceChecksEnabled
+                        )
                         generatedPDF = doc
+                        Analytics.signal("pdf.exported", parameters: ["type": "battingOrder"])
                     } label: {
                         Label("Export Batting Order PDF", systemImage: "doc.text")
                     }
 
+                    // Pro — Coaches Guide PDF
+                    // Always generates the real PDF; free users see it blurred
+                    // in LockedPDFPreviewView as a preview to entice purchase.
                     Button {
-                        let doc = PDFGenerator.generate(type: .coachesGuide, lineup: store.lineup, players: store.players, teamName: store.teamName, teamColor: store.teamColor, showFairPlayRules: complianceChecksEnabled)
-                        generatedPDF = doc
+                        let doc = PDFGenerator.generate(
+                            type: .coachesGuide,
+                            lineup: store.lineup,
+                            players: store.players,
+                            teamName: store.teamName,
+                            teamColor: store.teamColor,
+                            showFairPlayRules: complianceChecksEnabled
+                        )
+                        if purchaseManager.isPro {
+                            generatedPDF = doc
+                            Analytics.signal("pdf.exported", parameters: ["type": "coachesGuide"])
+                        } else {
+                            lockedPDF = doc
+                        }
                     } label: {
-                        Label("Export Coaches Guide PDF", systemImage: "doc.richtext")
+                        HStack {
+                            Label("Export Coaches Guide PDF", systemImage: "doc.richtext")
+                            Spacer()
+                            if !purchaseManager.isPro {
+                                ProBadge()
+                            }
+                        }
                     }
 
                     Button(role: .destructive) {
@@ -145,8 +184,24 @@ struct LineupView: View {
             .sheet(item: $generatedPDF) { pdf in
                 PDFPreviewView(document: pdf)
             }
+            .sheet(item: $lockedPDF) { pdf in
+                LockedPDFPreviewView(document: pdf)
+                    .environmentObject(purchaseManager)
+            }
+            // When purchase completes inside LockedPDFPreviewView it dismisses
+            // itself and flips isPro — we re-present the real PDF immediately.
+            .onChange(of: purchaseManager.isPro) { _, isPro in
+                if isPro, let pdf = lockedPDF {
+                    lockedPDF = nil
+                    generatedPDF = pdf
+                }
+            }
             .sheet(isPresented: $showingTips) {
                 PageTipsView(page: .lineup)
+            }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
+                    .environmentObject(purchaseManager)
             }
         }
     }
@@ -159,8 +214,9 @@ struct LineupView: View {
             let activePlayers = store.lineup.activePlayers(from: store.players)
             let noInfield = store.lineup.playersWithoutInfield(players: activePlayers)
             let noOutfield = store.lineup.playersWithoutOutfield(players: activePlayers)
+            let underMinimum = store.lineup.playersUnderFieldingMinimum(players: activePlayers)
 
-            if !noInfield.isEmpty || !noOutfield.isEmpty {
+            if !noInfield.isEmpty || !noOutfield.isEmpty || !underMinimum.isEmpty {
                 Section(header: ComplianceRulesHeader(title: "Fair Play Warnings")) {
                     if !noInfield.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
@@ -180,6 +236,18 @@ struct LineupView: View {
                                 .font(.subheadline.bold())
                                 .foregroundColor(.orange)
                             ForEach(noOutfield) { player in
+                                Text("• \(player.displayName)")
+                                    .font(.callout)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    if !underMinimum.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Under 4 Innings Fielded", systemImage: "exclamationmark.triangle.fill")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.orange)
+                            ForEach(underMinimum) { player in
                                 Text("• \(player.displayName)")
                                     .font(.callout)
                                     .foregroundColor(.secondary)
@@ -245,10 +313,7 @@ struct RosterRow: View {
             // Availability toggle
             Toggle("", isOn: Binding(
                 get: { !store.lineup.isAbsent(player) },
-                set: { _ in
-                    store.lineup.toggleAbsent(player: player)
-                    store.save()
-                }
+                set: { _ in store.toggleAbsent(player: player) }
             ))
             .labelsHidden()
             .tint(.green)
@@ -284,7 +349,26 @@ Every player must play at least 1 inning in the infield (P, C, 1B, 2B, 3B, SS).
 Every player must play at least 1 inning in the outfield (LF, CF, RF).
 
 No player should sit the bench for 2 consecutive innings.
+
+Every player must field for at least 4 innings across the game. Players with any ABS innings are exempt from this rule.
+
+Assign ABS to innings when a player arrives late or leaves early — they still need 1 infield and 1 outfield inning among the innings they do play.
 """)
         }
+    }
+}
+
+// MARK: - Pro Badge
+// Small reusable label shown next to Pro-gated features.
+
+struct ProBadge: View {
+    var body: some View {
+        Text("PRO")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.blue)
+            .cornerRadius(5)
     }
 }

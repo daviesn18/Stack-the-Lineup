@@ -1,20 +1,29 @@
 import SwiftUI
 
 // MARK: - GameLogsView
-// The History tab. Shows AI insights card at the top, then the list of archived games.
+// The History tab. Pro-gated — free users see an upgrade prompt.
+// Pro users see AI insights card at the top, then the list of archived games.
 
 struct GameLogsView: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     @StateObject private var insightsService = GameLogInsightsService()
 
     @State private var logToDelete: GameLog? = nil
     @State private var showingDeleteConfirmation = false
     @State private var showingTips = false
+    @State private var showingPaywall = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if store.gameLogs.isEmpty {
+                if !purchaseManager.isPro {
+                    LockedHistoryView(
+                        teamColor: store.teamColor,
+                        showingPaywall: $showingPaywall
+                    )
+                    .environmentObject(purchaseManager)
+                } else if store.gameLogs.isEmpty {
                     emptyState
                 } else {
                     logList
@@ -33,12 +42,25 @@ struct GameLogsView: View {
             .sheet(isPresented: $showingTips) {
                 PageTipsView(page: .history)
             }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
+                    .environmentObject(purchaseManager)
+            }
         }
         .onAppear {
-            insightsService.loadIfNeeded(logs: store.gameLogs)
+            if purchaseManager.isPro {
+                insightsService.loadIfNeeded(logs: store.gameLogs)
+            }
         }
         .onChange(of: store.gameLogs.count) {
-            insightsService.loadIfNeeded(logs: store.gameLogs)
+            if purchaseManager.isPro {
+                insightsService.loadIfNeeded(logs: store.gameLogs)
+            }
+        }
+        .onChange(of: purchaseManager.isPro) { _, newValue in
+            if newValue {
+                insightsService.loadIfNeeded(logs: store.gameLogs)
+            }
         }
     }
 
@@ -76,7 +98,6 @@ struct GameLogsView: View {
                     }
                 }
                 .onDelete { offsets in
-                    // Map offsets to actual logs for confirmation
                     if let first = offsets.first {
                         logToDelete = store.gameLogs[first]
                         showingDeleteConfirmation = true
@@ -273,4 +294,5 @@ struct InsightsCardView: View {
 #Preview {
     GameLogsView()
         .environmentObject(LineupStore())
+        .environmentObject(PurchaseManager())
 }

@@ -6,7 +6,7 @@ import Foundation
 
 enum SeasonStatsCalculator {
 
-    static func compute(from logs: [GameLog]) -> SeasonStats {
+    nonisolated static func compute(from logs: [GameLog]) -> SeasonStats {
         guard !logs.isEmpty else {
             return SeasonStats(players: [], gameCount: 0, dateRange: "")
         }
@@ -90,7 +90,7 @@ enum SeasonStatsCalculator {
 
     // MARK: - Helpers
 
-    private static func dateRange(from logs: [GameLog]) -> String {
+    nonisolated private static func dateRange(from logs: [GameLog]) -> String {
         let dates = logs.map { $0.gameDate }
         guard let earliest = dates.min(), let latest = dates.max() else { return "" }
 

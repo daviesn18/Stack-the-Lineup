@@ -17,7 +17,7 @@ struct PDFDocument: Identifiable {
 
 // MARK: - Positions
 
-enum FieldPosition: String, CaseIterable, Codable {
+enum FieldPosition: String, CaseIterable, Codable, Sendable {
     case pitcher = "P"
     case catcher = "C"
     case firstBase = "1B"
@@ -28,8 +28,9 @@ enum FieldPosition: String, CaseIterable, Codable {
     case centerField = "CF"
     case rightField = "RF"
     case bench = "Bench"
+    case absent = "ABS"
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .pitcher: return "Pitcher"
         case .catcher: return "Catcher"
@@ -41,10 +42,11 @@ enum FieldPosition: String, CaseIterable, Codable {
         case .centerField: return "Center Field"
         case .rightField: return "Right Field"
         case .bench: return "Bench"
+        case .absent: return "Absent"
         }
     }
 
-    var isInfield: Bool {
+    nonisolated var isInfield: Bool {
         switch self {
         case .pitcher, .catcher, .firstBase, .secondBase, .thirdBase, .shortstop:
             return true
@@ -53,7 +55,7 @@ enum FieldPosition: String, CaseIterable, Codable {
         }
     }
 
-    var isOutfield: Bool {
+    nonisolated var isOutfield: Bool {
         switch self {
         case .leftField, .centerField, .rightField:
             return true
@@ -62,38 +64,44 @@ enum FieldPosition: String, CaseIterable, Codable {
         }
     }
 
-    var isBench: Bool { self == .bench }
+    nonisolated var isBench: Bool { self == .bench }
 
-    static var fieldPositions: [FieldPosition] {
-        allCases.filter { $0 != .bench }
+    /// True for the ABS position — player is present in lineup but not on field for this inning.
+    nonisolated var isAbsent: Bool { self == .absent }
+
+    /// True for any position that does not count as a fielding inning (bench or absent).
+    nonisolated var isNonFielding: Bool { self == .bench || self == .absent }
+
+    nonisolated static var fieldPositions: [FieldPosition] {
+        allCases.filter { $0 != .bench && $0 != .absent }
     }
 
-    static var infieldPositions: [FieldPosition] {
+    nonisolated static var infieldPositions: [FieldPosition] {
         allCases.filter { $0.isInfield }
     }
 
-    static var outfieldPositions: [FieldPosition] {
+    nonisolated static var outfieldPositions: [FieldPosition] {
         allCases.filter { $0.isOutfield }
     }
 }
 
 // MARK: - Player
 
-struct Player: Identifiable, Codable, Equatable {
+struct Player: Identifiable, Codable, Equatable, Sendable {
     var id: UUID = UUID()
     var firstName: String
     var lastName: String
     var number: String
 
-    var displayName: String { "\(firstName) \(lastName)" }
-    var displayNameWithNumber: String {
+    nonisolated var displayName: String { "\(firstName) \(lastName)" }
+    nonisolated var displayNameWithNumber: String {
         number.isEmpty ? displayName : "#\(number) \(firstName) \(lastName)"
     }
 }
 
 // MARK: - Inning Assignment
 
-struct InningAssignment: Codable {
+struct InningAssignment: Codable, Sendable {
     var assignments: [UUID: FieldPosition] = [:]
 
     mutating func assign(player: Player, position: FieldPosition) {
@@ -104,11 +112,11 @@ struct InningAssignment: Codable {
         assignments.removeValue(forKey: player.id)
     }
 
-    func position(for player: Player) -> FieldPosition? {
+    nonisolated func position(for player: Player) -> FieldPosition? {
         assignments[player.id]
     }
 
-    func player(at position: FieldPosition, in players: [Player]) -> Player? {
+    nonisolated func player(at position: FieldPosition, in players: [Player]) -> Player? {
         guard let pid = assignments.first(where: { $0.value == position })?.key else { return nil }
         return players.first(where: { $0.id == pid })
     }
@@ -116,7 +124,7 @@ struct InningAssignment: Codable {
 
 // MARK: - Lineup
 
-struct Lineup: Codable {
+struct Lineup: Codable, Sendable {
     var gameDate: Date = Date()
     var opponent: String = ""
     var battingOrder: [UUID] = []
@@ -135,29 +143,29 @@ struct Lineup: Codable {
         }
     }
 
-    func isAbsent(_ player: Player) -> Bool {
+    nonisolated func isAbsent(_ player: Player) -> Bool {
         absentPlayerIDs.contains(player.id)
     }
 
-    func activePlayers(from players: [Player]) -> [Player] {
+    nonisolated func activePlayers(from players: [Player]) -> [Player] {
         players.filter { !absentPlayerIDs.contains($0.id) }
     }
 
-    func playersWithoutInfield(players: [Player]) -> [Player] {
+    nonisolated func playersWithoutInfield(players: [Player]) -> [Player] {
         activePlayers(from: players).filter { player in
             !innings.contains(where: { $0.position(for: player)?.isInfield == true })
         }
     }
 
-    func playersWithoutOutfield(players: [Player]) -> [Player] {
+    nonisolated func playersWithoutOutfield(players: [Player]) -> [Player] {
         activePlayers(from: players).filter { player in
             !innings.contains(where: { $0.position(for: player)?.isOutfield == true })
         }
     }
 
-    func duplicatePositionErrors(inning: Int) -> [FieldPosition] {
+    nonisolated func duplicatePositionErrors(inning: Int) -> [FieldPosition] {
         let assignment = innings[inning]
-        let fieldAssignments = assignment.assignments.values.filter { !$0.isBench }
+        let fieldAssignments = assignment.assignments.values.filter { !$0.isBench && !$0.isAbsent }
         var seen = Set<FieldPosition>()
         var duplicates = Set<FieldPosition>()
         for pos in fieldAssignments {
@@ -167,21 +175,44 @@ struct Lineup: Codable {
         return Array(duplicates)
     }
 
-    func openPositions(inning: Int, players: [Player]) -> [FieldPosition] {
+    nonisolated func openPositions(inning: Int, players: [Player]) -> [FieldPosition] {
         let active = activePlayers(from: players)
         guard !active.isEmpty else { return [] }
         let assignment = innings[inning]
-        let filledPositions = Set(assignment.assignments.values)
+        // ABS counts as "filled" for that slot — it's intentional, not an open position
+        let filledPositions = Set(assignment.assignments.values.filter { !$0.isAbsent })
         return FieldPosition.fieldPositions.filter { !filledPositions.contains($0) }
     }
 
-    func hasConsecutiveBench(player: Player, assigningBenchToInning inningIndex: Int) -> Bool {
+    nonisolated func hasConsecutiveBench(player: Player, assigningBenchToInning inningIndex: Int) -> Bool {
         if inningIndex > 0 && innings[inningIndex - 1].position(for: player) == .bench { return true }
         if inningIndex < 6 && innings[inningIndex + 1].position(for: player) == .bench { return true }
         return false
     }
 
-    func orderedPlayers(from players: [Player]) -> [Player] {
+    /// Returns active (non-absent) players who have fewer than 4 fielding innings assigned
+    /// across all 7 innings. Only fires when all 7 innings are fully planned (i.e., every
+    /// active player has an assignment in every inning). Absent-position innings are exempt
+    /// from the minimum — they don't count for or against the player's fielding total.
+    /// Players who have any innings marked ABS are fully exempt from this rule.
+    nonisolated func playersUnderFieldingMinimum(players: [Player], minimumInnings: Int = 4) -> [Player] {
+        let active = activePlayers(from: players)
+        guard !active.isEmpty else { return [] }
+
+        return active.filter { player in
+            // Players with any ABS inning are exempt from the 4-inning minimum
+            let hasAbsentInning = innings.contains { $0.position(for: player)?.isAbsent == true }
+            if hasAbsentInning { return false }
+
+            let fieldingCount = innings.filter { inning in
+                guard let pos = inning.position(for: player) else { return false }
+                return !pos.isNonFielding
+            }.count
+            return fieldingCount < minimumInnings
+        }
+    }
+
+    nonisolated func orderedPlayers(from players: [Player]) -> [Player] {
         battingOrder
             .filter { !absentPlayerIDs.contains($0) }
             .compactMap { id in players.first(where: { $0.id == id }) }
@@ -192,13 +223,13 @@ struct Lineup: Codable {
 // Freezes player identity at archive time so historical logs remain accurate
 // even if a player is later renamed or deleted from the active roster.
 
-struct PlayerSnapshot: Identifiable, Codable, Equatable {
+struct PlayerSnapshot: Identifiable, Codable, Equatable, Sendable {
     var id: UUID
     var firstName: String
     var lastName: String
     var number: String
 
-    var displayName: String { "\(firstName) \(lastName)" }
+    nonisolated var displayName: String { "\(firstName) \(lastName)" }
 
     init(from player: Player) {
         self.id = player.id
@@ -211,7 +242,7 @@ struct PlayerSnapshot: Identifiable, Codable, Equatable {
 // MARK: - GameLog
 // A fully self-contained snapshot of a completed game.
 
-struct GameLog: Identifiable, Codable {
+struct GameLog: Identifiable, Codable, Sendable {
     var id: UUID = UUID()
     var gameDate: Date
     var opponent: String
@@ -221,11 +252,11 @@ struct GameLog: Identifiable, Codable {
     var playerSnapshot: [PlayerSnapshot]     // Roster frozen at archive time
     var archivedAt: Date = Date()
 
-    var playedInnings: [InningAssignment] {
+    nonisolated var playedInnings: [InningAssignment] {
         Array(innings.prefix(inningsPlayed))
     }
 
-    func snapshot(for id: UUID) -> PlayerSnapshot? {
+    nonisolated func snapshot(for id: UUID) -> PlayerSnapshot? {
         playerSnapshot.first { $0.id == id }
     }
 }
@@ -233,7 +264,7 @@ struct GameLog: Identifiable, Codable {
 // MARK: - Season Stats
 // Computed client-side before every AI call.
 
-struct PlayerSeasonStats: Codable {
+struct PlayerSeasonStats: Codable, Sendable {
     var playerID: UUID
     var playerName: String
     var posCounts: [String: Int]       // FieldPosition.rawValue → inning count
@@ -245,134 +276,113 @@ struct PlayerSeasonStats: Codable {
     var outfieldInnings: Int
 }
 
-struct SeasonStats: Codable {
+struct SeasonStats: Codable, Sendable {
     var players: [PlayerSeasonStats]
     var gameCount: Int
     var dateRange: String
 }
 
+// MARK: - Team
+
+struct Team: Identifiable, Codable {
+    var id: UUID = UUID()
+    var name: String = ""
+    var colorHex: String = "0000FF"
+    var players: [Player] = []
+    var lineup: Lineup = Lineup()
+    var gameLogs: [GameLog] = []
+    var createdAt: Date = Date()
+
+    var color: Color {
+        get { Color(hex: colorHex) ?? .blue }
+        set { colorHex = newValue.toHex() ?? "0000FF" }
+    }
+}
+
 // MARK: - Store
 
 class LineupStore: ObservableObject {
-    @Published var players: [Player] = []
-    @Published var lineup: Lineup = Lineup()
-    @Published var gameLogs: [GameLog] = []
-    @Published var teamName: String = "" {
-        didSet { saveTeamName() }
-    }
-    @Published var teamColor: Color = .blue {
-        didSet { saveTeamColor() }
+
+    // MARK: - Published State
+    @Published var teams: [Team] = []
+    @Published var activeTeamID: UUID?
+
+    // MARK: - Active Team Accessor
+    var activeTeam: Team {
+        get {
+            teams.first { $0.id == activeTeamID } ?? teams.first ?? Team()
+        }
+        set {
+            if let idx = teams.firstIndex(where: { $0.id == newValue.id }) {
+                teams[idx] = newValue
+            }
+        }
     }
 
-    private let playersKey    = "lineup_builder_players"
-    private let lineupKey     = "lineup_builder_lineup"
-    private let teamNameKey   = "lineup_builder_team_name"
-    private let teamColorKey  = "lineup_builder_team_color"
-    private let gameLogsKey   = "lineup_builder_game_logs"
+    // MARK: - Passthrough Vars
+    // These keep existing views working without changes for now.
+    var players: [Player]   { activeTeam.players }
+    var lineup: Lineup      { activeTeam.lineup }
+    var gameLogs: [GameLog] { activeTeam.gameLogs }
+    var teamName: String    { activeTeam.name }
+    var teamColor: Color    { activeTeam.color }
+
+    // MARK: - Constants
+    private let teamsKey      = "stl_teams"
+    private let activeTeamKey = "stl_active_team_id"
     private let maxGameLogs   = 20
 
-    // Static versions for use inside Task.detached closures
-    private static let staticPlayersKey  = "lineup_builder_players"
-    private static let staticLineupKey   = "lineup_builder_lineup"
-    private static let staticGameLogsKey = "lineup_builder_game_logs"
-
-    init() {
-        load()
-    }
+    // MARK: - Init
+    init() { load() }
 
     // MARK: - Persistence
 
     func save() {
-        // Capture values to encode — safe to do on main thread
-        let playersSnapshot = players
-        let lineupSnapshot = lineup
+        let snapshot = teams
+        let activeID = activeTeamID?.uuidString
 
         Task.detached(priority: .utility) {
             let encoder = JSONEncoder()
-
-            let playersData = try? encoder.encode(playersSnapshot)
-            let lineupData = try? encoder.encode(lineupSnapshot)
+            guard let data = try? encoder.encode(snapshot) else { return }
 
             await MainActor.run {
-                if let data = playersData {
-                    UserDefaults.standard.set(data, forKey: Self.staticPlayersKey)
+                UserDefaults.standard.set(data, forKey: "stl_teams")
+                if let id = activeID {
+                    UserDefaults.standard.set(id, forKey: "stl_active_team_id")
                 }
-                if let data = lineupData {
-                    UserDefaults.standard.set(data, forKey: Self.staticLineupKey)
-                }
-
-                let icloud = NSUbiquitousKeyValueStore.default
-                if let data = playersData { icloud.set(data, forKey: Self.staticPlayersKey) }
-                if let data = lineupData  { icloud.set(data, forKey: Self.staticLineupKey) }
-                icloud.synchronize()
-            }
-        }
-    }
-
-    private func saveGameLogs() {
-        let logsSnapshot = gameLogs
-
-        Task.detached(priority: .utility) {
-            let encoder = JSONEncoder()
-            guard let data = try? encoder.encode(logsSnapshot) else { return }
-
-            await MainActor.run {
-                UserDefaults.standard.set(data, forKey: Self.staticGameLogsKey)
 
                 let icloud = NSUbiquitousKeyValueStore.default
                 if data.count < 800_000 {
-                    icloud.set(data, forKey: Self.staticGameLogsKey)
+                    icloud.set(data, forKey: "stl_teams")
+                    if let id = activeID { icloud.set(id, forKey: "stl_active_team_id") }
                     icloud.synchronize()
                 } else {
-                    print("⚠️ GameLogs: encoded size \(data.count) bytes exceeds iCloud KV safety threshold. Storing locally only.")
+                    print("⚠️ Teams blob exceeds iCloud KV safety threshold. Storing locally only.")
                 }
             }
         }
     }
 
-    private func saveTeamName() {
-        UserDefaults.standard.set(teamName, forKey: teamNameKey)
-        NSUbiquitousKeyValueStore.default.set(teamName, forKey: teamNameKey)
-        NSUbiquitousKeyValueStore.default.synchronize()
-    }
-
-    private func saveTeamColor() {
-        let colorData = try? NSKeyedArchiver.archivedData(withRootObject: UIColor(teamColor), requiringSecureCoding: false)
-        UserDefaults.standard.set(colorData, forKey: teamColorKey)
-        if let data = colorData {
-            NSUbiquitousKeyValueStore.default.set(data, forKey: teamColorKey)
-        }
-        NSUbiquitousKeyValueStore.default.synchronize()
-    }
-
     func load() {
-        let decoder = JSONDecoder()
-
         NSUbiquitousKeyValueStore.default.synchronize()
         let icloud = NSUbiquitousKeyValueStore.default
+        let decoder = JSONDecoder()
 
-        let playersData = icloud.data(forKey: playersKey) ?? UserDefaults.standard.data(forKey: playersKey)
-        if let data = playersData, let decoded = try? decoder.decode([Player].self, from: data) {
-            players = decoded
+        let teamsData = icloud.data(forKey: teamsKey) ?? UserDefaults.standard.data(forKey: teamsKey)
+        if let data = teamsData, let decoded = try? decoder.decode([Team].self, from: data) {
+            teams = decoded
         }
 
-        let lineupData = icloud.data(forKey: lineupKey) ?? UserDefaults.standard.data(forKey: lineupKey)
-        if let data = lineupData, let decoded = try? decoder.decode(Lineup.self, from: data) {
-            lineup = decoded
+        let savedID = icloud.string(forKey: activeTeamKey)
+                      ?? UserDefaults.standard.string(forKey: activeTeamKey)
+        if let idString = savedID, let uuid = UUID(uuidString: idString) {
+            activeTeamID = uuid
         }
 
-        let logsData = icloud.data(forKey: gameLogsKey) ?? UserDefaults.standard.data(forKey: gameLogsKey)
-        if let data = logsData, let decoded = try? decoder.decode([GameLog].self, from: data) {
-            gameLogs = decoded
-        }
-
-        let savedTeamName = icloud.string(forKey: teamNameKey) ?? UserDefaults.standard.string(forKey: teamNameKey) ?? ""
-        teamName = savedTeamName
-
-        let colorData = icloud.data(forKey: teamColorKey) ?? UserDefaults.standard.data(forKey: teamColorKey)
-        if let data = colorData,
-           let uiColor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: UIColor.self, from: data) {
-            teamColor = Color(uiColor)
+        if teams.isEmpty {
+            migrateOrCreateDefaultTeam()
+        } else if activeTeamID == nil || !teams.contains(where: { $0.id == activeTeamID }) {
+            activeTeamID = teams.first?.id
         }
 
         NotificationCenter.default.addObserver(
@@ -387,87 +397,221 @@ class LineupStore: ObservableObject {
         DispatchQueue.main.async { self.load() }
     }
 
+    // MARK: - Migration
+
+    private func migrateOrCreateDefaultTeam() {
+        let decoder = JSONDecoder()
+        var migratedTeam = Team()
+
+        let oldPlayers = UserDefaults.standard.data(forKey: "lineup_builder_players")
+            .flatMap { try? decoder.decode([Player].self, from: $0) }
+        let oldLineup = UserDefaults.standard.data(forKey: "lineup_builder_lineup")
+            .flatMap { try? decoder.decode(Lineup.self, from: $0) }
+        let oldLogs = UserDefaults.standard.data(forKey: "lineup_builder_game_logs")
+            .flatMap { try? decoder.decode([GameLog].self, from: $0) }
+        let oldName = UserDefaults.standard.string(forKey: "lineup_builder_team_name") ?? ""
+        let oldColorData = UserDefaults.standard.data(forKey: "lineup_builder_team_color")
+        let oldColor = oldColorData
+            .flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: UIColor.self, from: $0) }
+            .map { Color($0) }
+
+        migratedTeam.players  = oldPlayers ?? []
+        migratedTeam.lineup   = oldLineup  ?? Lineup()
+        migratedTeam.gameLogs = oldLogs    ?? []
+        migratedTeam.name     = oldName
+        if let color = oldColor { migratedTeam.color = color }
+
+        teams = [migratedTeam]
+        activeTeamID = migratedTeam.id
+        save()
+
+        ["lineup_builder_players", "lineup_builder_lineup",
+         "lineup_builder_game_logs", "lineup_builder_team_name",
+         "lineup_builder_team_color"].forEach {
+            UserDefaults.standard.removeObject(forKey: $0)
+        }
+    }
+
     // MARK: - Game Log Operations
 
-    /// Archives the current lineup as a GameLog, then clears defensive positions
-    /// while preserving the batting order for the next game.
     func archiveCurrentLineup(inningsPlayed: Int) {
-        let snapshot = players.map { PlayerSnapshot(from: $0) }
+        let snapshot = activeTeam.players.map { PlayerSnapshot(from: $0) }
 
         let log = GameLog(
-            gameDate: lineup.gameDate,
-            opponent: lineup.opponent,
+            gameDate: activeTeam.lineup.gameDate,
+            opponent: activeTeam.lineup.opponent,
             inningsPlayed: max(1, min(7, inningsPlayed)),
-            battingOrder: lineup.battingOrder,
-            innings: lineup.innings,
+            battingOrder: activeTeam.lineup.battingOrder,
+            innings: activeTeam.lineup.innings,
             playerSnapshot: snapshot
         )
 
-        gameLogs.insert(log, at: 0)
-
-        // Enforce 20-game cap — oldest games are removed automatically
-        if gameLogs.count > maxGameLogs {
-            gameLogs = Array(gameLogs.prefix(maxGameLogs))
+        activeTeam.gameLogs.insert(log, at: 0)
+        if activeTeam.gameLogs.count > maxGameLogs {
+            activeTeam.gameLogs = Array(activeTeam.gameLogs.prefix(maxGameLogs))
         }
 
-        saveGameLogs()
-
-        // Clear positions only — batting order is preserved per PRD
         clearPositions()
+        save()
     }
 
     func deleteGameLog(id: UUID) {
-        gameLogs.removeAll { $0.id == id }
-        saveGameLogs()
+        activeTeam.gameLogs.removeAll { $0.id == id }
+        save()
     }
 
     // MARK: - Player Operations
 
     func addPlayer(_ player: Player) {
-        players.append(player)
+        activeTeam.players.append(player)
         save()
     }
 
     func updatePlayer(_ player: Player) {
-        if let index = players.firstIndex(where: { $0.id == player.id }) {
-            players[index] = player
+        if let idx = activeTeam.players.firstIndex(where: { $0.id == player.id }) {
+            activeTeam.players[idx] = player
             save()
         }
     }
 
     func deletePlayer(at offsets: IndexSet) {
-        let idsToRemove = offsets.map { players[$0].id }
-        players.remove(atOffsets: offsets)
-        lineup.battingOrder.removeAll { idsToRemove.contains($0) }
-        for i in 0..<lineup.innings.count {
+        let idsToRemove = offsets.map { activeTeam.players[$0].id }
+        activeTeam.players.remove(atOffsets: offsets)
+        activeTeam.lineup.battingOrder.removeAll { idsToRemove.contains($0) }
+        for i in 0..<activeTeam.lineup.innings.count {
             for id in idsToRemove {
-                lineup.innings[i].assignments.removeValue(forKey: id)
+                activeTeam.lineup.innings[i].assignments.removeValue(forKey: id)
             }
         }
         save()
     }
 
-    // MARK: - Lineup Clear Options
+    // MARK: - Lineup Operations
+
+    func assignPosition(player: Player, inning: Int, position: FieldPosition) {
+        if !position.isBench,
+           let occupant = activeTeam.lineup.innings[inning].player(at: position, in: activeTeam.players),
+           occupant.id != player.id {
+            activeTeam.lineup.innings[inning].removeAssignment(for: occupant)
+        }
+        activeTeam.lineup.innings[inning].assign(player: player, position: position)
+        save()
+    }
+
+    func removeAssignment(player: Player, inning: Int) {
+        activeTeam.lineup.innings[inning].removeAssignment(for: player)
+        save()
+    }
 
     func clearPositions() {
-        lineup.innings = Array(repeating: InningAssignment(), count: 7)
+        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: 7)
         save()
     }
 
     func clearBattingOrder() {
-        lineup.battingOrder = []
+        activeTeam.lineup.battingOrder = []
         save()
     }
 
     func clearAll() {
-        lineup.innings = Array(repeating: InningAssignment(), count: 7)
-        lineup.battingOrder = []
+        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: 7)
+        activeTeam.lineup.battingOrder = []
         save()
     }
 
     func clearAllPlayers() {
-        players = []
-        lineup = Lineup()
+        activeTeam.players = []
+        activeTeam.lineup = Lineup()
         save()
+    }
+
+    // MARK: - Lineup Field Helpers (called from LineupView)
+
+    func updateGameDate(_ date: Date) {
+        activeTeam.lineup.gameDate = date
+        save()
+    }
+
+    func updateOpponent(_ opponent: String) {
+        activeTeam.lineup.opponent = opponent
+        save()
+    }
+
+    func moveBattingOrder(from: IndexSet, to: Int) {
+        activeTeam.lineup.battingOrder.move(fromOffsets: from, toOffset: to)
+        save()
+    }
+
+    func addToBattingOrder(player: Player) {
+        activeTeam.lineup.battingOrder.append(player.id)
+        save()
+    }
+
+    func toggleAbsent(player: Player) {
+        activeTeam.lineup.toggleAbsent(player: player)
+        save()
+    }
+
+    // MARK: - Team Name / Color (called from PlayersView)
+
+    func updateTeamName(_ name: String) {
+        activeTeam.name = name
+        save()
+    }
+
+    func updateTeamColor(_ color: Color) {
+        activeTeam.color = color
+        save()
+    }
+
+    // MARK: - Team Management
+
+    func addTeam(name: String, color: Color = .blue) {
+        var newTeam = Team()
+        newTeam.name = name
+        newTeam.color = color
+        teams.append(newTeam)
+        activeTeamID = newTeam.id
+        Analytics.signal("team.created", parameters: ["teamCount": "\(teams.count)"])
+        save()
+    }
+
+    func deleteTeam(id: UUID) {
+        guard teams.count > 1 else { return }
+        teams.removeAll { $0.id == id }
+        if activeTeamID == id {
+            activeTeamID = teams.first?.id
+        }
+        Analytics.signal("team.deleted", parameters: ["remainingTeams": "\(teams.count)"])
+        save()
+    }
+
+    func switchTeam(to id: UUID) {
+        guard teams.contains(where: { $0.id == id }) else { return }
+        activeTeamID = id
+        Analytics.signal("team.switched", parameters: ["teamCount": "\(teams.count)"])
+        save()
+    }
+}
+
+// MARK: - Color Hex Helpers
+
+extension Color {
+    init?(hex: String) {
+        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        hexSanitized = hexSanitized.hasPrefix("#") ? String(hexSanitized.dropFirst()) : hexSanitized
+        guard hexSanitized.count == 6, let intVal = UInt64(hexSanitized, radix: 16) else { return nil }
+        let r = Double((intVal & 0xFF0000) >> 16) / 255.0
+        let g = Double((intVal & 0x00FF00) >> 8) / 255.0
+        let b = Double(intVal & 0x0000FF) / 255.0
+        self.init(red: r, green: g, blue: b)
+    }
+
+    func toHex() -> String? {
+        guard let components = UIColor(self).cgColor.components, components.count >= 3 else { return nil }
+        let r = Int(components[0] * 255)
+        let g = Int(components[1] * 255)
+        let b = Int(components[2] * 255)
+        return String(format: "%02X%02X%02X", r, g, b)
     }
 }

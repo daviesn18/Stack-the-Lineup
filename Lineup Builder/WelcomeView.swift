@@ -32,7 +32,7 @@ struct WelcomeView: View {
             icon: "exclamationmark.triangle.fill",
             iconColor: .red,
             title: "Fair Play Warnings",
-            description: "The app tracks three rules: every player must have at least one infield inning, one outfield inning, and no player should sit the bench two innings in a row. Warnings appear automatically.",
+            description: "The app enforces four rules: every player gets at least 1 infield inning, 1 outfield inning, no back-to-back bench innings, and a minimum of 4 innings fielded per game. Players marked ABS (late arrival/early departure) are exempt from the 4-inning minimum but still need 1 infield and 1 outfield.",
             systemImage: "shield.checkered"
         ),
         TutorialPage(
@@ -217,7 +217,9 @@ enum AppPage {
                 PageTip(icon: "arrow.up.arrow.down", iconColor: .blue,
                         text: "Tap Edit, then drag the handle on the right to reorder players in the batting lineup."),
                 PageTip(icon: "person.slash", iconColor: .orange,
-                        text: "Toggle the switch next to any player to mark them absent. Absent players are removed from the order and all position assignments."),
+                        text: "Toggle the switch next to any player to mark them fully absent. Absent players are removed from the order and all position assignments."),
+                PageTip(icon: "clock", iconColor: .purple,
+                        text: "For late arrivals or early departures, keep the player in the lineup and assign ABS to their missed innings in the Positions tab. They still need 1 infield and 1 outfield inning among the innings they play."),
                 PageTip(icon: "archivebox", iconColor: .teal,
                         text: "Tap the Archive button after each game to save it to your History. Defensive positions are cleared but your batting order is kept."),
                 PageTip(icon: "doc.richtext", iconColor: .purple,
@@ -232,8 +234,10 @@ enum AppPage {
                         text: "Tap Summary in the toolbar to see all players and innings in one grid. Tap any cell to assign a position from a dropdown menu."),
                 PageTip(icon: "strikethrough", iconColor: Color(.secondaryLabel),
                         text: "In the Summary dropdown, your already-assigned position appears with a strikethrough so you can see it at a glance."),
+                PageTip(icon: "clock", iconColor: .purple,
+                        text: "Assign ABS to any inning for a player who arrives late or leaves early. ABS innings count as filled and won't trigger open-position warnings, but the player still needs 1 infield and 1 outfield inning among the innings they do play."),
                 PageTip(icon: "exclamationmark.triangle.fill", iconColor: .orange,
-                        text: "Tap the warnings icon to see a full list of issues — open positions, duplicates, and back-to-back bench warnings."),
+                        text: "Tap the warnings icon to see a full list of issues — open positions, duplicates, back-to-back bench, and under-4-innings fielded warnings."),
                 PageTip(icon: "archivebox", iconColor: .teal,
                         text: "Tap the Archive button when the game is over to save the defensive grid to History.")
             ]
@@ -339,7 +343,8 @@ struct QuickTipsView: View {
                 Section("Lineup Tab") {
                     Label("Tap + next to a player to add them to the batting order", systemImage: "plus.circle")
                     Label("Tap Edit, then drag to reorder the batting lineup", systemImage: "arrow.up.arrow.down")
-                    Label("Toggle the switch to mark a player absent for the game", systemImage: "person.slash")
+                    Label("Toggle the switch to mark a player fully absent for the game", systemImage: "person.slash")
+                    Label("For late arrivals or early departures, keep them in the lineup and assign ABS to their missed innings on the Positions tab", systemImage: "clock")
                     Label("Tap Archive to save the game and start fresh", systemImage: "archivebox")
                     Label("Export Batting Order or Coaches Guide as a PDF", systemImage: "doc.richtext")
                 }
@@ -348,6 +353,7 @@ struct QuickTipsView: View {
                     Label("Tap an inning at the top, then tap a player to assign their position", systemImage: "hand.tap.fill")
                     Label("Tap Summary to edit all innings in a single grid", systemImage: "tablecells")
                     Label("In the Summary grid, your current position shows with a strikethrough", systemImage: "strikethrough")
+                    Label("Assign ABS to innings a player misses due to late arrival or early departure", systemImage: "clock")
                     Label("Tap the warnings icon to review all issues for the current inning and game", systemImage: "exclamationmark.triangle.fill")
                     Label("Archive the game from this tab when finished", systemImage: "archivebox")
                 }
@@ -375,6 +381,16 @@ struct QuickTipsView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "3.circle.fill").foregroundColor(.orange)
                             Text("No player should sit the bench for 2 consecutive innings")
+                                .font(.callout)
+                        }
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "4.circle.fill").foregroundColor(.purple)
+                            Text("Every player must field for at least 4 innings (checked once all innings are planned)")
+                                .font(.callout)
+                        }
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "clock.fill").foregroundColor(Color(.systemGray))
+                            Text("Players with ABS innings (late arrival/early departure) are exempt from the 4-inning minimum, but still need 1 infield and 1 outfield inning")
                                 .font(.callout)
                         }
                     }

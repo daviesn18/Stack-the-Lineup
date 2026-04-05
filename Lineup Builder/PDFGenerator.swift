@@ -130,26 +130,14 @@ class PDFGenerator {
             drawText(orderNum, x: margin + 4, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .darkGray)
             drawText(player.displayName, x: margin + 22, y: y + 7, font: .systemFont(ofSize: 10), color: .black)
 
-            // Infield/Outfield compliance indicators
-            let hasInfield = lineup.innings.contains(where: { $0.position(for: player)?.isInfield == true })
-            let hasOutfield = lineup.innings.contains(where: { $0.position(for: player)?.isOutfield == true })
-
-            var indicatorX = gridLeft - 30
-            if !hasInfield {
-                drawText("I", x: indicatorX, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .systemOrange)
-            }
-            indicatorX += 12
-            if !hasOutfield {
-                drawText("O", x: indicatorX, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .systemOrange)
-            }
-
             // Position cells
             for inning in 0..<7 {
                 let cellX = gridLeft + CGFloat(inning) * colWidth
                 let cellRect = CGRect(x: cellX + 1, y: y + 2, width: colWidth - 3, height: rowHeight - 4)
 
                 if let pos = lineup.innings[inning].position(for: player) {
-                    drawCenteredText(pos.rawValue, in: cellRect, font: .boldSystemFont(ofSize: 10), color: .black)
+                    let cellColor: UIColor = pos.isAbsent ? .systemGray : .black
+                    drawCenteredText(pos.rawValue, in: cellRect, font: .boldSystemFont(ofSize: 10), color: cellColor)
                 } else {
                     drawCenteredText("—", in: cellRect, font: .systemFont(ofSize: 10), color: .lightGray)
                 }
@@ -162,33 +150,6 @@ class PDFGenerator {
                 drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
                 ctx.beginPage()
                 y = margin
-            }
-        }
-
-        // Fair Play Rules summary (only if enabled)
-        if showFairPlayRules {
-            y += 16
-            drawText("Fair Play Check", x: margin, y: y, font: .boldSystemFont(ofSize: 11), color: .black)
-            y += 18
-
-            let noInfield = lineup.playersWithoutInfield(players: allPlayers)
-            let noOutfield = lineup.playersWithoutOutfield(players: allPlayers)
-
-            if noInfield.isEmpty && noOutfield.isEmpty {
-                drawText("✓ All players meet infield and outfield requirements.", x: margin, y: y,
-                         font: .systemFont(ofSize: 10), color: .systemGreen)
-                y += 16
-            } else {
-                if !noInfield.isEmpty {
-                    drawText("⚠ Missing infield inning: \(noInfield.map { $0.displayName }.joined(separator: ", "))",
-                             x: margin, y: y, font: .systemFont(ofSize: 10), color: .systemOrange)
-                    y += 16
-                }
-                if !noOutfield.isEmpty {
-                    drawText("⚠ Missing outfield inning: \(noOutfield.map { $0.displayName }.joined(separator: ", "))",
-                             x: margin, y: y, font: .systemFont(ofSize: 10), color: .systemOrange)
-                    y += 16
-                }
             }
         }
 

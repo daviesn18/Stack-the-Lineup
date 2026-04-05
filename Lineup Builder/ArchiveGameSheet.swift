@@ -79,6 +79,10 @@ struct ArchiveGameSheet: View {
                         archivedOpponent = opponentDisplay
                         store.archiveCurrentLineup(inningsPlayed: inningsPlayed)
                         onArchived?()
+                        Analytics.signal("game.archived", parameters: [
+                            "inningsPlayed": "\(inningsPlayed)",
+                            "playerCount": "\(activePlayers.count)"
+                        ])
                         showingConfirmation = true
                     } label: {
                         HStack {
