@@ -11,6 +11,8 @@ struct SettingsView: View {
     @State private var showingQuickTips = false
     @State private var showingResetConfirmation = false
     @State private var showingPaywall = false
+    @State private var showingSeedConfirmation = false
+    @State private var showingSeedDoneAlert = false
 
     var body: some View {
         NavigationStack {
@@ -126,11 +128,16 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
+                    // Long-press for 1.5s to trigger debug data seeder
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("2.0")
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
                             .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 1.5) {
+                        showingSeedConfirmation = true
                     }
 
                     Button {
@@ -175,7 +182,7 @@ struct SettingsView: View {
                 QuickTipsView()
             }
             .sheet(isPresented: $showingPaywall) {
-                PaywallView()
+                PaywallView(source: "settings")
                     .environmentObject(purchaseManager)
             }
             .confirmationDialog("Reset All Data?", isPresented: $showingResetConfirmation, titleVisibility: .visible) {
@@ -185,6 +192,20 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This will permanently delete all players, lineups, team name, and settings. This cannot be undone.")
+            }
+            .confirmationDialog("Seed Sample History?", isPresented: $showingSeedConfirmation, titleVisibility: .visible) {
+                Button("Create Test Team") {
+                    DebugDataSeeder.seed(into: store)
+                    showingSeedDoneAlert = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Creates a separate \"Test Team\" with 10 fake players and 5 archived games. Your real teams are not affected.")
+            }
+            .alert("Test Team Created", isPresented: $showingSeedDoneAlert) {
+                Button("OK") {}
+            } message: {
+                Text("Switch to \"Test Team\" from the Players tab to review the History tab. Delete the team when you're done.")
             }
         }
     }

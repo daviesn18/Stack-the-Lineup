@@ -20,6 +20,7 @@ class PurchaseManager: ObservableObject {
     @Published var proProduct: Product? = nil
     @Published var purchaseError: String? = nil
     @Published var isLoading: Bool = false
+    var lastPaywallSource: String = "unknown"
 
     // MARK: - New-install stamp
     // Called once from LineupBuilderApp when the freemium binary launches.
@@ -81,7 +82,7 @@ class PurchaseManager: ObservableObject {
             case .success(let verification):
                 if case .verified(_) = verification {
                     isPro = true
-                    Analytics.signal("paywall.converted")
+                    Analytics.signal("paywall.converted", parameters: ["source": lastPaywallSource])
                 } else {
                     purchaseError = "Purchase could not be verified. Please contact support."
                 }

@@ -3,16 +3,17 @@ import StoreKit
 
 // MARK: - LockedHistoryView
 // Shown in GameLogsView when the user hasn't purchased Pro.
-// Renders realistic-looking fake game rows and a blurred insights card
-// so the user can see exactly what they're missing, with a paywall
-// card overlaid via ZStack.
+// When archivedCount == 0: shows fake ghost rows to tease what Pro unlocks.
+// When archivedCount > 0: replaces fake rows with a real count badge so coaches
+// know their actual data is waiting — stronger conversion signal than generic copy.
 
 struct LockedHistoryView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     let teamColor: Color
     @Binding var showingPaywall: Bool
+    let archivedCount: Int
 
-    // Fake game data — realistic enough to be enticing
+    // Fake game data — only shown when archivedCount == 0
     private let fakeGames: [(date: String, opponent: String, innings: Int)] = [
         ("Mon, Apr 7",  "Tigers",     6),
         ("Sat, Apr 12", "Blue Jays",  6),
@@ -25,7 +26,7 @@ struct LockedHistoryView: View {
             .blur(radius: 1)
             .allowsHitTesting(false)
             .overlay(alignment: .bottom) {
-                // Fade gradient so ghost content dissolves into the card
+                // Fade gradient so ghost content dissolves into the paywall card
                 LinearGradient(
                     colors: [.clear, Color(.systemGroupedBackground).opacity(0.6), Color(.systemGroupedBackground)],
                     startPoint: .top,
@@ -35,7 +36,6 @@ struct LockedHistoryView: View {
                 .allowsHitTesting(false)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                // Paywall card pinned above the tab bar via safeAreaInset
                 paywallCard
             }
     }
@@ -52,10 +52,30 @@ struct LockedHistoryView: View {
                     .listRowSeparator(.hidden)
             }
 
-            // Fake game rows
-            Section(header: Text("4 Games")) {
-                ForEach(fakeGames, id: \.date) { game in
-                    FakeGameLogRow(date: game.date, opponent: game.opponent, innings: game.innings)
+            if archivedCount > 0 {
+                // Real count badge — replaces fake rows when actual games exist
+                Section(header: Text("\(archivedCount) \(archivedCount == 1 ? "Game" : "Games") Archived")) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "archivebox.fill")
+                            .font(.title2)
+                            .foregroundColor(.teal)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(archivedCount) archived \(archivedCount == 1 ? "game" : "games") waiting")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.primary.opacity(0.4))
+                            Text("Upgrade to Pro to view your season history.")
+                                .font(.caption)
+                                .foregroundColor(.secondary.opacity(0.6))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            } else {
+                // Fake game rows — shown only when no real data exists yet
+                Section(header: Text("4 Games")) {
+                    ForEach(fakeGames, id: \.date) { game in
+                        FakeGameLogRow(date: game.date, opponent: game.opponent, innings: game.innings)
+                    }
                 }
             }
         }
@@ -109,11 +129,20 @@ struct LockedHistoryView: View {
                     .font(.title3.bold())
                     .multilineTextAlignment(.center)
 
-                Text("Archive games, track your season, and get AI coaching insights.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
+                // Copy adapts based on whether the coach has real archived data
+                if archivedCount > 0 {
+                    Text("You have \(archivedCount) archived \(archivedCount == 1 ? "game" : "games") waiting. Upgrade to Pro to view your season history and get AI Coaching Insights.")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                } else {
+                    Text("Archive games, track your season, and get AI coaching insights.")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                }
             }
 
             Button {

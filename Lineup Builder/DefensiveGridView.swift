@@ -1,73 +1,258 @@
 import SwiftUI
+import StoreKit
 
 struct DefensiveGridView: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
+    @Environment(\.verticalSizeClass) var verticalSizeClass
     @State private var selectedInning: Int = 0
     @State private var selectedPlayer: Player? = nil
     @State private var showingWarnings = false
     @State private var showingSummary = false
     @Binding var showingArchive: Bool
+    @Binding var selectedTab: Int          // passed in from ContentView to navigate to Players tab
     @State private var showingTips = false
+    @State private var showingPaywall = false
+
+    // Auto-Fill state
+    @State private var showingAutoFillPopover = false
+    @State private var undoSnapshot: [InningAssignment]? = nil
+    @State private var undoMessage: String = ""
+    @State private var showingUndo = false
+
+    // Clear positions state
+    @State private var showingClearPopover = false     // inning view: anchored popover
+    @State private var showingClearAllConfirm = false  // confirm alert for clearing all innings
+
+    // One-time Auto-Fill context tip — shown the first time a Pro user opens
+    // the Positions tab with at least one player in the roster.
+    @AppStorage("hasSeenAutoFillTip") private var hasSeenAutoFillTip = false
+    @State private var showingAutoFillTip = false
+
+    enum FillScope {
+        case thisInning
+        case through(Int)
+    }
+
+    var smartDefaultLastInning: Int {
+        let lastFilled = (0..<7).reversed().first {
+            !store.lineup.innings[$0].assignments.isEmpty
+        }
+        return lastFilled ?? 5
+    }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if showingSummary {
-                    PositionSummaryView()
-                } else {
-                    // Inning Selector
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(0..<7, id: \.self) { inning in
-                                Button {
-                                    selectedInning = inning
-                                } label: {
-                                    VStack(spacing: 2) {
-                                        Text("Inn \(inning + 1)")
-                                            .font(.callout.bold())
-                                        inningStatusDot(inning: inning)
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    if showingSummary {
+                        LineupStatusStrip(
+                            status: store.lineup.status,
+                            onFinalize: { store.finalizeLineup() },
+                            onReopen: { store.reopenLineup() }
+                        )
+
+                        PositionSummaryView(
+                            onAutoFill: {
+                                if purchaseManager.isPro {
+                                    showingAutoFillPopover = true
+                                } else {
+                                    showingPaywall = true
+                                }
+                            },
+                            showingAutoFillPopover: $showingAutoFillPopover,
+                            onFillThrough: { lastInning in
+                                showingAutoFillPopover = false
+                                runAutoFill(scope: .through(lastInning))
+                            },
+                            smartDefaultLastInning: smartDefaultLastInning
+                        )
+
+                        // Summary view — clear all only, straight to confirm alert
+                        clearPositionsButton(isSummary: true)
+
+                    } else {
+                        if verticalSizeClass == .compact {
+                            // ── Landscape layout ──────────────────────────────
+                            LineupStatusStrip(
+                                status: store.lineup.status,
+                                onFinalize: { store.finalizeLineup() },
+                                onReopen: { store.reopenLineup() }
+                            )
+
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("Inning \(selectedInning + 1)")
+                                    .font(.title2.bold())
+                                boltButton
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 6)
+                            .padding(.bottom, 4)
+
+                            HStack(spacing: 0) {
+                                ScrollView(.vertical, showsIndicators: false) {
+                                    VStack(spacing: 6) {
+                                        ForEach(0..<7, id: \.self) { inning in
+                                            Button {
+                                                selectedInning = inning
+                                                showingUndo = false
+                                            } label: {
+                                                VStack(spacing: 2) {
+                                                    Text("\(inning + 1)")
+                                                        .font(.caption.bold())
+                                                    inningStatusDot(inning: inning)
+                                                }
+                                                .frame(width: 44)
+                                                .padding(.vertical, 8)
+                                                .background(selectedInning == inning ? Color.blue : Color(.systemGray5))
+                                                .foregroundColor(selectedInning == inning ? .white : .primary)
+                                                .cornerRadius(10)
+                                            }
+                                        }
                                     }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(selectedInning == inning ? Color.blue : Color(.systemGray5))
-                                    .foregroundColor(selectedInning == inning ? .white : .primary)
-                                    .cornerRadius(10)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                }
+                                .frame(width: 60)
+
+                                Divider()
+
+                                if store.players.isEmpty {
+                                    ContentUnavailableView(
+                                        "No Players",
+                                        systemImage: "person.badge.plus",
+                                        description: Text("Add players on the Players tab first.")
+                                    )
+                                } else {
+                                    VStack(spacing: 0) {
+                                        List {
+                                            ForEach(displayPlayers) { player in
+                                                PlayerInningRow(
+                                                    player: player,
+                                                    inning: selectedInning,
+                                                    onTap: {
+                                                        selectedPlayer = player
+                                                        showingUndo = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                        .listStyle(.plain)
+
+                                        // Inning view — popover with two scope options
+                                        clearPositionsButton(isSummary: false)
+                                    }
                                 }
                             }
-                        }
-                        .padding()
-                    }
 
-                    Divider()
+                        } else {
+                            // ── Portrait layout ───────────────────────────────
+                            LineupStatusStrip(
+                                status: store.lineup.status,
+                                onFinalize: { store.finalizeLineup() },
+                                onReopen: { store.reopenLineup() }
+                            )
 
-                    if store.players.isEmpty {
-                        ContentUnavailableView(
-                            "No Players",
-                            systemImage: "person.badge.plus",
-                            description: Text("Add players on the Players tab first.")
-                        )
-                    } else {
-                        List {
-                            ForEach(displayPlayers) { player in
-                                PlayerInningRow(
-                                    player: player,
-                                    inning: selectedInning,
-                                    onTap: {
-                                        selectedPlayer = player
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("Inning \(selectedInning + 1) Positions")
+                                    .font(.largeTitle.bold())
+                                boltButton
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(0..<7, id: \.self) { inning in
+                                        Button {
+                                            selectedInning = inning
+                                            showingUndo = false
+                                        } label: {
+                                            VStack(spacing: 2) {
+                                                Text("Inn \(inning + 1)")
+                                                    .font(.callout.bold())
+                                                inningStatusDot(inning: inning)
+                                            }
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 8)
+                                            .background(selectedInning == inning ? Color.blue : Color(.systemGray5))
+                                            .foregroundColor(selectedInning == inning ? .white : .primary)
+                                            .cornerRadius(10)
+                                        }
                                     }
+                                }
+                                .padding()
+                            }
+
+                            Divider()
+
+                            if store.players.isEmpty {
+                                ContentUnavailableView(
+                                    "No Players",
+                                    systemImage: "person.badge.plus",
+                                    description: Text("Add players on the Players tab first.")
                                 )
+                            } else {
+                                List {
+                                    ForEach(displayPlayers) { player in
+                                        PlayerInningRow(
+                                            player: player,
+                                            inning: selectedInning,
+                                            onTap: {
+                                                selectedPlayer = player
+                                                showingUndo = false
+                                            }
+                                        )
+                                    }
+                                }
+                                .listStyle(.plain)
+
+                                // Inning view — popover with two scope options
+                                clearPositionsButton(isSummary: false)
                             }
                         }
-                        .listStyle(.plain)
                     }
                 }
+
+                // Undo banner
+                if showingUndo {
+                    HStack {
+                        Text(undoMessage)
+                            .font(.subheadline)
+                            .foregroundColor(.white)
+                        Spacer()
+                        Button("Undo") {
+                            if let snapshot = undoSnapshot {
+                                store.activeTeam.lineup.innings = snapshot
+                                store.save()
+                            }
+                            withAnimation { showingUndo = false }
+                            undoSnapshot = nil
+                        }
+                        .font(.subheadline.bold())
+                        .foregroundColor(.yellow)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color(.systemGray2).opacity(0.95))
+                    .cornerRadius(12)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
-            .navigationTitle(showingSummary ? "Position Summary" : "Inning \(selectedInning + 1) Positions")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         withAnimation {
                             showingSummary.toggle()
+                            showingUndo = false
+                            showingAutoFillPopover = false
                         }
                     } label: {
                         Label(
@@ -105,7 +290,164 @@ struct DefensiveGridView: View {
             .sheet(isPresented: $showingTips) {
                 PageTipsView(page: .positions)
             }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView(source: "autofill")
+                    .environmentObject(purchaseManager)
+            }
+            // Confirmation alert for clearing all innings — used by both
+            // the summary view path and the "Clear all innings" branch in the popover
+            .alert("Clear all positions?", isPresented: $showingClearAllConfirm) {
+                Button("Clear", role: .destructive) {
+                    store.clearPositions()
+                    withAnimation { showingUndo = false }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("All inning assignments will be removed. This can't be undone.")
+            }
+            .onAppear {
+                // Show the Auto-Fill context tip once — only to Pro users who
+                // have at least one player, and haven't seen it before.
+                if purchaseManager.isPro && !hasSeenAutoFillTip && !store.players.isEmpty {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            showingAutoFillTip = true
+                            hasSeenAutoFillTip = true
+                        }
+                    }
+                }
+            }
+            // Auto-Fill context tip — floats above content, dismisses itself
+            .overlay(alignment: .top) {
+                if showingAutoFillTip {
+                    AutoFillContextTip(isPresented: $showingAutoFillTip) {
+                        // Navigate to Players tab (tag 0)
+                        selectedTab = 0
+                    }
+                    .padding(.top, 8)
+                    .zIndex(10)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .animation(.easeOut(duration: 0.25), value: showingAutoFillTip)
+                }
+            }
         }
+    }
+
+    // MARK: - Clear Positions Button
+
+    @ViewBuilder
+    func clearPositionsButton(isSummary: Bool) -> some View {
+        let hasAnyAssignments = store.lineup.innings.contains { !$0.assignments.isEmpty }
+        if hasAnyAssignments {
+            HStack {
+                Spacer()
+                Button {
+                    if isSummary {
+                        showingClearAllConfirm = true
+                    } else {
+                        showingClearPopover = true
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "xmark.circle")
+                            .font(.caption.bold())
+                        Text("Clear positions")
+                            .font(.caption.bold())
+                    }
+                    .foregroundColor(Color(red: 0.89, green: 0.29, blue: 0.29))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .background(Color(red: 0.99, green: 0.92, blue: 0.92))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color(red: 0.94, green: 0.58, blue: 0.58), lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                // Popover anchors to the button — only shown for inning view
+                .popover(isPresented: $showingClearPopover, arrowEdge: .bottom) {
+                    VStack(spacing: 0) {
+                        Button(role: .destructive) {
+                            showingClearPopover = false
+                            store.activeTeam.lineup.innings[selectedInning] = InningAssignment()
+                            store.save()
+                            withAnimation { showingUndo = false }
+                        } label: {
+                            Text("Clear Inning \(selectedInning + 1) only")
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 14)
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            showingClearPopover = false
+                            showingClearAllConfirm = true
+                        } label: {
+                            Text("Clear all innings")
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 14)
+                        }
+                    }
+                    .frame(minWidth: 220)
+                    .presentationCompactAdaptation(.popover)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 10)
+            .background(Color(.systemBackground))
+            .overlay(
+                Rectangle()
+                    .frame(height: 0.5)
+                    .foregroundColor(Color(.separator)),
+                alignment: .top
+            )
+        }
+    }
+
+    // MARK: - Auto-Fill Logic
+
+    func runAutoFill(scope: FillScope) {
+        let snapshot = store.activeTeam.lineup.innings
+
+        let preferences = Dictionary(
+            uniqueKeysWithValues: store.players.map { ($0.id, $0.positionPreferences) }
+        )
+
+        let result: (lineup: Lineup, filledCount: Int)
+        switch scope {
+        case .thisInning:
+            result = AutoFillEngine.fillInning(selectedInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences)
+        case .through(let lastInning):
+            result = AutoFillEngine.fillInnings(through: lastInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences)
+        }
+
+        guard result.filledCount > 0 else { return }
+
+        store.activeTeam.lineup = result.lineup
+        store.save()
+
+        undoSnapshot = snapshot
+        let scopeLabel: String
+        switch scope {
+        case .thisInning: scopeLabel = "inning \(selectedInning + 1)"
+        case .through(let last): scopeLabel = "innings 1–\(last + 1)"
+        }
+        undoMessage = "Auto-filled \(result.filledCount) position\(result.filledCount == 1 ? "" : "s") (\(scopeLabel))"
+        withAnimation { showingUndo = true }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            withAnimation { showingUndo = false }
+        }
+
+        Analytics.signal("autofill.used", parameters: [
+            "mode": {
+                if case .thisInning = scope { return "inning" }
+                return "range"
+            }(),
+            "filledCount": "\(result.filledCount)"
+        ])
     }
 
     // MARK: - Warnings Button
@@ -159,6 +501,32 @@ struct DefensiveGridView: View {
         return currentInningIssueCount + gameWideIssueCount
     }
 
+    @ViewBuilder
+    var boltButton: some View {
+        Button {
+            if purchaseManager.isPro {
+                showingAutoFillPopover = true
+            } else {
+                showingPaywall = true
+            }
+        } label: {
+            Image(systemName: "bolt.fill")
+                .font(.title3)
+                .foregroundColor(purchaseManager.isPro ? .blue : Color(.systemGray3))
+        }
+        .accessibilityLabel("Auto-Fill Positions")
+        .popover(isPresented: $showingAutoFillPopover, arrowEdge: .top) {
+            AutoFillPopover(
+                isSummary: false,
+                smartDefaultLastInning: smartDefaultLastInning
+            ) { scope in
+                showingAutoFillPopover = false
+                runAutoFill(scope: scope)
+            }
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
     var displayPlayers: [Player] {
         let active = store.lineup.activePlayers(from: store.players)
         let ordered = store.lineup.orderedPlayers(from: active)
@@ -187,6 +555,159 @@ struct DefensiveGridView: View {
         } else {
             Circle().fill(Color.gray.opacity(0.3)).frame(width: 6, height: 6)
         }
+    }
+}
+
+// MARK: - Lineup Status Strip
+
+struct LineupStatusStrip: View {
+    let status: LineupStatus
+    let onFinalize: () -> Void
+    let onReopen: () -> Void
+
+    var body: some View {
+        HStack {
+            HStack(spacing: 5) {
+                if status == .finalized {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption.bold())
+                        .foregroundColor(.green)
+                    Text("Finalized")
+                        .font(.caption.bold())
+                        .foregroundColor(.green)
+                } else {
+                    Circle()
+                        .fill(Color.secondary)
+                        .frame(width: 7, height: 7)
+                    Text("Draft")
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if status == .finalized {
+                Button("Reopen", action: onReopen)
+                    .font(.caption.bold())
+                    .foregroundColor(.blue)
+            } else {
+                Button(action: onFinalize) {
+                    Text("Finalize lineup →")
+                        .font(.caption.bold())
+                        .foregroundColor(.blue)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+        .background(
+            status == .finalized
+                ? Color.green.opacity(0.10)
+                : Color(.systemGray6)
+        )
+        .animation(.easeInOut(duration: 0.2), value: status)
+    }
+}
+
+// MARK: - Auto-Fill Popover
+
+struct AutoFillPopover: View {
+    let isSummary: Bool
+    let smartDefaultLastInning: Int
+    let onSelect: (DefensiveGridView.FillScope) -> Void
+
+    @State private var selectedLastInning: Int
+
+    init(isSummary: Bool, smartDefaultLastInning: Int, onSelect: @escaping (DefensiveGridView.FillScope) -> Void) {
+        self.isSummary = isSummary
+        self.smartDefaultLastInning = smartDefaultLastInning
+        self.onSelect = onSelect
+        self._selectedLastInning = State(initialValue: smartDefaultLastInning)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Auto-Fill Positions")
+                    .font(.subheadline.bold())
+                Text("Already-assigned positions won't be changed.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: "star.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                    Text("Uses position preferences when set.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            if !isSummary {
+                Button {
+                    onSelect(.thisInning)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "1.circle.fill")
+                            .foregroundColor(.blue)
+                        Text("Fill This Inning")
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                }
+
+                Divider()
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    Image(systemName: "7.circle.fill")
+                        .foregroundColor(.blue)
+                    Text("Fill Innings 1 – \(selectedLastInning + 1)")
+                        .font(.body)
+                    Spacer()
+                }
+
+                HStack(spacing: 6) {
+                    ForEach(0..<7, id: \.self) { i in
+                        Button {
+                            selectedLastInning = i
+                        } label: {
+                            Text("\(i + 1)")
+                                .font(.caption.bold())
+                                .frame(width: 28, height: 28)
+                                .background(selectedLastInning == i ? Color.blue : Color(.systemGray5))
+                                .foregroundColor(selectedLastInning == i ? .white : .primary)
+                                .cornerRadius(6)
+                        }
+                    }
+                }
+
+                Button {
+                    onSelect(.through(selectedLastInning))
+                } label: {
+                    Text("Fill")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+        }
+        .frame(width: 280)
     }
 }
 
@@ -282,6 +803,7 @@ struct WarningsView: View {
 
 struct PlayerInningRow: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     let player: Player
     let inning: Int
     let onTap: () -> Void
@@ -364,6 +886,11 @@ struct PlayerInningRow: View {
 
     @ViewBuilder
     func positionBadge(_ pos: FieldPosition) -> some View {
+        let prefTier: PositionPreferenceTier? = purchaseManager.isPro && !pos.isAbsent
+            ? player.positionPreferences[pos]
+            : nil
+        let showBorder: Bool = prefTier == .emergency || prefTier == .never
+
         Text(pos.rawValue)
             .font(.caption.bold())
             .padding(.horizontal, 8)
@@ -371,6 +898,12 @@ struct PlayerInningRow: View {
             .background(positionColor(pos))
             .foregroundColor(.white)
             .cornerRadius(6)
+            .overlay {
+                if showBorder, let tier = prefTier {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(tier.color, lineWidth: 2)
+                }
+            }
     }
 
     func positionColor(_ pos: FieldPosition) -> Color {

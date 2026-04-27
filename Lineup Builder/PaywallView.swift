@@ -9,6 +9,7 @@ import StoreKit
 struct PaywallView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
+    let source: String
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,18 @@ struct PaywallView: View {
                     // MARK: Feature list
                     VStack(spacing: 16) {
                         ProFeatureRow(
+                            icon: "bolt.fill",
+                            iconColor: .blue,
+                            title: "Auto-Fill Positions",
+                            description: "Fill open positions for an inning or the whole game automatically — fair play rules always respected."
+                        )
+                        ProFeatureRow(
+                            icon: "person.3.fill",
+                            iconColor: .green,
+                            title: "Multiple Teams",
+                            description: "Manage two teams from one app, each with their own roster, lineup, and game history."
+                        )
+                        ProFeatureRow(
                             icon: "doc.richtext.fill",
                             iconColor: .blue,
                             title: "Coaches Guide PDF",
@@ -44,6 +57,12 @@ struct PaywallView: View {
                             iconColor: .purple,
                             title: "Game History",
                             description: "Archive every game and build a full season record with up to 20 saved lineups."
+                        )
+                        ProFeatureRow(
+                            icon: "star.fill",
+                            iconColor: .green,
+                            title: "Position Preferences",
+                            description: "Tag each player's positions as Strength, Capable, Emergency, or Never. AutoFill respects preferences — and Never positions are never assigned."
                         )
                         ProFeatureRow(
                             icon: "sparkles",
@@ -111,13 +130,14 @@ struct PaywallView: View {
                 }
             }
             .onChange(of: purchaseManager.isPro) { _, newValue in
-                if newValue { dismiss() }  // auto-dismiss on successful purchase
+                if newValue { dismiss() }
             }
             .task {
                 await purchaseManager.loadProduct()
             }
             .onAppear {
-                Analytics.signal("paywall.shown")
+                Analytics.signal("paywall.shown", parameters: ["source": source])
+                purchaseManager.lastPaywallSource = source
             }
         }
     }
@@ -160,6 +180,6 @@ struct ProFeatureRow: View {
 // MARK: - Preview
 
 #Preview {
-    PaywallView()
-        .environmentObject(PurchaseManager())
-}
+    PaywallView(source: "preview")
+            .environmentObject(PurchaseManager())
+    }

@@ -3,205 +3,232 @@ import SwiftUI
 struct LineupView: View {
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var purchaseManager: PurchaseManager
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @AppStorage("complianceChecksEnabled") private var complianceChecksEnabled = true
-    @State private var showingClearOptions = false
-    @State private var showingSaveConfirmation = false
+    @AppStorage("hasCompletedChecklist") private var hasCompletedChecklist = false
     @State private var generatedPDF: PDFDocument? = nil
     @Binding var showingArchive: Bool
     @State private var showingTips = false
     @State private var showingPaywall = false
     @State private var lockedPDF: PDFDocument? = nil
 
-    // Ordered active players
     var orderedPlayers: [Player] {
         store.lineup.orderedPlayers(from: store.players)
     }
 
-    // Active players not yet in batting order
     var unorderedPlayers: [Player] {
         store.lineup.activePlayers(from: store.players)
             .filter { !store.lineup.battingOrder.contains($0.id) }
     }
 
-    // Absent players
     var absentPlayers: [Player] {
         store.players.filter { store.lineup.isAbsent($0) }
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                // Game Info
-                Section("Game Info") {
-                    DatePicker("Game Date", selection: Binding(
-                        get: { store.lineup.gameDate },
-                        set: { store.updateGameDate($0) }
-                    ), displayedComponents: .date)
-                    HStack {
-                        Text("Opponent")
-                        Spacer()
-                        TextField("Opponent Name", text: Binding(
-                            get: { store.lineup.opponent },
-                            set: { store.updateOpponent($0) }
-                        ))
-                        .multilineTextAlignment(.trailing)
-                        .autocorrectionDisabled()
-                    }
+        if horizontalSizeClass == .regular {
+            formContent
+        } else {
+            NavigationStack { formContent }
+        }
+    }
+
+    private var formContent: some View {
+        Form {
+            // MARK: - First Game Checklist
+            // Shown until the coach completes all 4 steps or manually dismisses.
+            // Rendered as a card inside a clear-background section so it sits
+            // flush at the top without cell chrome.
+            if !hasCompletedChecklist {
+                Section {
+                    FirstGameChecklist()
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
+            // MARK: - Game Info
+            Section {
+                DatePicker("Game Date", selection: Binding(
+                    get: { store.lineup.gameDate },
+                    set: { store.updateGameDate($0) }
+                ), displayedComponents: .date)
+                HStack {
+                    Text("Opponent")
+                    Spacer()
+                    TextField("Opponent Name", text: Binding(
+                        get: { store.lineup.opponent },
+                        set: { store.updateOpponent($0) }
+                    ))
+                    .multilineTextAlignment(.trailing)
+                    .autocorrectionDisabled()
                 }
 
-                // Unified Roster Section
-                Section {
-                    // 1. Ordered active players (numbered, draggable)
-                    ForEach(Array(orderedPlayers.enumerated()), id: \.element.id) { index, player in
-                        RosterRow(player: player, index: index + 1)
+                // Read-only status indicator — changes are made on the Positions tab
+                HStack {
+                    Text("Status")
+                        .foregroundColor(.primary)
+                    Spacer()
+                    if store.lineup.status == .finalized {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.green)
+                            Text("Finalized")
+                                .font(.subheadline)
+                                .foregroundColor(.green)
+                        }
+                    } else {
+                        Text("Draft")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                     }
-                    .onMove { from, to in
-                        store.moveBattingOrder(from: from, to: to)
-                    }
+                }
+            } header: {
+                Text("Game Info")
+            } footer: {
+                if store.lineup.status == .draft {
+                    Text("Finalize your lineup from the Positions tab when it's ready.")
+                        .foregroundColor(.secondary)
+                }
+            }
 
-                    // 2. Active players not yet in batting order
-                    ForEach(unorderedPlayers) { player in
-                        RosterRow(player: player, index: nil, onAdd: {
-                            store.addToBattingOrder(player: player)
-                        })
-                    }
+            // MARK: - Batting Order & Availability
+            Section {
+                ForEach(Array(orderedPlayers.enumerated()), id: \.element.id) { index, player in
+                    RosterRow(player: player, index: index + 1)
+                }
+                .onMove { from, to in
+                    store.moveBattingOrder(from: from, to: to)
+                }
 
-                    // 3. Absent players — grayed out at the bottom
-                    ForEach(absentPlayers) { player in
-                        RosterRow(player: player, index: nil, isAbsent: true)
-                    }
+                ForEach(unorderedPlayers) { player in
+                    RosterRow(player: player, index: nil, onAdd: {
+                        store.addToBattingOrder(player: player)
+                    })
+                }
 
-                } header: {
+                ForEach(absentPlayers) { player in
+                    RosterRow(player: player, index: nil, isAbsent: true)
+                }
+
+                // Empty state — no players at all
+                if store.players.isEmpty {
                     HStack {
-                        Text("Batting Order & Availability")
                         Spacer()
-                        if !orderedPlayers.isEmpty {
-                            EditButton()
+                        VStack(spacing: 8) {
+                            Image(systemName: "person.badge.plus")
+                                .font(.system(size: 36))
+                                .foregroundColor(Color(.systemGray3))
+                            Text("No players yet")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.secondary)
+                            Text("Go to the Players tab to build your roster.")
                                 .font(.caption)
+                                .foregroundColor(Color(.tertiaryLabel))
+                                .multilineTextAlignment(.center)
                         }
-                    }
-                } footer: {
-                    if !unorderedPlayers.isEmpty {
-                        Text("Tap + to add players to the batting order, then drag to reorder.")
-                    } else if store.players.isEmpty {
-                        Text("No players added yet. Go to the Players tab to add your roster.")
+                        .padding(.vertical, 20)
+                        Spacer()
                     }
                 }
-
-                // Fair Play Rules
-                complianceSection
-
-                // Actions
-                Section {
-                    Button {
-                        store.save()
-                        showingSaveConfirmation = true
-                    } label: {
-                        Label("Save Lineup", systemImage: "icloud.and.arrow.up")
+            } header: {
+                HStack {
+                    Text("Batting Order & Availability")
+                    Spacer()
+                    if !orderedPlayers.isEmpty {
+                        EditButton()
+                            .font(.caption)
                     }
+                }
+            } footer: {
+                if !unorderedPlayers.isEmpty {
+                    Text("Tap + to add players to the batting order, then drag to reorder.")
+                } else if !store.players.isEmpty && orderedPlayers.isEmpty {
+                    Text("Tap + next to each player above to add them to the batting order.")
+                }
+            }
 
-                    // Free — Batting Order PDF
-                    Button {
-                        let doc = PDFGenerator.generate(
-                            type: .battingOrder,
-                            lineup: store.lineup,
-                            players: store.players,
-                            teamName: store.teamName,
-                            teamColor: store.teamColor,
-                            showFairPlayRules: complianceChecksEnabled
-                        )
+            // MARK: - Fair Play Rules
+            complianceSection
+
+            // MARK: - Exports
+            Section {
+                Button {
+                    let doc = PDFGenerator.generate(
+                        type: .battingOrder,
+                        lineup: store.lineup,
+                        players: store.players,
+                        teamName: store.teamName,
+                        teamColor: store.teamColor,
+                        showFairPlayRules: complianceChecksEnabled
+                    )
+                    generatedPDF = doc
+                    Analytics.signal("pdf.exported", parameters: ["type": "battingOrder"])
+                } label: {
+                    Label("Export Batting Order PDF", systemImage: "doc.text")
+                }
+
+                Button {
+                    let doc = PDFGenerator.generate(
+                        type: .coachesGuide,
+                        lineup: store.lineup,
+                        players: store.players,
+                        teamName: store.teamName,
+                        teamColor: store.teamColor,
+                        showFairPlayRules: complianceChecksEnabled
+                    )
+                    if purchaseManager.isPro {
                         generatedPDF = doc
-                        Analytics.signal("pdf.exported", parameters: ["type": "battingOrder"])
-                    } label: {
-                        Label("Export Batting Order PDF", systemImage: "doc.text")
+                        Analytics.signal("pdf.exported", parameters: ["type": "coachesGuide"])
+                    } else {
+                        lockedPDF = doc
                     }
-
-                    // Pro — Coaches Guide PDF
-                    // Always generates the real PDF; free users see it blurred
-                    // in LockedPDFPreviewView as a preview to entice purchase.
-                    Button {
-                        let doc = PDFGenerator.generate(
-                            type: .coachesGuide,
-                            lineup: store.lineup,
-                            players: store.players,
-                            teamName: store.teamName,
-                            teamColor: store.teamColor,
-                            showFairPlayRules: complianceChecksEnabled
-                        )
-                        if purchaseManager.isPro {
-                            generatedPDF = doc
-                            Analytics.signal("pdf.exported", parameters: ["type": "coachesGuide"])
-                        } else {
-                            lockedPDF = doc
-                        }
-                    } label: {
-                        HStack {
-                            Label("Export Coaches Guide PDF", systemImage: "doc.richtext")
-                            Spacer()
-                            if !purchaseManager.isPro {
-                                ProBadge()
-                            }
-                        }
-                    }
-
-                    Button(role: .destructive) {
-                        showingClearOptions = true
-                    } label: {
-                        Label("Clear Lineup...", systemImage: "trash")
-                    }
-                    .confirmationDialog("Clear Options", isPresented: $showingClearOptions, titleVisibility: .visible) {
-                        Button("Clear Positions Only", role: .destructive) { store.clearPositions() }
-                        Button("Clear Batting Order Only", role: .destructive) { store.clearBattingOrder() }
-                        Button("Clear Both", role: .destructive) { store.clearAll() }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("What would you like to clear?")
-                    }
-                }
-            }
-            .navigationTitle("Lineup Builder")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 16) {
-                        Button {
-                            showingTips = true
-                        } label: {
-                            Image(systemName: "info.circle")
-                        }
-                        Button {
-                            showingArchive = true
-                        } label: {
-                            Label("Archive Game", systemImage: "archivebox")
+                } label: {
+                    HStack {
+                        Label("Export Coaches Guide PDF", systemImage: "doc.richtext")
+                        Spacer()
+                        if !purchaseManager.isPro {
+                            ProBadge()
                         }
                     }
                 }
             }
-            .alert("Saved!", isPresented: $showingSaveConfirmation) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Your lineup has been saved.")
+        }
+        .sheet(item: $generatedPDF) { pdf in
+            PDFPreviewView(document: pdf)
+        }
+        .sheet(item: $lockedPDF) { pdf in
+            LockedPDFPreviewView(document: pdf)
+                .environmentObject(purchaseManager)
+        }
+        .onChange(of: purchaseManager.isPro) { _, isPro in
+            if isPro, let pdf = lockedPDF {
+                lockedPDF = nil
+                generatedPDF = pdf
             }
-            .sheet(item: $generatedPDF) { pdf in
-                PDFPreviewView(document: pdf)
-            }
-            .sheet(item: $lockedPDF) { pdf in
-                LockedPDFPreviewView(document: pdf)
-                    .environmentObject(purchaseManager)
-            }
-            // When purchase completes inside LockedPDFPreviewView it dismisses
-            // itself and flips isPro — we re-present the real PDF immediately.
-            .onChange(of: purchaseManager.isPro) { _, isPro in
-                if isPro, let pdf = lockedPDF {
-                    lockedPDF = nil
-                    generatedPDF = pdf
+        }
+        .sheet(isPresented: $showingTips) {
+            PageTipsView(page: .lineup)
+        }
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView(source: "pdf_export")
+                .environmentObject(purchaseManager)
+        }
+        .navigationTitle("Lineup Builder")
+        .navigationBarTitleDisplayMode(verticalSizeClass == .compact ? .inline : .large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: 16) {
+                    Button { showingTips = true } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    Button { showingArchive = true } label: {
+                        Label("Archive Game", systemImage: "archivebox")
+                    }
                 }
-            }
-            .sheet(isPresented: $showingTips) {
-                PageTipsView(page: .lineup)
-            }
-            .sheet(isPresented: $showingPaywall) {
-                PaywallView()
-                    .environmentObject(purchaseManager)
             }
         }
     }
@@ -271,13 +298,12 @@ struct LineupView: View {
 struct RosterRow: View {
     @EnvironmentObject var store: LineupStore
     let player: Player
-    let index: Int?           // nil = not yet in batting order
+    let index: Int?
     var isAbsent: Bool = false
     var onAdd: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
-            // Batting number or placeholder
             Group {
                 if let i = index {
                     Text("\(i).")
@@ -296,21 +322,18 @@ struct RosterRow: View {
             }
             .frame(width: 32, alignment: .leading)
 
-            // Name
             Text(player.displayName)
                 .foregroundColor(isAbsent ? .secondary : .primary)
                 .strikethrough(isAbsent)
 
             Spacer()
 
-            // Jersey (only show if number exists)
             if !player.number.isEmpty {
                 Text("#\(player.number)")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
-            // Availability toggle
             Toggle("", isOn: Binding(
                 get: { !store.lineup.isAbsent(player) },
                 set: { _ in store.toggleAbsent(player: player) }
@@ -359,7 +382,6 @@ Assign ABS to innings when a player arrives late or leaves early — they still 
 }
 
 // MARK: - Pro Badge
-// Small reusable label shown next to Pro-gated features.
 
 struct ProBadge: View {
     var body: some View {

@@ -85,6 +85,43 @@ enum FieldPosition: String, CaseIterable, Codable, Sendable {
     }
 }
 
+// MARK: - Position Preference Tier
+
+enum PositionPreferenceTier: String, Codable, CaseIterable, Sendable {
+    case strength  = "Strength"
+    case capable   = "Capable"
+    case emergency = "Emergency"
+    case never     = "Never"
+
+    nonisolated var displayName: String { rawValue }
+
+    nonisolated var color: Color {
+        switch self {
+        case .strength:  return .green
+        case .capable:   return .blue
+        case .emergency: return .orange
+        case .never:     return .red
+        }
+    }
+
+    // Custom decode: unknown raw values (e.g. old "Primary"/"Secondary" from
+    // a previous build) silently decode as nil rather than throwing and
+    // taking down the entire Player array with them.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if let value = PositionPreferenceTier(rawValue: raw) {
+            self = value
+        } else {
+            // Map legacy names forward; anything else falls to .capable as a safe default
+            switch raw {
+            case "Primary":   self = .strength
+            case "Secondary": self = .capable
+            default:          self = .capable
+            }
+        }
+    }
+}
+
 // MARK: - Player
 
 struct Player: Identifiable, Codable, Equatable, Sendable {
@@ -92,10 +129,45 @@ struct Player: Identifiable, Codable, Equatable, Sendable {
     var firstName: String
     var lastName: String
     var number: String
+    var leagueAge: Int? = nil
+    var positionPreferences: [FieldPosition: PositionPreferenceTier] = [:]
 
     nonisolated var displayName: String { "\(firstName) \(lastName)" }
     nonisolated var displayNameWithNumber: String {
         number.isEmpty ? displayName : "#\(number) \(firstName) \(lastName)"
+    }
+    nonisolated var shortName: String {
+        let initial = lastName.first.map { String($0) } ?? ""
+        return initial.isEmpty ? firstName : "\(firstName) \(initial)."
+    }
+
+    // Explicit memberwise init — required because defining init(from:) below
+    // suppresses the compiler-synthesized memberwise initializer.
+    init(id: UUID = UUID(), firstName: String, lastName: String, number: String,
+         leagueAge: Int? = nil,
+         positionPreferences: [FieldPosition: PositionPreferenceTier] = [:]) {
+        self.id = id
+        self.firstName = firstName
+        self.lastName = lastName
+        self.number = number
+        self.leagueAge = leagueAge
+        self.positionPreferences = positionPreferences
+    }
+
+    // Custom decode: if positionPreferences fails for any reason (e.g. schema
+    // change, unrecognized keys), fall back to [:] so the player still loads.
+    // firstName, lastName, number are load-bearing — if those fail, propagate.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id        = try container.decode(UUID.self, forKey: .id)
+        firstName = try container.decode(String.self, forKey: .firstName)
+        lastName  = try container.decode(String.self, forKey: .lastName)
+        number    = try container.decode(String.self, forKey: .number)
+        leagueAge = try container.decodeIfPresent(Int.self, forKey: .leagueAge)
+        positionPreferences = (try? container.decodeIfPresent(
+            [FieldPosition: PositionPreferenceTier].self,
+            forKey: .positionPreferences
+        )) ?? [:]
     }
 }
 
@@ -122,6 +194,15 @@ struct InningAssignment: Codable, Sendable {
     }
 }
 
+// MARK: - Lineup Status
+
+/// Soft status indicating whether a coach considers the lineup locked in.
+/// Finalized reverts silently to Draft on any lineup mutation.
+enum LineupStatus: String, Codable, Sendable {
+    case draft
+    case finalized
+}
+
 // MARK: - Lineup
 
 struct Lineup: Codable, Sendable {
@@ -130,6 +211,10 @@ struct Lineup: Codable, Sendable {
     var battingOrder: [UUID] = []
     var innings: [InningAssignment] = Array(repeating: InningAssignment(), count: 7)
     var absentPlayerIDs: Set<UUID> = []
+    /// Soft status — Draft by default. Finalized is a coach-set signal that the
+    /// lineup is locked in. Any mutation to positions, batting order, or game info
+    /// silently reverts this to .draft via revertToDraftIfFinalized() in LineupStore.
+    var status: LineupStatus = .draft
 
     mutating func toggleAbsent(player: Player) {
         if absentPlayerIDs.contains(player.id) {
@@ -267,13 +352,15 @@ struct GameLog: Identifiable, Codable, Sendable {
 struct PlayerSeasonStats: Codable, Sendable {
     var playerID: UUID
     var playerName: String
-    var posCounts: [String: Int]       // FieldPosition.rawValue → inning count
+    var posCounts: [String: Int]
     var gamesPlayed: Int
     var totalInnings: Int
     var benchInnings: Int
-    var neverPlayed: [String]          // Positions with count == 0
+    var neverPlayed: [String]
     var infieldInnings: Int
     var outfieldInnings: Int
+    var positionGaps: [String]
+    var neverPositionRawValues: [String]
 }
 
 struct SeasonStats: Codable, Sendable {
@@ -345,26 +432,57 @@ class LineupStore: ObservableObject {
             let encoder = JSONEncoder()
             guard let data = try? encoder.encode(snapshot) else { return }
 
+            // Write to UserDefaults on main thread
             await MainActor.run {
                 UserDefaults.standard.set(data, forKey: "stl_teams")
                 if let id = activeID {
                     UserDefaults.standard.set(id, forKey: "stl_active_team_id")
                 }
+            }
 
-                let icloud = NSUbiquitousKeyValueStore.default
-                if data.count < 800_000 {
-                    icloud.set(data, forKey: "stl_teams")
-                    if let id = activeID { icloud.set(id, forKey: "stl_active_team_id") }
-                    icloud.synchronize()
-                } else {
-                    print("⚠️ Teams blob exceeds iCloud KV safety threshold. Storing locally only.")
-                }
+            // Write to iCloud KV store off main thread — synchronize() must
+            // not be called on the main thread per Apple documentation.
+            let icloud = NSUbiquitousKeyValueStore.default
+            if data.count < 800_000 {
+                icloud.set(data, forKey: "stl_teams")
+                if let id = activeID { icloud.set(id, forKey: "stl_active_team_id") }
+                icloud.synchronize()
+            } else {
+                print("⚠️ Teams blob exceeds iCloud KV safety threshold. Storing locally only.")
             }
         }
     }
 
     func load() {
-        NSUbiquitousKeyValueStore.default.synchronize()
+        applyStoredData()
+
+        // Register for iCloud change notifications so updates from other
+        // devices are applied as soon as they arrive.
+        // Guard against duplicate observers on re-load.
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(iCloudDidUpdate),
+            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default
+        )
+
+        // Request a sync from iCloud in the background. If iCloud data
+        // arrives after init (common on first launch on a new device),
+        // the didChangeExternallyNotification will fire and applyStoredData()
+        // will be called again automatically.
+        Task.detached(priority: .utility) {
+            NSUbiquitousKeyValueStore.default.synchronize()
+        }
+    }
+
+    /// Reads from iCloud KV store (preferred) then UserDefaults (fallback)
+    /// and applies the decoded data to the store. Safe to call multiple times.
+    private func applyStoredData() {
         let icloud = NSUbiquitousKeyValueStore.default
         let decoder = JSONDecoder()
 
@@ -385,16 +503,18 @@ class LineupStore: ObservableObject {
             activeTeamID = teams.first?.id
         }
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(iCloudDidUpdate),
-            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-            object: NSUbiquitousKeyValueStore.default
-        )
+        // If the stored game date is in the past and the lineup is still a draft,
+        // reset it to today. A finalized lineup keeps its date so the archive
+        // nudge can fire correctly.
+        let today = Calendar.current.startOfDay(for: Date())
+        let storedDate = Calendar.current.startOfDay(for: activeTeam.lineup.gameDate)
+        if storedDate < today && activeTeam.lineup.status == .draft {
+            activeTeam.lineup.gameDate = Date()
+        }
     }
 
     @objc private func iCloudDidUpdate(_ notification: Notification) {
-        DispatchQueue.main.async { self.load() }
+        DispatchQueue.main.async { self.applyStoredData() }
     }
 
     // MARK: - Migration
@@ -432,6 +552,33 @@ class LineupStore: ObservableObject {
         }
     }
 
+    // MARK: - Lineup Status
+
+    /// Silently reverts lineup status to .draft if it is currently .finalized.
+    /// Called at the top of any mutation that changes positions, batting order,
+    /// or game info — so coaches always know Finalized means "no changes since I locked it."
+    private func revertToDraftIfFinalized() {
+        if activeTeam.lineup.status == .finalized {
+            activeTeam.lineup.status = .draft
+            Analytics.signal("lineup.reverted_to_draft", parameters: ["trigger": "edit"])
+        }
+    }
+
+    /// Marks the active lineup as finalized. Soft status only — editing remains possible
+    /// and will automatically revert back to draft.
+    func finalizeLineup() {
+        activeTeam.lineup.status = .finalized
+        save()
+        Analytics.signal("lineup.finalized")
+    }
+
+    /// Reopens a finalized lineup, setting status back to draft.
+    func reopenLineup() {
+        activeTeam.lineup.status = .draft
+        save()
+        Analytics.signal("lineup.reopened")
+    }
+
     // MARK: - Game Log Operations
 
     func archiveCurrentLineup(inningsPlayed: Int) {
@@ -460,10 +607,22 @@ class LineupStore: ObservableObject {
         save()
     }
 
+    func insertDebugGameLog(_ log: GameLog) {
+        activeTeam.gameLogs.insert(log, at: 0)
+        if activeTeam.gameLogs.count > maxGameLogs {
+            activeTeam.gameLogs = Array(activeTeam.gameLogs.prefix(maxGameLogs))
+        }
+        save()
+    }
+
     // MARK: - Player Operations
 
     func addPlayer(_ player: Player) {
         activeTeam.players.append(player)
+        // Automatically add to bottom of batting order
+        if !activeTeam.lineup.battingOrder.contains(player.id) {
+            activeTeam.lineup.battingOrder.append(player.id)
+        }
         save()
     }
 
@@ -489,6 +648,7 @@ class LineupStore: ObservableObject {
     // MARK: - Lineup Operations
 
     func assignPosition(player: Player, inning: Int, position: FieldPosition) {
+        revertToDraftIfFinalized()
         if !position.isBench,
            let occupant = activeTeam.lineup.innings[inning].player(at: position, in: activeTeam.players),
            occupant.id != player.id {
@@ -499,21 +659,25 @@ class LineupStore: ObservableObject {
     }
 
     func removeAssignment(player: Player, inning: Int) {
+        revertToDraftIfFinalized()
         activeTeam.lineup.innings[inning].removeAssignment(for: player)
         save()
     }
 
     func clearPositions() {
+        revertToDraftIfFinalized()
         activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: 7)
         save()
     }
 
     func clearBattingOrder() {
+        revertToDraftIfFinalized()
         activeTeam.lineup.battingOrder = []
         save()
     }
 
     func clearAll() {
+        revertToDraftIfFinalized()
         activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: 7)
         activeTeam.lineup.battingOrder = []
         save()
@@ -528,27 +692,39 @@ class LineupStore: ObservableObject {
     // MARK: - Lineup Field Helpers (called from LineupView)
 
     func updateGameDate(_ date: Date) {
+        revertToDraftIfFinalized()
         activeTeam.lineup.gameDate = date
         save()
     }
 
     func updateOpponent(_ opponent: String) {
+        revertToDraftIfFinalized()
         activeTeam.lineup.opponent = opponent
         save()
     }
 
     func moveBattingOrder(from: IndexSet, to: Int) {
+        revertToDraftIfFinalized()
         activeTeam.lineup.battingOrder.move(fromOffsets: from, toOffset: to)
         save()
     }
 
     func addToBattingOrder(player: Player) {
+        revertToDraftIfFinalized()
         activeTeam.lineup.battingOrder.append(player.id)
         save()
     }
 
     func toggleAbsent(player: Player) {
+        revertToDraftIfFinalized()
+        let wasAbsent = activeTeam.lineup.isAbsent(player)
         activeTeam.lineup.toggleAbsent(player: player)
+        // If player just became available, add to bottom of batting order
+        if wasAbsent && !activeTeam.lineup.isAbsent(player) {
+            if !activeTeam.lineup.battingOrder.contains(player.id) {
+                activeTeam.lineup.battingOrder.append(player.id)
+            }
+        }
         save()
     }
 

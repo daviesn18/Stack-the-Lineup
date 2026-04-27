@@ -1,9 +1,11 @@
 import SwiftUI
 import PDFKit
+import StoreKit
 
 struct PDFPreviewView: View {
     let document: PDFDocument
     @Environment(\.dismiss) var dismiss
+    @Environment(\.requestReview) var requestReview
     @State private var showingShareSheet = false
 
     var body: some View {
@@ -18,6 +20,7 @@ struct PDFPreviewView: View {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
                             showingShareSheet = true
+                            maybeRequestReview()
                         } label: {
                             Image(systemName: "square.and.arrow.up")
                         }
@@ -26,6 +29,18 @@ struct PDFPreviewView: View {
                 .sheet(isPresented: $showingShareSheet) {
                     ShareSheet(items: [document.data], filename: document.filename)
                 }
+        }
+    }
+
+    // MARK: - Review Request
+
+    private func maybeRequestReview() {
+        guard !UserDefaults.standard.bool(forKey: "hasRequestedReview") else { return }
+        let count = UserDefaults.standard.integer(forKey: "pdfExportCount") + 1
+        UserDefaults.standard.set(count, forKey: "pdfExportCount")
+        if count >= 3 {
+            requestReview()
+            UserDefaults.standard.set(true, forKey: "hasRequestedReview")
         }
     }
 }

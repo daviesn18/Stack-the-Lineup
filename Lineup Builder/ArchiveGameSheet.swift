@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 
 // MARK: - ArchiveGameSheet
 // Presented from the global toolbar button in ContentView.
@@ -7,6 +8,7 @@ import SwiftUI
 struct ArchiveGameSheet: View {
     @EnvironmentObject var store: LineupStore
     @Environment(\.dismiss) var dismiss
+    @Environment(\.requestReview) var requestReview
 
     // Callback fires after a successful archive so GameLogsView
     // can invalidate its insights cache.
@@ -83,6 +85,7 @@ struct ArchiveGameSheet: View {
                             "inningsPlayed": "\(inningsPlayed)",
                             "playerCount": "\(activePlayers.count)"
                         ])
+                        maybeRequestReview()
                         showingConfirmation = true
                     } label: {
                         HStack {
@@ -116,6 +119,18 @@ struct ArchiveGameSheet: View {
             } message: {
                 Text("vs. \(archivedOpponent) has been saved to your game history. Defensive positions have been cleared.")
             }
+        }
+    }
+
+    // MARK: - Review Request
+
+    private func maybeRequestReview() {
+        guard !UserDefaults.standard.bool(forKey: "hasRequestedReview") else { return }
+        let count = UserDefaults.standard.integer(forKey: "gamesArchivedCount") + 1
+        UserDefaults.standard.set(count, forKey: "gamesArchivedCount")
+        if count >= 2 {
+            requestReview()
+            UserDefaults.standard.set(true, forKey: "hasRequestedReview")
         }
     }
 }
