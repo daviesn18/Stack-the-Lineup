@@ -216,6 +216,7 @@ struct SettingsView: View {
         store.updateTeamColor(.blue)
         UserDefaults.standard.set(false, forKey: "hasCompletedTutorial")
         complianceChecksEnabled = true
+        UserDefaults.standard.removeObject(forKey: "lastSeenWhatsNewVersion")
     }
 }
 

@@ -216,6 +216,37 @@ struct Lineup: Codable, Sendable {
     /// silently reverts this to .draft via revertToDraftIfFinalized() in LineupStore.
     var status: LineupStatus = .draft
 
+    // Explicit memberwise init so views can construct a Lineup() directly.
+    init(
+        gameDate: Date = Date(),
+        opponent: String = "",
+        battingOrder: [UUID] = [],
+        innings: [InningAssignment] = Array(repeating: InningAssignment(), count: 7),
+        absentPlayerIDs: Set<UUID> = [],
+        status: LineupStatus = .draft
+    ) {
+        self.gameDate        = gameDate
+        self.opponent        = opponent
+        self.battingOrder    = battingOrder
+        self.innings         = innings
+        self.absentPlayerIDs = absentPlayerIDs
+        self.status          = status
+    }
+
+    // Custom decode: every field uses decodeIfPresent with a safe default so
+    // that adding new fields (e.g. `status`) never breaks decoding of data
+    // written by an older build that didn't include that key.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        gameDate        = (try? c.decode(Date.self,               forKey: .gameDate))        ?? Date()
+        opponent        = (try? c.decode(String.self,             forKey: .opponent))        ?? ""
+        battingOrder    = (try? c.decode([UUID].self,             forKey: .battingOrder))    ?? []
+        innings         = (try? c.decode([InningAssignment].self, forKey: .innings))         ?? Array(repeating: InningAssignment(), count: 7)
+        absentPlayerIDs = (try? c.decode(Set<UUID>.self,          forKey: .absentPlayerIDs)) ?? []
+        // status is new in 2.2 — old data won't have this key, default to .draft
+        status          = (try? c.decode(LineupStatus.self,       forKey: .status))          ?? .draft
+    }
+
     mutating func toggleAbsent(player: Player) {
         if absentPlayerIDs.contains(player.id) {
             absentPlayerIDs.remove(player.id)
@@ -482,14 +513,31 @@ class LineupStore: ObservableObject {
 
     /// Reads from iCloud KV store (preferred) then UserDefaults (fallback)
     /// and applies the decoded data to the store. Safe to call multiple times.
+    ///
+    /// SAFETY RULE: if storage contains data but it fails to decode, we return
+    /// early without touching `teams`. This prevents a decode failure from
+    /// cascading into migrateOrCreateDefaultTeam() which would overwrite iCloud
+    /// with an empty team.
     private func applyStoredData() {
         let icloud = NSUbiquitousKeyValueStore.default
         let decoder = JSONDecoder()
 
         let teamsData = icloud.data(forKey: teamsKey) ?? UserDefaults.standard.data(forKey: teamsKey)
-        if let data = teamsData, let decoded = try? decoder.decode([Team].self, from: data) {
-            teams = decoded
+
+        if let data = teamsData {
+            if let decoded = try? decoder.decode([Team].self, from: data) {
+                // Happy path — data exists and decoded cleanly.
+                teams = decoded
+            } else {
+                // Data exists but failed to decode (e.g. schema mismatch).
+                // DO NOT fall through to migration — that would overwrite iCloud
+                // with an empty team. Leave teams as-is and wait for a future
+                // successful sync or manual recovery.
+                print("⚠️ stl_teams data exists but failed to decode. Aborting load to protect existing data.")
+                return
+            }
         }
+        // If teamsData is nil, fall through to migration — this is a genuine first launch.
 
         let savedID = icloud.string(forKey: activeTeamKey)
                       ?? UserDefaults.standard.string(forKey: activeTeamKey)
@@ -543,12 +591,24 @@ class LineupStore: ObservableObject {
 
         teams = [migratedTeam]
         activeTeamID = migratedTeam.id
-        save()
 
-        ["lineup_builder_players", "lineup_builder_lineup",
-         "lineup_builder_game_logs", "lineup_builder_team_name",
-         "lineup_builder_team_color"].forEach {
-            UserDefaults.standard.removeObject(forKey: $0)
+        // SAFETY: only persist — and only clear old keys — if we actually found
+        // legacy data worth migrating. An empty migration result means this is a
+        // true first launch. In that case, skip save() here; it will fire naturally
+        // when the coach first adds a player or sets their team name. Calling save()
+        // on an empty team would write an empty blob to iCloud, potentially
+        // overwriting valid data on another device that hasn't synced yet.
+        let didMigrate = !migratedTeam.players.isEmpty
+                      || !migratedTeam.gameLogs.isEmpty
+                      || !migratedTeam.name.isEmpty
+
+        if didMigrate {
+            save()
+            ["lineup_builder_players", "lineup_builder_lineup",
+             "lineup_builder_game_logs", "lineup_builder_team_name",
+             "lineup_builder_team_color"].forEach {
+                UserDefaults.standard.removeObject(forKey: $0)
+            }
         }
     }
 

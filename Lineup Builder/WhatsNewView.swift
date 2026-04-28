@@ -17,9 +17,27 @@ struct WhatsNewContent {
 // MARK: - Version Registry
 // Add a new entry here each time you ship a version with notable changes.
 // The trigger logic compares this version against the last seen version in UserDefaults.
+// Rule: cap entries at 3 features max to keep the sheet dismissible on small screens.
 
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
+        WhatsNewContent(
+            version: "2.2",
+            features: [
+                WhatsNewFeature(
+                    icon: "checkmark.seal.fill",
+                    iconColor: .green,
+                    title: "Draft & Finalized Lineups",
+                    description: "Lineups now have a status — Draft while you're building, Finalized when you're ready to go. Finalized lineups are locked against accidental edits and clearly marked on your Coach's Guide."
+                ),
+                WhatsNewFeature(
+                    icon: "graduationcap.fill",
+                    iconColor: .blue,
+                    title: "Refreshed Tutorial",
+                    description: "The in-app tutorial has been updated to cover position preferences, the redesigned History tab, and everything else added over the past few updates. Worth a quick re-read from Settings → Tutorial."
+                )
+            ]
+        ),
         WhatsNewContent(
             version: "2.1",
             features: [
@@ -40,18 +58,6 @@ extension WhatsNewContent {
                     iconColor: .blue,
                     title: "Smarter Position Summary",
                     description: "The Positions tab now lets you view your lineup by Position as well as by Player — see who's pitching, catching, and playing each spot across every inning at a glance."
-                ),
-                WhatsNewFeature(
-                    icon: "ipad.and.iphone",
-                    iconColor: .teal,
-                    title: "Built for iPad",
-                    description: "Stack the Lineup now has a dedicated iPad layout with a side-by-side dashboard view. If you coach with a tablet on the bench, it's worth a look."
-                ),
-                WhatsNewFeature(
-                    icon: "person.text.rectangle",
-                    iconColor: .orange,
-                    title: "League Age",
-                    description: "Record each player's league age on their profile — ready for pitching logs and tracking coming in a future update."
                 )
             ]
         ),
@@ -104,6 +110,12 @@ struct WhatsNewManager {
         guard let content = WhatsNewContent.current else { return }
         UserDefaults.standard.set(content.version, forKey: lastSeenKey)
     }
+
+    /// Resets the last seen version so the sheet will show again on next launch.
+    /// Use during development to re-test the What's New flow.
+    static func resetForTesting() {
+        UserDefaults.standard.removeObject(forKey: lastSeenKey)
+    }
 }
 
 // MARK: - What's New View
@@ -115,7 +127,7 @@ struct WhatsNewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header — fixed, never scrolls
             VStack(spacing: 12) {
                 Image(systemName: "baseball.fill")
                     .font(.system(size: 52))
@@ -129,36 +141,37 @@ struct WhatsNewView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
-            .padding(.bottom, 36)
+            .padding(.bottom, 32)
 
-            // Feature rows
-            VStack(alignment: .leading, spacing: 28) {
-                ForEach(content.features, id: \.title) { feature in
-                    HStack(alignment: .top, spacing: 16) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(feature.iconColor.opacity(0.15))
-                                .frame(width: 48, height: 48)
-                            Image(systemName: feature.icon)
-                                .font(.system(size: 22))
-                                .foregroundColor(feature.iconColor)
-                        }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(feature.title)
-                                .font(.body.bold())
-                            Text(feature.description)
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+            // Feature rows — scrollable so the button is never pushed off screen
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    ForEach(content.features, id: \.title) { feature in
+                        HStack(alignment: .top, spacing: 16) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(feature.iconColor.opacity(0.15))
+                                    .frame(width: 48, height: 48)
+                                Image(systemName: feature.icon)
+                                    .font(.system(size: 22))
+                                    .foregroundColor(feature.iconColor)
+                            }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(feature.title)
+                                    .font(.body.bold())
+                                Text(feature.description)
+                                    .font(.callout)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, 28)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 28)
 
-            Spacer()
-
-            // Continue button
+            // Continue button — always pinned at the bottom, never scrolls away
             Button {
                 WhatsNewManager.markAsSeen()
                 dismiss()
@@ -172,8 +185,19 @@ struct WhatsNewView: View {
                     .cornerRadius(14)
             }
             .padding(.horizontal, 28)
+            .padding(.top, 16)
             .padding(.bottom, 36)
         }
         .interactiveDismissDisabled()
     }
+}
+
+// MARK: - Previews
+
+#Preview("What's New v2.2") {
+    WhatsNewView(content: WhatsNewContent.all[0])
+}
+
+#Preview("What's New v2.1") {
+    WhatsNewView(content: WhatsNewContent.all[1])
 }
