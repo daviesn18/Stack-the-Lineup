@@ -424,7 +424,7 @@ struct PositionSummaryView: View {
                     } label: {
                         HStack {
                             if isHere {
-                                Text(styledCurrentPlayer(player.displayName))
+                                Text(styledStrikethrough(player.displayName))
                             } else if let cp = currentPos {
                                 Text("\(player.shortName)  (\(cp.rawValue))")
                             } else {
@@ -489,7 +489,7 @@ struct PositionSummaryView: View {
                     Text("\(position.displayName) — \(other.firstName)")
                         .strikethrough()
                 } else if isCurrentPlayerPosition {
-                    Text(styledCurrentPosition(position.displayName))
+                    Text(styledStrikethrough(position.displayName))
                 } else {
                     Text(position.displayName)
                 }
@@ -501,15 +501,10 @@ struct PositionSummaryView: View {
         }
     }
 
-    private func styledCurrentPosition(_ name: String) -> AttributedString {
-        var str = AttributedString(name)
-        str.strikethroughStyle = .single
-        str.font = .callout.italic()
-        str.foregroundColor = .secondary
-        return str
-    }
-
-    private func styledCurrentPlayer(_ name: String) -> AttributedString {
+    /// Strikethrough/italic/secondary attributed string used to indicate a stale
+    /// current value during a position swap (the player or position currently
+    /// occupying the slot before the new selection commits).
+    private func styledStrikethrough(_ name: String) -> AttributedString {
         var str = AttributedString(name)
         str.strikethroughStyle = .single
         str.font = .callout.italic()

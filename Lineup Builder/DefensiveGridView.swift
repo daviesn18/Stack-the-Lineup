@@ -887,7 +887,7 @@ struct PlayerInningRow: View {
             .font(.caption.bold())
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(positionColor(pos))
+            .background(pos.badgeColor)
             .foregroundColor(.white)
             .cornerRadius(6)
             .overlay {
@@ -896,13 +896,6 @@ struct PlayerInningRow: View {
                         .strokeBorder(tier.color, lineWidth: 2)
                 }
             }
-    }
-
-    func positionColor(_ pos: FieldPosition) -> Color {
-        if pos.isAbsent { return Color(.systemGray2) }
-        if pos.isBench { return .gray }
-        if pos.isInfield { return .blue }
-        return .green
     }
 }
 
@@ -935,7 +928,7 @@ struct PositionPickerView: View {
                                                 .font(.caption.bold())
                                                 .padding(.horizontal, 8)
                                                 .padding(.vertical, 4)
-                                                .background(badgeColor(pos))
+                                                .background(pos.badgeColor)
                                                 .foregroundColor(.white)
                                                 .cornerRadius(6)
                                         } else {
@@ -1049,12 +1042,5 @@ struct PositionPickerView: View {
     private func commitAssignment(_ pos: FieldPosition) {
         store.assignPosition(player: player, inning: inning, position: pos)
         dismiss()
-    }
-
-    func badgeColor(_ pos: FieldPosition) -> Color {
-        if pos.isAbsent { return Color(.systemGray2) }
-        if pos.isBench { return .gray }
-        if pos.isInfield { return .blue }
-        return .green
     }
 }

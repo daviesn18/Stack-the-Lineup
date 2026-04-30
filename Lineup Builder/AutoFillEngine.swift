@@ -132,6 +132,71 @@ enum AutoFillEngine {
             !lineup.innings.contains(where: { $0.position(for: player)?.isOutfield == true })
         }
 
+        // MARK: - Pitcher Rule Helpers
+        //
+        // QUICK FIX in v2.2.1 — these enforce two pitching rules that were
+        // missing from AutoFill:
+        //   1. Re-entry restriction (HARD) — once a player exits pitcher, they
+        //      can't pitch again. Scans ALL innings, not just earlier ones, so
+        //      manual assignments later in the game are respected.
+        //   2. Two-inning cap (SOFT) — try to keep any single player at 2 max
+        //      pitcher innings, but allow more if no other eligible pitcher
+        //      remains.
+        //
+        // TODO: v2.4 — read these thresholds from FairPlayConfig instead of
+        // hardcoding. Re-entry rule will likely become a per-team toggle, and
+        // the inning cap should align with league pitch-count rest-day rules.
+
+        /// Hard-coded soft cap for pitcher innings per player. Pulled into a
+        /// constant so v2.4 can swap in `team.fairPlayConfig.maxPitcherInnings`.
+        let maxPitcherInningsSoftCap = 2
+
+        func pitcherInningsSoFar(_ player: Player) -> Int {
+            lineup.innings.filter { $0.position(for: player) == .pitcher }.count
+        }
+
+        /// True if the player pitched in some inning AND was assigned a
+        /// non-pitcher position in any later inning. Once true, they are
+        /// permanently locked out of pitcher (real Little League rule).
+        func hasExitedPitcher(_ player: Player) -> Bool {
+            var pitchedAt: Int?
+            for (i, inning) in lineup.innings.enumerated() {
+                let pos = inning.position(for: player)
+                if pos == .pitcher {
+                    pitchedAt = i
+                } else if pos != nil, pos != .bench, pos != .absent, pitchedAt != nil, i > pitchedAt! {
+                    return true
+                }
+            }
+            return false
+        }
+
+        /// True when the player can be assigned pitcher in this inning under
+        /// the hard rules: not locked out by re-entry, and not Never on pitcher.
+        func isPitcherEligible(_ player: Player) -> Bool {
+            if hasExitedPitcher(player) { return false }
+            let prefs = preferences[player.id] ?? [:]
+            if prefs[.pitcher] == .never { return false }
+            return true
+        }
+
+        /// Filters a candidate position list to remove pitcher when the player
+        /// can't take it. Two modes:
+        ///   - allowSoftCapBypass=false (default) — exclude pitcher for any
+        ///     ineligible player, AND for anyone already at the soft cap.
+        ///   - allowSoftCapBypass=true — only the hard rules apply (used when
+        ///     pitcher would otherwise go unfilled).
+        func filteringPitcher(for player: Player, candidates: [FieldPosition], allowSoftCapBypass: Bool = false) -> [FieldPosition] {
+            guard candidates.contains(.pitcher) else { return candidates }
+            if !isPitcherEligible(player) {
+                return candidates.filter { $0 != .pitcher }
+            }
+            if !allowSoftCapBypass && pitcherInningsSoFar(player) >= maxPitcherInningsSoftCap {
+                return candidates.filter { $0 != .pitcher }
+            }
+            return candidates
+        }
+
         // MARK: - Preference Helper
         //
         // Given a set of candidate positions and a player, returns the best position
@@ -176,7 +241,7 @@ enum AutoFillEngine {
 
             // Try to satisfy the infield fair-play requirement first.
             if needsInfield(player) {
-                let infieldCandidates = openPositions.filter { $0.isInfield }
+                let infieldCandidates = filteringPitcher(for: player, candidates: openPositions.filter { $0.isInfield })
                 if infieldCandidates.isEmpty {
                     // No open infield slots left at all — not a Never issue
                 } else if let pos = preferredPosition(for: player, from: infieldCandidates) {
@@ -214,17 +279,52 @@ enum AutoFillEngine {
                 var fallbackCandidates = openPositions
                 if neverBlockedInfield  { fallbackCandidates = fallbackCandidates.filter { !$0.isInfield } }
                 if neverBlockedOutfield { fallbackCandidates = fallbackCandidates.filter { !$0.isOutfield } }
+                fallbackCandidates = filteringPitcher(for: player, candidates: fallbackCandidates)
 
                 if let pos = preferredPosition(for: player, from: fallbackCandidates) {
                     lineup.innings[inningIndex].assign(player: player, position: pos)
                     openPositions.removeAll { $0 == pos }
                     unassigned.removeAll { $0.id == player.id }
                     filled += 1
-                    assigned = true
                 }
                 // If still not assigned, all remaining positions are Never for this
                 // player — they fall through to the bench queue below.
-                _ = assigned // suppress unused warning
+            }
+        }
+
+        // MARK: - Pitcher Force-Fill
+        //
+        // If pitcher is still open after the main field loop, the per-player
+        // preference logic didn't land anyone there (e.g., everyone with
+        // pitcher in their preferences was already assigned elsewhere, or
+        // every unassigned player was at the soft cap).
+        //
+        // Force-fill it now using only the hard rules: any unassigned player
+        // who isn't locked out by re-entry and doesn't have Never on pitcher.
+        // This bypasses the 2-inning soft cap deliberately — better to have a
+        // 3rd-inning pitcher than an empty pitcher slot.
+        //
+        // Edge case not handled: if every eligible pitcher is already assigned
+        // elsewhere this inning, pitcher stays open and the coach resolves it
+        // manually. We don't bump someone from another position — that would
+        // create a new gap and surprise the coach. The Fair Play warning system
+        // surfaces the open slot.
+
+        if openPositions.contains(.pitcher) {
+            let pitcherFallback = active.filter {
+                lineup.innings[inningIndex].position(for: $0) == nil &&
+                isPitcherEligible($0)
+            }
+            // Prefer players who haven't pitched yet, then by fewest innings.
+            let sorted = pitcherFallback.sorted { a, b in
+                let aPitched = pitcherInningsSoFar(a)
+                let bPitched = pitcherInningsSoFar(b)
+                return aPitched < bPitched
+            }
+            if let pick = sorted.first {
+                lineup.innings[inningIndex].assign(player: pick, position: .pitcher)
+                openPositions.removeAll { $0 == .pitcher }
+                filled += 1
             }
         }
 

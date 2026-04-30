@@ -72,6 +72,18 @@ enum FieldPosition: String, CaseIterable, Codable, Sendable {
     /// True for any position that does not count as a fielding inning (bench or absent).
     nonisolated var isNonFielding: Bool { self == .bench || self == .absent }
 
+    /// Solid fill color used for position badges in live editing UI (Positions tab,
+    /// position picker). Centralizes the color rules so views don't need to
+    /// recompute them. NOTE: this is the live-editing palette — historical/archived
+    /// surfaces (Game Log Detail) intentionally use `.secondary` for bench rather
+    /// than gray, so they keep their own helper.
+    nonisolated var badgeColor: Color {
+        if isAbsent { return Color(.systemGray2) }
+        if isBench { return .gray }
+        if isInfield { return .blue }
+        return .green
+    }
+
     nonisolated static var fieldPositions: [FieldPosition] {
         allCases.filter { $0 != .bench && $0 != .absent }
     }
