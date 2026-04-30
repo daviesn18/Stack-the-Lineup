@@ -61,7 +61,7 @@ struct ArchiveGameSheet: View {
 
                 // Innings Played
                 Section {
-                    Stepper(value: $inningsPlayed, in: 1...7) {
+                    Stepper(value: $inningsPlayed, in: 1...Lineup.inningCount) {
                         HStack {
                             Text("Innings Played")
                             Spacer()

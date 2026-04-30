@@ -34,9 +34,7 @@ struct GameLogsView: View {
 
     /// The current lineup is a past finalized game that hasn't been archived yet.
     private var readyToArchiveLineup: Bool {
-        let today = Calendar.current.startOfDay(for: Date())
-        let gameDay = Calendar.current.startOfDay(for: store.lineup.gameDate)
-        return store.lineup.status == .finalized && gameDay < today
+        store.lineup.isPastAndFinalized
     }
 
     private var historyContent: some View {

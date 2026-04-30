@@ -70,12 +70,7 @@ private struct iPadNavBar: View {
 
     private var violationCount: Int {
         let active = store.lineup.activePlayers(from: store.players)
-        let backToBack = active.filter { player in
-            (0..<6).contains { i in
-                store.lineup.innings[i].position(for: player) == .bench &&
-                store.lineup.innings[i + 1].position(for: player) == .bench
-            }
-        }
+        let backToBack = store.lineup.playersWithBackToBackBench(from: store.players)
         return store.lineup.playersWithoutInfield(players: active).count
              + store.lineup.playersWithoutOutfield(players: active).count
              + store.lineup.playersUnderFieldingMinimum(players: active).count
@@ -194,12 +189,7 @@ private struct FairPlayWarningsSheet: View {
             let noInfield  = store.lineup.playersWithoutInfield(players: active)
             let noOutfield = store.lineup.playersWithoutOutfield(players: active)
             let underMin   = store.lineup.playersUnderFieldingMinimum(players: active)
-            let backToBack = active.filter { player in
-                (0..<6).contains { i in
-                    store.lineup.innings[i].position(for: player) == .bench &&
-                    store.lineup.innings[i + 1].position(for: player) == .bench
-                }
-            }
+            let backToBack = store.lineup.playersWithBackToBackBench(from: store.players)
 
             List {
                 if !noInfield.isEmpty {

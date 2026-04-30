@@ -35,10 +35,13 @@ struct DefensiveGridView: View {
     }
 
     var smartDefaultLastInning: Int {
-        let lastFilled = (0..<7).reversed().first {
+        let lastFilled = (0..<Lineup.inningCount).reversed().first {
             !store.lineup.innings[$0].assignments.isEmpty
         }
-        return lastFilled ?? 5
+        // Fallback to second-to-last inning index (inning 6 in a 7-inning game) —
+        // typical rec games go the full distance, so defaulting to "fill through inning 6"
+        // is a safe starting point that the coach can adjust upward in the popover.
+        return lastFilled ?? (Lineup.inningCount - 2)
     }
 
     var body: some View {
@@ -93,7 +96,7 @@ struct DefensiveGridView: View {
                             HStack(spacing: 0) {
                                 ScrollView(.vertical, showsIndicators: false) {
                                     VStack(spacing: 6) {
-                                        ForEach(0..<7, id: \.self) { inning in
+                                        ForEach(0..<Lineup.inningCount, id: \.self) { inning in
                                             Button {
                                                 selectedInning = inning
                                                 showingUndo = false
@@ -166,7 +169,7 @@ struct DefensiveGridView: View {
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
-                                    ForEach(0..<7, id: \.self) { inning in
+                                    ForEach(0..<Lineup.inningCount, id: \.self) { inning in
                                         Button {
                                             selectedInning = inning
                                             showingUndo = false
@@ -484,17 +487,8 @@ struct DefensiveGridView: View {
         let noInfield = store.lineup.playersWithoutInfield(players: activePlayers)
         let noOutfield = store.lineup.playersWithoutOutfield(players: activePlayers)
         let underMinimum = store.lineup.playersUnderFieldingMinimum(players: activePlayers)
-        var consecutiveBenchCount = 0
-        for player in activePlayers {
-            for i in 0..<6 {
-                if store.lineup.innings[i].position(for: player) == .bench &&
-                   store.lineup.innings[i + 1].position(for: player) == .bench {
-                    consecutiveBenchCount += 1
-                    break
-                }
-            }
-        }
-        return noInfield.count + noOutfield.count + consecutiveBenchCount + underMinimum.count
+        let backToBack = store.lineup.playersWithBackToBackBench(from: store.players)
+        return noInfield.count + noOutfield.count + backToBack.count + underMinimum.count
     }
 
     var allWarningCount: Int {
@@ -528,9 +522,7 @@ struct DefensiveGridView: View {
     }
 
     var displayPlayers: [Player] {
-        let active = store.lineup.activePlayers(from: store.players)
-        let ordered = store.lineup.orderedPlayers(from: active)
-        return ordered.isEmpty ? active : ordered
+        store.lineup.displayPlayers(from: store.players)
     }
 
     @ViewBuilder
@@ -678,7 +670,7 @@ struct AutoFillPopover: View {
                 }
 
                 HStack(spacing: 6) {
-                    ForEach(0..<7, id: \.self) { i in
+                    ForEach(0..<Lineup.inningCount, id: \.self) { i in
                         Button {
                             selectedLastInning = i
                         } label: {
@@ -772,7 +764,7 @@ struct WarningsView: View {
         for player in activePlayers {
             if store.lineup.innings[inning].position(for: player) == .bench {
                 let prevBench = inning > 0 && store.lineup.innings[inning - 1].position(for: player) == .bench
-                let nextBench = inning < 6 && store.lineup.innings[inning + 1].position(for: player) == .bench
+                let nextBench = inning < Lineup.inningCount - 1 && store.lineup.innings[inning + 1].position(for: player) == .bench
                 if prevBench {
                     warnings.append("\(player.displayName): back-to-back bench (inn \(inning) & \(inning + 1))")
                 } else if nextBench {
@@ -829,7 +821,7 @@ struct PlayerInningRow: View {
     var hasConsecutiveBenchWarning: Bool {
         guard currentPosition == .bench else { return false }
         let prevBench = inning > 0 && store.lineup.innings[inning - 1].position(for: player) == .bench
-        let nextBench = inning < 6 && store.lineup.innings[inning + 1].position(for: player) == .bench
+        let nextBench = inning < Lineup.inningCount - 1 && store.lineup.innings[inning + 1].position(for: player) == .bench
         return prevBench || nextBench
     }
 

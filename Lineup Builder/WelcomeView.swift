@@ -343,7 +343,7 @@ struct AutoFillContextTip: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Make Auto-Fill Smarter")
                             .font(.subheadline.bold())
-                        Text("Auto-Fill already works — but it gets a lot better when you set position preferences for each player.")
+                        Text("Auto-Fill uses position preferences for each player to buid better rosters.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -470,8 +470,6 @@ enum AppPage {
                         text: "Set position preferences for each player: Strength positions are tried first by Auto-Fill, Capable next, Emergency as a last resort, and Never positions are never assigned."),
                 PageTip(icon: "bolt.fill", iconColor: .blue,
                         text: "Position preferences feed directly into Auto-Fill — the more accurately you tag each player, the smarter the automatic lineups."),
-                PageTip(icon: "line.3.horizontal", iconColor: Color(.secondaryLabel),
-                        text: "Tap Edit in the top left to reorder or delete players by swiping left on a row."),
                 PageTip(icon: "paintpalette.fill", iconColor: .pink,
                         text: "Tap the Team Name row to open Edit Team, where you can update your team name and color. Your color appears on all exported PDFs."),
                 PageTip(icon: "arrow.left.arrow.right", iconColor: .orange,
@@ -508,8 +506,6 @@ enum AppPage {
                         text: "Tap the bolt icon next to the title to auto-fill open positions. Choose to fill just the current inning, or select how many innings to fill — useful for shorter games. Auto-Fill respects each player's position preferences."),
                 PageTip(icon: "star.circle.fill", iconColor: .green,
                         text: "Auto-Fill is smarter when players have position preferences set. Open any player on the Players tab and tag positions as Strength, Capable, Emergency, or Never."),
-                PageTip(icon: "strikethrough", iconColor: Color(.secondaryLabel),
-                        text: "In the Summary dropdown, your already-assigned position appears with a strikethrough so you can see it at a glance."),
                 PageTip(icon: "clock", iconColor: .purple,
                         text: "Assign ABS to any inning for a player who arrives late or leaves early. ABS innings count as filled and won't trigger open-position warnings, but the player still needs 1 infield and 1 outfield inning among the innings they do play."),
                 PageTip(icon: "checkmark.circle.fill", iconColor: .green,
@@ -529,7 +525,7 @@ enum AppPage {
                 PageTip(icon: "square.grid.3x3.fill", iconColor: .teal,
                         text: "The Team tab shows a full position coverage grid — blue dots are positions played, amber rings are gaps, and striped dots are Never positions. Use it to spot patterns across the whole roster at once."),
                 PageTip(icon: "chart.bar.fill", iconColor: .red,
-                        text: "The Team tab also shows a bench innings chart sorted by most to least — a quick fairness check across all your players."),
+                        text: "The Team tab also shows a bench innings chart sorted by most to least."),
                 PageTip(icon: "sparkles", iconColor: .purple,
                         text: "AI Coaching Insights appear at the top of the Players tab after 2 or more games are archived. They analyze bench time, infield/outfield balance, and playing time across your season."),
                 PageTip(icon: "clock.arrow.circlepath", iconColor: .teal,

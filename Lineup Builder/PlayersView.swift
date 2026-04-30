@@ -326,7 +326,7 @@ struct PlayerFormView: View {
                         .textContentType(.familyName)
                         .autocorrectionDisabled()
 
-                    TextField("Jersey Number (Optional)", text: $number)
+                    TextField("Jersey Number", text: $number)
                         .keyboardType(.numberPad)
 
                     LeagueAgeField(leagueAge: $leagueAge)

@@ -52,6 +52,17 @@
                ReferencedContainer = "container:Lineup Builder.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "728924FD2FA11FCC0088F25D"
+               BuildableName = "StackTheLineupTests.xctest"
+               BlueprintName = "StackTheLineupTests"
+               ReferencedContainer = "container:Lineup Builder.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

@@ -46,9 +46,7 @@ struct PositionSummaryView: View {
     // MARK: - Derived Data
 
     var displayPlayers: [Player] {
-        let active = store.lineup.activePlayers(from: store.players)
-        let ordered = store.lineup.orderedPlayers(from: active)
-        return ordered.isEmpty ? active : ordered
+        store.lineup.displayPlayers(from: store.players)
     }
 
     var inningCount: Int { store.lineup.innings.count }
@@ -529,12 +527,7 @@ struct PositionSummaryView: View {
         let underMinimum = store.lineup.playersUnderFieldingMinimum(players: activePlayers)
         let hasAssignments = store.lineup.innings.contains(where: { !$0.assignments.isEmpty })
 
-        let consecutiveBenchPlayers: [Player] = activePlayers.filter { player in
-            (0..<6).contains(where: { i in
-                store.lineup.innings[i].position(for: player) == .bench &&
-                store.lineup.innings[i + 1].position(for: player) == .bench
-            })
-        }
+        let consecutiveBenchPlayers = store.lineup.playersWithBackToBackBench(from: store.players)
 
         if !noInfield.isEmpty || !noOutfield.isEmpty || !consecutiveBenchPlayers.isEmpty || !underMinimum.isEmpty {
             VStack(alignment: .leading, spacing: 10) {

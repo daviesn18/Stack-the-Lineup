@@ -206,10 +206,16 @@ enum LineupStatus: String, Codable, Sendable {
 // MARK: - Lineup
 
 struct Lineup: Codable, Sendable {
+    /// Number of innings in a standard game. Hardcoded for now — when v2.4 ships
+    /// configurable league rules, this becomes a per-team value on FairPlayConfig
+    /// and call sites read from `team.fairPlayConfig.inningCount` instead.
+    /// Until then, this constant is the single source of truth.
+    static let inningCount = 7
+
     var gameDate: Date = Date()
     var opponent: String = ""
     var battingOrder: [UUID] = []
-    var innings: [InningAssignment] = Array(repeating: InningAssignment(), count: 7)
+    var innings: [InningAssignment] = Array(repeating: InningAssignment(), count: Lineup.inningCount)
     var absentPlayerIDs: Set<UUID> = []
     /// Soft status — Draft by default. Finalized is a coach-set signal that the
     /// lineup is locked in. Any mutation to positions, batting order, or game info
@@ -221,7 +227,7 @@ struct Lineup: Codable, Sendable {
         gameDate: Date = Date(),
         opponent: String = "",
         battingOrder: [UUID] = [],
-        innings: [InningAssignment] = Array(repeating: InningAssignment(), count: 7),
+        innings: [InningAssignment] = Array(repeating: InningAssignment(), count: Lineup.inningCount),
         absentPlayerIDs: Set<UUID> = [],
         status: LineupStatus = .draft
     ) {
@@ -241,7 +247,7 @@ struct Lineup: Codable, Sendable {
         gameDate        = (try? c.decode(Date.self,               forKey: .gameDate))        ?? Date()
         opponent        = (try? c.decode(String.self,             forKey: .opponent))        ?? ""
         battingOrder    = (try? c.decode([UUID].self,             forKey: .battingOrder))    ?? []
-        innings         = (try? c.decode([InningAssignment].self, forKey: .innings))         ?? Array(repeating: InningAssignment(), count: 7)
+        innings         = (try? c.decode([InningAssignment].self, forKey: .innings))         ?? Array(repeating: InningAssignment(), count: Lineup.inningCount)
         absentPlayerIDs = (try? c.decode(Set<UUID>.self,          forKey: .absentPlayerIDs)) ?? []
         // status is new in 2.2 — old data won't have this key, default to .draft
         status          = (try? c.decode(LineupStatus.self,       forKey: .status))          ?? .draft
@@ -302,8 +308,36 @@ struct Lineup: Codable, Sendable {
 
     nonisolated func hasConsecutiveBench(player: Player, assigningBenchToInning inningIndex: Int) -> Bool {
         if inningIndex > 0 && innings[inningIndex - 1].position(for: player) == .bench { return true }
-        if inningIndex < 6 && innings[inningIndex + 1].position(for: player) == .bench { return true }
+        if inningIndex < Lineup.inningCount - 1 && innings[inningIndex + 1].position(for: player) == .bench { return true }
         return false
+    }
+
+    /// True if the player is already assigned to bench in two adjacent innings anywhere
+    /// in the lineup. Observational — checks existing assignments. Distinct from
+    /// hasConsecutiveBench(player:assigningBenchToInning:), which is predictive
+    /// ("would assigning bench here create a back-to-back").
+    nonisolated func hasBackToBackBench(player: Player) -> Bool {
+        (0..<Lineup.inningCount - 1).contains { i in
+            innings[i].position(for: player) == .bench &&
+            innings[i + 1].position(for: player) == .bench
+        }
+    }
+
+    /// All active (non-absent) players currently in a back-to-back bench situation.
+    /// Used by all game-wide fair play warning surfaces.
+    nonisolated func playersWithBackToBackBench(from players: [Player]) -> [Player] {
+        activePlayers(from: players).filter { hasBackToBackBench(player: $0) }
+    }
+
+    /// True when the active lineup is finalized AND its game date is before today.
+    /// Used by the archive nudge in ContentView and the History tab's
+    /// "ready to archive" empty-state branch in GameLogsView. Centralized so
+    /// both surfaces stay in lock-step if the rule ever changes (e.g., grace
+    /// period for late-night games).
+    nonisolated var isPastAndFinalized: Bool {
+        let today = Calendar.current.startOfDay(for: Date())
+        let gameDay = Calendar.current.startOfDay(for: gameDate)
+        return status == .finalized && gameDay < today
     }
 
     /// Returns active (non-absent) players who have fewer than 4 fielding innings assigned
@@ -332,6 +366,16 @@ struct Lineup: Codable, Sendable {
         battingOrder
             .filter { !absentPlayerIDs.contains($0) }
             .compactMap { id in players.first(where: { $0.id == id }) }
+    }
+
+    /// Active players in batting-order sequence, falling back to active players in
+    /// roster order when no batting order is set. Used by the Positions tab and
+    /// summary grid so they never render empty after a coach adds players but
+    /// before they've built a batting order.
+    nonisolated func displayPlayers(from players: [Player]) -> [Player] {
+        let active = activePlayers(from: players)
+        let ordered = orderedPlayers(from: active)
+        return ordered.isEmpty ? active : ordered
     }
 }
 
@@ -647,7 +691,7 @@ class LineupStore: ObservableObject {
         let log = GameLog(
             gameDate: activeTeam.lineup.gameDate,
             opponent: activeTeam.lineup.opponent,
-            inningsPlayed: max(1, min(7, inningsPlayed)),
+            inningsPlayed: max(1, min(Lineup.inningCount, inningsPlayed)),
             battingOrder: activeTeam.lineup.battingOrder,
             innings: activeTeam.lineup.innings,
             playerSnapshot: snapshot
@@ -726,7 +770,7 @@ class LineupStore: ObservableObject {
 
     func clearPositions() {
         revertToDraftIfFinalized()
-        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: 7)
+        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: Lineup.inningCount)
         save()
     }
 
@@ -738,7 +782,7 @@ class LineupStore: ObservableObject {
 
     func clearAll() {
         revertToDraftIfFinalized()
-        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: 7)
+        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: Lineup.inningCount)
         activeTeam.lineup.battingOrder = []
         save()
     }

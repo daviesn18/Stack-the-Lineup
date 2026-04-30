@@ -94,13 +94,6 @@ struct ContentView: View {
 
     // MARK: - Archive Nudge
 
-    /// Returns true if the active team's lineup is finalized with a past game date.
-    private var hasPastFinalizedGame: Bool {
-        let today = Calendar.current.startOfDay(for: Date())
-        let gameDay = Calendar.current.startOfDay(for: store.lineup.gameDate)
-        return store.lineup.status == .finalized && gameDay < today
-    }
-
     /// UserDefaults key scoped to the active team so each team gets independent suppression.
     private var nudgeDismissedKey: String {
         "nudge_dismissed_date_\(store.activeTeamID?.uuidString ?? "default")"
@@ -116,7 +109,7 @@ struct ContentView: View {
     private func checkArchiveNudge() {
         // Never stack nudge on top of welcome or whats-new sheets
         guard !showingWelcome, !showingWhatsNew else { return }
-        guard hasPastFinalizedGame else { return }
+        guard store.lineup.isPastAndFinalized else { return }
         guard !nudgeIsSuppressed else { return }
 
         // Count is always 1 with the current single-lineup model.
