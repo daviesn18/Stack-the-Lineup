@@ -17,6 +17,7 @@ struct ArchiveGameSheet: View {
     @State private var inningsPlayed: Int = 7
     @State private var showingConfirmation = false
     @State private var archivedOpponent: String = ""
+    @State private var didInitializeInnings = false
 
     private var hasAnyAssignments: Bool {
         store.lineup.innings.contains { !$0.assignments.isEmpty }
@@ -61,7 +62,7 @@ struct ArchiveGameSheet: View {
 
                 // Innings Played
                 Section {
-                    Stepper(value: $inningsPlayed, in: 1...Lineup.inningCount) {
+                    Stepper(value: $inningsPlayed, in: 1...store.gameInningCount) {
                         HStack {
                             Text("Innings Played")
                             Spacer()
@@ -118,6 +119,12 @@ struct ArchiveGameSheet: View {
                 Button("Done") { dismiss() }
             } message: {
                 Text("vs. \(archivedOpponent) has been saved to your game history. Defensive positions have been cleared.")
+            }
+            .onAppear {
+                if !didInitializeInnings {
+                    inningsPlayed = store.gameInningCount
+                    didInitializeInnings = true
+                }
             }
         }
     }

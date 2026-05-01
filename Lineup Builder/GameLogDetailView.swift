@@ -39,7 +39,7 @@ struct GameLogDetailView: View {
                         Divider().padding(.vertical, 6)
                         infoRow(label: "Opponent", value: log.opponent.isEmpty ? "No Opponent" : log.opponent)
                         Divider().padding(.vertical, 6)
-                        infoRow(label: "Innings Played", value: "\(log.inningsPlayed) of \(Lineup.inningCount)")
+                        infoRow(label: "Innings Played", value: "\(log.inningsPlayed) of \(log.innings.count)")
                         Divider().padding(.vertical, 6)
                         infoRow(label: "Archived", value: archivedAtString, valueFont: .caption)
                     }
@@ -152,7 +152,7 @@ struct ArchivedPositionGridView: View {
                         .padding(.leading, 12)
                         .padding(.vertical, 8)
 
-                    ForEach(0..<Lineup.inningCount, id: \.self) { i in
+                    ForEach(0..<log.innings.count, id: \.self) { i in
                         let played = i < log.inningsPlayed
                         Text("\(i + 1)")
                             .font(.caption.bold())
@@ -184,7 +184,7 @@ struct ArchivedPositionGridView: View {
                             .padding(.vertical, 6)
 
                             // Inning cells
-                            ForEach(0..<Lineup.inningCount, id: \.self) { inningIndex in
+                            ForEach(0..<log.innings.count, id: \.self) { inningIndex in
                                 let played = inningIndex < log.inningsPlayed
                                 let position = log.innings[inningIndex].assignments[snap.id]
 

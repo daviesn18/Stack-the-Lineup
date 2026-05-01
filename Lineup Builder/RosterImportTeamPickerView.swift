@@ -3,12 +3,8 @@ import SwiftUI
 // MARK: - RosterImportTeamPickerView
 // First step of the share-sheet roster import flow. Shown when a coach shares
 // a CSV/.stlroster file into the app and the parser successfully reads it.
-//
-// Asks: "Which team is this roster for?" with options for each existing team
-// plus a "Create new team" option. The picker is required even with a single
-// team because it doubles as a path to onboard a new team via roster import.
-//
-// In-app imports (via PlayersView's "Import Roster" button) skip this view —
+// Asks which team the roster belongs to, or offers to create a new team.
+// In-app imports (via PlayersView's "Import Roster" button) skip this entirely —
 // they import into the active team without a picker since context is implicit.
 
 struct RosterImportTeamPickerView: View {
@@ -22,7 +18,7 @@ struct RosterImportTeamPickerView: View {
     let onCancel: () -> Void
 
     @State private var selectedTeamID: UUID?
-    @State private var creatingNewTeam: Bool = false
+    @State private var creatingNewTeam = false
 
     var body: some View {
         NavigationStack {
@@ -123,9 +119,6 @@ struct RosterImportTeamPickerView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Continue") {
                         if creatingNewTeam {
-                            // Dismiss this sheet, then trigger the state transition
-                            // after a beat. SwiftUI doesn't animate two simultaneous
-                            // sheet swaps cleanly.
                             dismiss()
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                 onCreateNewTeam()

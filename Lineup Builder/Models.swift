@@ -218,10 +218,11 @@ enum LineupStatus: String, Codable, Sendable {
 // MARK: - Lineup
 
 struct Lineup: Codable, Sendable {
-    /// Number of innings in a standard game. Hardcoded for now — when v2.4 ships
-    /// configurable league rules, this becomes a per-team value on FairPlayConfig
-    /// and call sites read from `team.fairPlayConfig.inningCount` instead.
-    /// Until then, this constant is the single source of truth.
+    /// Default inning count used when constructing a Lineup without team context
+    /// (e.g. the default `Lineup()` initializer or decode fallback). Per-team
+    /// inning count lives on `Team.gameInningCount`. The runtime source of truth
+    /// for any active lineup is its `innings.count` array length, so views and
+    /// game logic should iterate `innings.count` rather than this constant.
     static let inningCount = 7
 
     var gameDate: Date = Date()
@@ -320,7 +321,7 @@ struct Lineup: Codable, Sendable {
 
     nonisolated func hasConsecutiveBench(player: Player, assigningBenchToInning inningIndex: Int) -> Bool {
         if inningIndex > 0 && innings[inningIndex - 1].position(for: player) == .bench { return true }
-        if inningIndex < Lineup.inningCount - 1 && innings[inningIndex + 1].position(for: player) == .bench { return true }
+        if inningIndex < innings.count - 1 && innings[inningIndex + 1].position(for: player) == .bench { return true }
         return false
     }
 
@@ -329,7 +330,7 @@ struct Lineup: Codable, Sendable {
     /// hasConsecutiveBench(player:assigningBenchToInning:), which is predictive
     /// ("would assigning bench here create a back-to-back").
     nonisolated func hasBackToBackBench(player: Player) -> Bool {
-        (0..<Lineup.inningCount - 1).contains { i in
+        (0..<innings.count - 1).contains { i in
             innings[i].position(for: player) == .bench &&
             innings[i + 1].position(for: player) == .bench
         }
@@ -352,11 +353,12 @@ struct Lineup: Codable, Sendable {
         return status == .finalized && gameDay < today
     }
 
-    /// Returns active (non-absent) players who have fewer than 4 fielding innings assigned
-    /// across all 7 innings. Only fires when all 7 innings are fully planned (i.e., every
-    /// active player has an assignment in every inning). Absent-position innings are exempt
-    /// from the minimum — they don't count for or against the player's fielding total.
-    /// Players who have any innings marked ABS are fully exempt from this rule.
+    /// Returns active (non-absent) players who have fewer than `minimumInnings` fielding
+    /// innings assigned across all innings in the lineup. Only fires when every inning is
+    /// fully planned (i.e., every active player has an assignment in every inning).
+    /// Absent-position innings are exempt from the minimum — they don't count for or
+    /// against the player's fielding total. Players who have any innings marked ABS are
+    /// fully exempt from this rule.
     nonisolated func playersUnderFieldingMinimum(players: [Player], minimumInnings: Int = 4) -> [Player] {
         let active = activePlayers(from: players)
         guard !active.isEmpty else { return [] }
@@ -466,20 +468,79 @@ struct Team: Identifiable, Codable {
     var lineup: Lineup = Lineup()
     var gameLogs: [GameLog] = []
     var createdAt: Date = Date()
+    /// Per-team game length. Common values: 5 (younger divisions), 6 (Cal Ripken Minor),
+    /// 7 (Little League Majors+). Drives the size of new lineups created via clearAll(),
+    /// clearPositions(), and the inningsPlayed clamp at archive time. Existing archived
+    /// games keep their original inning count baked into the GameLog. Migrates to 7
+    /// for any team decoded without this key.
+    var gameInningCount: Int = 7
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
         set { colorHex = newValue.toHex() ?? "0000FF" }
     }
+
+    // Explicit memberwise init — required because defining init(from:) below
+    // suppresses the compiler-synthesized memberwise initializer.
+    init(
+        id: UUID = UUID(),
+        name: String = "",
+        colorHex: String = "0000FF",
+        players: [Player] = [],
+        lineup: Lineup = Lineup(),
+        gameLogs: [GameLog] = [],
+        createdAt: Date = Date(),
+        gameInningCount: Int = 7
+    ) {
+        self.id = id
+        self.name = name
+        self.colorHex = colorHex
+        self.players = players
+        self.lineup = lineup
+        self.gameLogs = gameLogs
+        self.createdAt = createdAt
+        self.gameInningCount = gameInningCount
+    }
+
+    // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
+    // include it. Default to 7 so existing teams keep working unchanged.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id              = (try? c.decode(UUID.self,        forKey: .id))              ?? UUID()
+        name            = (try? c.decode(String.self,      forKey: .name))            ?? ""
+        colorHex        = (try? c.decode(String.self,      forKey: .colorHex))        ?? "0000FF"
+        players         = (try? c.decode([Player].self,    forKey: .players))         ?? []
+        lineup          = (try? c.decode(Lineup.self,      forKey: .lineup))          ?? Lineup()
+        gameLogs        = (try? c.decode([GameLog].self,   forKey: .gameLogs))        ?? []
+        createdAt       = (try? c.decode(Date.self,        forKey: .createdAt))       ?? Date()
+        gameInningCount = (try? c.decode(Int.self,         forKey: .gameInningCount)) ?? 7
+    }
 }
 
 // MARK: - Store
+
+/// State machine for the share-sheet roster import flow. Owned by LineupStore.
+enum PendingRosterImport {
+    case none
+    case awaitingTeamSelection(filename: String, players: [RosterImporter.ImportedPlayer])
+    case awaitingNewTeamCreation(filename: String, players: [RosterImporter.ImportedPlayer])
+    case readyForPreview(filename: String, players: [RosterImporter.ImportedPlayer], targetTeamID: UUID)
+
+    var isActive: Bool {
+        if case .none = self { return false }
+        return true
+    }
+}
 
 class LineupStore: ObservableObject {
 
     // MARK: - Published State
     @Published var teams: [Team] = []
     @Published var activeTeamID: UUID?
+    /// Drives the share-sheet roster import flow. Set when the app receives a
+    /// CSV/.stlroster file via .onOpenURL. ContentView observes this and presents
+    /// the team-picker and preview chain.
+    @Published var pendingRosterImport: PendingRosterImport = .none
 
     // MARK: - Active Team Accessor
     var activeTeam: Team {
@@ -495,11 +556,12 @@ class LineupStore: ObservableObject {
 
     // MARK: - Passthrough Vars
     // These keep existing views working without changes for now.
-    var players: [Player]   { activeTeam.players }
-    var lineup: Lineup      { activeTeam.lineup }
-    var gameLogs: [GameLog] { activeTeam.gameLogs }
-    var teamName: String    { activeTeam.name }
-    var teamColor: Color    { activeTeam.color }
+    var players: [Player]    { activeTeam.players }
+    var lineup: Lineup       { activeTeam.lineup }
+    var gameLogs: [GameLog]  { activeTeam.gameLogs }
+    var teamName: String     { activeTeam.name }
+    var teamColor: Color     { activeTeam.color }
+    var gameInningCount: Int { activeTeam.gameInningCount }
 
     // MARK: - Constants
     private let teamsKey      = "stl_teams"
@@ -703,7 +765,7 @@ class LineupStore: ObservableObject {
         let log = GameLog(
             gameDate: activeTeam.lineup.gameDate,
             opponent: activeTeam.lineup.opponent,
-            inningsPlayed: max(1, min(Lineup.inningCount, inningsPlayed)),
+            inningsPlayed: max(1, min(activeTeam.gameInningCount, inningsPlayed)),
             battingOrder: activeTeam.lineup.battingOrder,
             innings: activeTeam.lineup.innings,
             playerSnapshot: snapshot
@@ -737,6 +799,18 @@ class LineupStore: ObservableObject {
         activeTeam.players.append(player)
         // Automatically add to bottom of batting order
         if !activeTeam.lineup.battingOrder.contains(player.id) {
+            activeTeam.lineup.battingOrder.append(player.id)
+        }
+        save()
+    }
+
+    /// Bulk-add players in a single save. Used by roster import to avoid
+    /// triggering an iCloud KV write per player. Each new player is appended
+    /// to the bottom of the batting order in the same order they appear here.
+    func addPlayers(_ players: [Player]) {
+        guard !players.isEmpty else { return }
+        activeTeam.players.append(contentsOf: players)
+        for player in players where !activeTeam.lineup.battingOrder.contains(player.id) {
             activeTeam.lineup.battingOrder.append(player.id)
         }
         save()
@@ -782,7 +856,7 @@ class LineupStore: ObservableObject {
 
     func clearPositions() {
         revertToDraftIfFinalized()
-        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: Lineup.inningCount)
+        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: activeTeam.gameInningCount)
         save()
     }
 
@@ -794,7 +868,7 @@ class LineupStore: ObservableObject {
 
     func clearAll() {
         revertToDraftIfFinalized()
-        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: Lineup.inningCount)
+        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: activeTeam.gameInningCount)
         activeTeam.lineup.battingOrder = []
         save()
     }
@@ -853,6 +927,36 @@ class LineupStore: ObservableObject {
 
     func updateTeamColor(_ color: Color) {
         activeTeam.color = color
+        save()
+    }
+
+    /// Updates a team's game inning count and resizes its lineup's innings array
+    /// to match. If teamID is nil, defaults to the active team.
+    /// If the new count is smaller, trailing innings are dropped. If larger,
+    /// empty innings are appended. Past archived games are not affected.
+    func updateGameInningCount(_ newCount: Int, for teamID: UUID? = nil) {
+        let clamped = max(1, min(9, newCount))
+        let targetID = teamID ?? activeTeamID
+        guard let targetID = targetID,
+              let idx = teams.firstIndex(where: { $0.id == targetID }) else { return }
+        guard clamped != teams[idx].gameInningCount else { return }
+
+        teams[idx].gameInningCount = clamped
+
+        let currentInnings = teams[idx].lineup.innings.count
+        if clamped < currentInnings {
+            teams[idx].lineup.innings = Array(teams[idx].lineup.innings.prefix(clamped))
+            if targetID == activeTeamID {
+                revertToDraftIfFinalized()
+            } else if teams[idx].lineup.status == .finalized {
+                teams[idx].lineup.status = .draft
+            }
+        } else if clamped > currentInnings {
+            let toAdd = clamped - currentInnings
+            teams[idx].lineup.innings.append(contentsOf: Array(repeating: InningAssignment(), count: toAdd))
+        }
+
+        Analytics.signal("team.gameInningCount.changed", parameters: ["count": "\(clamped)"])
         save()
     }
 

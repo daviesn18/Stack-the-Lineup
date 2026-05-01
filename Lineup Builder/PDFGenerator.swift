@@ -103,13 +103,13 @@ class PDFGenerator {
         // Grid dimensions
         let gridLeft = margin + 120    // space for player name
         let gridRight = pageWidth - margin
-        let colWidth = (gridRight - gridLeft) / CGFloat(Lineup.inningCount)
+        let colWidth = (gridRight - gridLeft) / CGFloat(lineup.innings.count)
         let rowHeight: CGFloat = 26
 
         // Draw inning header row
         drawText("Player", x: margin, y: y + 6, font: .boldSystemFont(ofSize: 10), color: .darkGray)
 
-        for inning in 0..<Lineup.inningCount {
+        for inning in 0..<lineup.innings.count {
             // Inning header cell
             let headerRect = CGRect(x: gridLeft + CGFloat(inning) * colWidth, y: y, width: colWidth - 2, height: rowHeight)
             UIColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0).setFill()
@@ -131,7 +131,7 @@ class PDFGenerator {
             drawText(player.displayName, x: margin + 22, y: y + 7, font: .systemFont(ofSize: 10), color: .black)
 
             // Position cells
-            for inning in 0..<Lineup.inningCount {
+            for inning in 0..<lineup.innings.count {
                 let cellX = gridLeft + CGFloat(inning) * colWidth
                 let cellRect = CGRect(x: cellX + 1, y: y + 2, width: colWidth - 3, height: rowHeight - 4)
 

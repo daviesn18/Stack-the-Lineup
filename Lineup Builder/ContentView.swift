@@ -11,6 +11,26 @@ struct ContentView: View {
     @State private var showingWhatsNew = false
     @State private var whatsNewContent: WhatsNewContent? = nil
 
+    // Share-sheet roster import flow
+    @State private var showingImportTeamPicker = false
+    @State private var showingImportTeamForm = false
+    @State private var showingImportPreview = false
+    @State private var rosterImportError: RosterImportError?
+    @State private var teamIDsBeforeNewTeamSheet: Set<UUID> = []
+    @State private var shareSheetCompletionPrompt: ShareSheetCompletionPrompt?
+    @State private var playerToEditFromShareSheet: Player?
+
+    private struct RosterImportError: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+
+    private struct ShareSheetCompletionPrompt: Identifiable {
+        let id = UUID()
+        let count: Int
+        let firstImportedPlayerID: UUID?
+    }
+
     // Tab selection — used to navigate to History when coach taps "Go to History"
     // in the multi-game nudge. 0=Players 1=Lineup 2=Positions 3=History
     @State private var selectedTab: Int = 1
@@ -73,6 +93,61 @@ struct ContentView: View {
             ArchiveGameSheet()
                 .environmentObject(store)
         }
+        .sheet(isPresented: $showingImportTeamPicker) {
+            RosterImportTeamPickerView(
+                filename: importFilename ?? "",
+                playerCount: importPlayerCount,
+                onPickExistingTeam: { teamID in advanceToPreview(targetTeamID: teamID) },
+                onCreateNewTeam: {
+                    teamIDsBeforeNewTeamSheet = Set(store.teams.map { $0.id })
+                    if case .awaitingTeamSelection(let f, let p) = store.pendingRosterImport {
+                        store.pendingRosterImport = .awaitingNewTeamCreation(filename: f, players: p)
+                    }
+                    showingImportTeamForm = true
+                },
+                onCancel: { cancelPendingImport() }
+            )
+            .environmentObject(store)
+        }
+        .sheet(isPresented: $showingImportTeamForm, onDismiss: handleNewTeamSheetDismissed) {
+            TeamFormView(mode: .add)
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showingImportPreview) {
+            if let filename = importFilename, let players = importPlayers {
+                RosterImportView(parsedPlayers: players, sourceFilename: filename) { playersToImport in
+                    commitShareSheetImport(playersToImport)
+                }
+                .environmentObject(store)
+            }
+        }
+        .sheet(item: $shareSheetCompletionPrompt) { prompt in
+            RosterCompletionPromptView(importedCount: prompt.count) {
+                if let firstID = prompt.firstImportedPlayerID,
+                   let player = store.players.first(where: { $0.id == firstID }) {
+                    playerToEditFromShareSheet = player
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $playerToEditFromShareSheet) { player in
+            PlayerFormView(mode: .edit(player))
+                .environmentObject(store)
+        }
+        .alert(item: $rosterImportError) { wrapper in
+            Alert(
+                title: Text("Couldn't Import Roster"),
+                message: Text(wrapper.message),
+                dismissButton: .default(Text("OK")) { cancelPendingImport() }
+            )
+        }
+        .onOpenURL { url in
+            handleIncomingRosterURL(url)
+        }
+        .onChange(of: store.pendingRosterImport.isActive) { _, isActive in
+            if isActive { selectedTab = 0 }
+        }
         .alert(nudgeAlertTitle, isPresented: $showingNudge) {
             nudgeAlertButtons
         } message: {
@@ -90,6 +165,91 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Share-Sheet Roster Import
+
+    private var importFilename: String? {
+        switch store.pendingRosterImport {
+        case .none: return nil
+        case .awaitingTeamSelection(let f, _),
+             .awaitingNewTeamCreation(let f, _),
+             .readyForPreview(let f, _, _): return f
+        }
+    }
+
+    private var importPlayers: [RosterImporter.ImportedPlayer]? {
+        switch store.pendingRosterImport {
+        case .none: return nil
+        case .awaitingTeamSelection(_, let p),
+             .awaitingNewTeamCreation(_, let p),
+             .readyForPreview(_, let p, _): return p
+        }
+    }
+
+    private var importPlayerCount: Int { importPlayers?.count ?? 0 }
+
+    private func handleIncomingRosterURL(_ url: URL) {
+        let needsScope = url.startAccessingSecurityScopedResource()
+        defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
+        Analytics.signal("roster.import.shared", parameters: ["extension": url.pathExtension.lowercased()])
+        let filename = url.lastPathComponent
+        do {
+            let data = try Data(contentsOf: url)
+            switch RosterImporter.parse(data: data, filename: filename) {
+            case .success(let players):
+                if store.teams.isEmpty {
+                    teamIDsBeforeNewTeamSheet = []
+                    store.pendingRosterImport = .awaitingNewTeamCreation(filename: filename, players: players)
+                    showingImportTeamForm = true
+                } else {
+                    store.pendingRosterImport = .awaitingTeamSelection(filename: filename, players: players)
+                    showingImportTeamPicker = true
+                }
+            case .failure(let err):
+                Analytics.signal("roster.import.failed", parameters: ["reason": "\(err)"])
+                rosterImportError = RosterImportError(message: err.errorDescription ?? "Unknown error.")
+            }
+        } catch {
+            Analytics.signal("roster.import.failed", parameters: ["reason": "read_error"])
+            rosterImportError = RosterImportError(message: "Couldn't read the file. Try again.")
+        }
+    }
+
+    private func advanceToPreview(targetTeamID: UUID) {
+        guard let filename = importFilename, let players = importPlayers else { return }
+        if store.activeTeamID != targetTeamID { store.switchTeam(to: targetTeamID) }
+        store.pendingRosterImport = .readyForPreview(filename: filename, players: players, targetTeamID: targetTeamID)
+        showingImportPreview = true
+    }
+
+    private func handleNewTeamSheetDismissed() {
+        guard case .awaitingNewTeamCreation(let filename, let players) = store.pendingRosterImport else { return }
+        let currentIDs = Set(store.teams.map { $0.id })
+        let newTeamIDs = currentIDs.subtracting(teamIDsBeforeNewTeamSheet)
+        if let newID = newTeamIDs.first {
+            store.pendingRosterImport = .readyForPreview(filename: filename, players: players, targetTeamID: newID)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showingImportPreview = true }
+        } else {
+            cancelPendingImport()
+        }
+    }
+
+    private func commitShareSheetImport(_ imported: [RosterImporter.ImportedPlayer]) {
+        guard !imported.isEmpty else { cancelPendingImport(); return }
+        let newPlayers = imported.map { Player(firstName: $0.firstName, lastName: $0.lastName, number: $0.jerseyNumber) }
+        store.addPlayers(newPlayers)
+        Analytics.signal("roster.import.completed", parameters: ["count": "\(newPlayers.count)", "source": "share_sheet"])
+        let count = newPlayers.count
+        let firstID = newPlayers.first?.id
+        cancelPendingImport()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            shareSheetCompletionPrompt = ShareSheetCompletionPrompt(count: count, firstImportedPlayerID: firstID)
+        }
+    }
+
+    private func cancelPendingImport() {
+        store.pendingRosterImport = .none
     }
 
     // MARK: - Archive Nudge

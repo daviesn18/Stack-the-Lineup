@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Players List
 
@@ -13,6 +14,29 @@ struct PlayersView: View {
     @State private var showingTips = false
     @State private var showingAddTeam = false
     @State private var showingEditTeam = false
+
+    // Roster import flow
+    @State private var showingFileImporter = false
+    @State private var parsedImport: ParsedImport?
+    @State private var importError: ImportErrorWrapper?
+    @State private var completionPrompt: CompletionPrompt?
+
+    private struct ParsedImport: Identifiable {
+        let id = UUID()
+        let filename: String
+        let players: [RosterImporter.ImportedPlayer]
+    }
+
+    private struct ImportErrorWrapper: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+
+    private struct CompletionPrompt: Identifiable {
+        let id = UUID()
+        let count: Int
+        let firstImportedPlayerID: UUID?
+    }
 
     var body: some View {
         NavigationStack {
@@ -90,6 +114,13 @@ struct PlayersView: View {
                         showingAddPlayer = true
                     } label: {
                         Label("Add Player", systemImage: "plus.circle.fill")
+                            .foregroundColor(.blue)
+                    }
+                    Button {
+                        Analytics.signal("roster.import.started")
+                        showingFileImporter = true
+                    } label: {
+                        Label("Import Roster", systemImage: "square.and.arrow.down")
                             .foregroundColor(.blue)
                     }
                 }
@@ -173,6 +204,80 @@ struct PlayersView: View {
             .sheet(isPresented: $showingEditTeam) {
                 TeamFormView(mode: .edit(store.activeTeamID ?? UUID()))
             }
+            .fileImporter(
+                isPresented: $showingFileImporter,
+                allowedContentTypes: [UTType.commaSeparatedText, UTType.data],
+                allowsMultipleSelection: false,
+                onCompletion: handleFileImporterResult
+            )
+            .sheet(item: $parsedImport) { parsed in
+                RosterImportView(
+                    parsedPlayers: parsed.players,
+                    sourceFilename: parsed.filename
+                ) { playersToImport in
+                    commitImport(playersToImport)
+                }
+                .environmentObject(store)
+            }
+            .sheet(item: $completionPrompt) { prompt in
+                RosterCompletionPromptView(importedCount: prompt.count) {
+                    if let firstID = prompt.firstImportedPlayerID,
+                       let player = store.players.first(where: { $0.id == firstID }) {
+                        playerToEdit = player
+                    }
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .alert(item: $importError) { wrapper in
+                Alert(
+                    title: Text("Couldn't Import Roster"),
+                    message: Text(wrapper.message),
+                    dismissButton: .default(Text("OK"))
+                )
+            }
+        }
+    }
+
+    // MARK: - Roster Import
+
+    private func handleFileImporterResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let needsScope = url.startAccessingSecurityScopedResource()
+            defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                let filename = url.lastPathComponent
+                switch RosterImporter.parse(data: data, filename: filename) {
+                case .success(let players):
+                    parsedImport = ParsedImport(filename: filename, players: players)
+                case .failure(let err):
+                    Analytics.signal("roster.import.failed", parameters: ["reason": "\(err)"])
+                    importError = ImportErrorWrapper(message: err.errorDescription ?? "Unknown error.")
+                }
+            } catch {
+                Analytics.signal("roster.import.failed", parameters: ["reason": "read_error"])
+                importError = ImportErrorWrapper(message: "Couldn't read the file. Try again.")
+            }
+        case .failure:
+            break
+        }
+    }
+
+    private func commitImport(_ imported: [RosterImporter.ImportedPlayer]) {
+        guard !imported.isEmpty else { return }
+        let newPlayers = imported.map { entry -> Player in
+            Player(firstName: entry.firstName, lastName: entry.lastName, number: entry.jerseyNumber)
+        }
+        store.addPlayers(newPlayers)
+        Analytics.signal("roster.import.completed", parameters: ["count": "\(newPlayers.count)"])
+
+        let count = newPlayers.count
+        let firstID = newPlayers.first?.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            completionPrompt = CompletionPrompt(count: count, firstImportedPlayerID: firstID)
         }
     }
 }
@@ -192,7 +297,18 @@ struct TeamFormView: View {
 
     @State private var teamName: String = ""
     @State private var teamColor: Color = .blue
+    @State private var gameInningCount: Int = 7
     @State private var showingDeleteConfirmation = false
+    @State private var showingShortenConfirmation = false
+    @State private var pendingInningCount: Int = 7
+
+    private var assignedInningsInLineup: Int {
+        guard isEditing, case .edit(let id) = mode,
+              let team = store.teams.first(where: { $0.id == id }) else { return 0 }
+        return team.lineup.innings.enumerated().reversed().first { _, inning in
+            !inning.assignments.isEmpty
+        }.map { $0.offset + 1 } ?? 0
+    }
 
     var isEditing: Bool {
         if case .edit = mode { return true }
@@ -216,6 +332,18 @@ struct TeamFormView: View {
                     }
 
                     ColorPicker("Team Color", selection: $teamColor, supportsOpacity: false)
+                }
+
+                Section {
+                    Picker("Game Length", selection: $gameInningCount) {
+                        ForEach(3...9, id: \.self) { count in
+                            Text("\(count) innings").tag(count)
+                        }
+                    }
+                } header: {
+                    Text("Game Settings")
+                } footer: {
+                    Text("Past archived games keep their original inning count.")
                 }
 
                 // Delete option — only in edit mode, only if more than 1 team exists
@@ -257,27 +385,55 @@ struct TeamFormView: View {
             } message: {
                 Text("This will permanently delete \"\(teamName)\" and all its data.")
             }
+            .confirmationDialog("Shorten game?", isPresented: $showingShortenConfirmation, titleVisibility: .visible) {
+                Button("Shorten to \(pendingInningCount) Innings", role: .destructive) {
+                    gameInningCount = pendingInningCount
+                    commitSave()
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingInningCount = gameInningCount
+                }
+            } message: {
+                Text("Your current lineup has positions assigned through inning \(assignedInningsInLineup). Shortening to \(pendingInningCount) innings will remove those assignments. Past archived games are not affected.")
+            }
             .onAppear {
                 if case .edit(let id) = mode,
                    let team = store.teams.first(where: { $0.id == id }) {
                     teamName = team.name
                     teamColor = team.color
+                    gameInningCount = team.gameInningCount
                 }
             }
         }
     }
 
     private func save() {
+        if isEditing,
+           case .edit(let id) = mode,
+           let team = store.teams.first(where: { $0.id == id }),
+           gameInningCount < team.gameInningCount,
+           assignedInningsInLineup > gameInningCount {
+            pendingInningCount = gameInningCount
+            gameInningCount = team.gameInningCount
+            showingShortenConfirmation = true
+            return
+        }
+        commitSave()
+    }
+
+    private func commitSave() {
         let trimmed = teamName.trimmingCharacters(in: .whitespaces)
         switch mode {
         case .add:
             store.addTeam(name: trimmed, color: teamColor)
+            store.updateGameInningCount(gameInningCount)
         case .edit(let id):
             if let idx = store.teams.firstIndex(where: { $0.id == id }) {
                 store.teams[idx].name = trimmed
                 store.teams[idx].color = teamColor
-                store.save()
             }
+            store.updateGameInningCount(gameInningCount, for: id)
+            store.save()
         }
         dismiss()
     }

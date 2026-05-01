@@ -139,7 +139,8 @@ struct PositionSummaryView: View {
         .popover(isPresented: $showingAutoFillPopover, arrowEdge: .top) {
             AutoFillPopover(
                 isSummary: true,
-                smartDefaultLastInning: smartDefaultLastInning
+                smartDefaultLastInning: smartDefaultLastInning,
+                inningCount: store.lineup.innings.count
             ) { scope in
                 if case .through(let last) = scope { onFillThrough(last) }
             }
