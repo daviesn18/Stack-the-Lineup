@@ -946,10 +946,11 @@ class LineupStore: ObservableObject {
         let currentInnings = teams[idx].lineup.innings.count
         if clamped < currentInnings {
             teams[idx].lineup.innings = Array(teams[idx].lineup.innings.prefix(clamped))
-            if targetID == activeTeamID {
-                revertToDraftIfFinalized()
-            } else if teams[idx].lineup.status == .finalized {
+            // Revert status directly on teams[idx] — avoids re-entrancy through
+            // the activeTeam computed property setter while teams is being mutated.
+            if teams[idx].lineup.status == .finalized {
                 teams[idx].lineup.status = .draft
+                Analytics.signal("lineup.reverted_to_draft", parameters: ["trigger": "inningCountReduced"])
             }
         } else if clamped > currentInnings {
             let toAdd = clamped - currentInnings

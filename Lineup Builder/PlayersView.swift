@@ -16,6 +16,7 @@ struct PlayersView: View {
     @State private var showingEditTeam = false
 
     // Roster import flow
+    @State private var showingImportInstructions = false
     @State private var showingFileImporter = false
     @State private var parsedImport: ParsedImport?
     @State private var importError: ImportErrorWrapper?
@@ -118,7 +119,7 @@ struct PlayersView: View {
                     }
                     Button {
                         Analytics.signal("roster.import.started")
-                        showingFileImporter = true
+                        showingImportInstructions = true
                     } label: {
                         Label("Import Roster", systemImage: "square.and.arrow.down")
                             .foregroundColor(.blue)
@@ -203,6 +204,13 @@ struct PlayersView: View {
             }
             .sheet(isPresented: $showingEditTeam) {
                 TeamFormView(mode: .edit(store.activeTeamID ?? UUID()))
+            }
+            .sheet(isPresented: $showingImportInstructions) {
+                RosterImportInstructionsView {
+                    showingFileImporter = true
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
             .fileImporter(
                 isPresented: $showingFileImporter,
