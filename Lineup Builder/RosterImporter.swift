@@ -26,6 +26,20 @@ enum RosterImporter {
         let firstName: String
         let lastName: String
         let jerseyNumber: String
+        /// Only present when importing from a .stlroster file
+        let leagueAge: Int?
+        /// Only present when importing from a .stlroster file.
+        /// Keys are FieldPosition.displayName, values are PositionPreferenceTier.rawValue
+        let positionPreferences: [String: String]
+
+        init(firstName: String, lastName: String, jerseyNumber: String,
+             leagueAge: Int? = nil, positionPreferences: [String: String] = [:]) {
+            self.firstName = firstName
+            self.lastName = lastName
+            self.jerseyNumber = jerseyNumber
+            self.leagueAge = leagueAge
+            self.positionPreferences = positionPreferences
+        }
 
         var displayName: String {
             let trimmed = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
@@ -118,7 +132,7 @@ enum RosterImporter {
         return .success(imported)
     }
 
-    // MARK: - .stlroster Parsing (stub — full impl ships with export task)
+    // MARK: - .stlroster Parsing (v1 schema)
 
     private struct STLRosterFile: Decodable {
         struct PlayerEntry: Decodable {
@@ -126,8 +140,11 @@ enum RosterImporter {
             let firstName: String?
             let lastName: String?
             let jerseyNumber: String?
+            let leagueAge: Int?
+            let positionPreferences: [String: String]?
         }
         let version: Int?
+        let teamName: String?
         let players: [PlayerEntry]
     }
 
@@ -151,7 +168,9 @@ enum RosterImporter {
                 return ImportedPlayer(
                     firstName: first,
                     lastName: last,
-                    jerseyNumber: (entry.jerseyNumber ?? "").trimmingCharacters(in: .whitespaces)
+                    jerseyNumber: (entry.jerseyNumber ?? "").trimmingCharacters(in: .whitespaces),
+                    leagueAge: entry.leagueAge,
+                    positionPreferences: entry.positionPreferences ?? [:]
                 )
             }
             guard !imported.isEmpty else { return .failure(.noValidPlayersFound) }

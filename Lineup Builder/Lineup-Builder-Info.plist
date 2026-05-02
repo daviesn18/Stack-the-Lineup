@@ -15,6 +15,7 @@
 			<array>
 				<string>public.comma-separated-values-text</string>
 				<string>com.stackthelineup.stlroster</string>
+				<string>com.stackthelineup.stlhistory</string>
 			</array>
 		</dict>
 	</array>

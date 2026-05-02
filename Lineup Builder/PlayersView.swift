@@ -22,6 +22,15 @@ struct PlayersView: View {
     @State private var importError: ImportErrorWrapper?
     @State private var completionPrompt: CompletionPrompt?
 
+    // Roster export flow
+    @State private var exportShareItem: ExportShareItem?
+
+    private struct ExportShareItem: Identifiable {
+        let id = UUID()
+        let data: Data
+        let filename: String
+    }
+
     private struct ParsedImport: Identifiable {
         let id = UUID()
         let filename: String
@@ -169,6 +178,13 @@ struct PlayersView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 16) {
+                        if !store.players.isEmpty {
+                            Button {
+                                exportRoster()
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                        }
                         if horizontalSizeClass != .regular {
                             Button {
                                 showingSettings = true
@@ -244,7 +260,24 @@ struct PlayersView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
+            .sheet(item: $exportShareItem) { item in
+                ShareSheet(items: [item.data], filename: item.filename)
+            }
         }
+    }
+
+    // MARK: - Roster Export
+
+    private func exportRoster() {
+        guard let data = RosterExporter.export(
+            players: store.players,
+            teamName: store.teamName
+        ) else { return }
+        let filename = RosterExporter.filename(teamName: store.teamName)
+        exportShareItem = ExportShareItem(data: data, filename: filename)
+        Analytics.signal("roster.export.completed", parameters: [
+            "playerCount": "\(store.players.count)"
+        ])
     }
 
     // MARK: - Roster Import
@@ -277,7 +310,26 @@ struct PlayersView: View {
     private func commitImport(_ imported: [RosterImporter.ImportedPlayer]) {
         guard !imported.isEmpty else { return }
         let newPlayers = imported.map { entry -> Player in
-            Player(firstName: entry.firstName, lastName: entry.lastName, number: entry.jerseyNumber)
+            var player = Player(
+                firstName: entry.firstName,
+                lastName: entry.lastName,
+                number: entry.jerseyNumber
+            )
+            // Apply rich data from .stlroster imports
+            if let age = entry.leagueAge {
+                player.leagueAge = age
+            }
+            if !entry.positionPreferences.isEmpty {
+                var prefs: [FieldPosition: PositionPreferenceTier] = [:]
+                for (posName, tierRaw) in entry.positionPreferences {
+                    if let pos = FieldPosition.allCases.first(where: { $0.displayName == posName }),
+                       let tier = PositionPreferenceTier(rawValue: tierRaw) {
+                        prefs[pos] = tier
+                    }
+                }
+                player.positionPreferences = prefs
+            }
+            return player
         }
         store.addPlayers(newPlayers)
         Analytics.signal("roster.import.completed", parameters: ["count": "\(newPlayers.count)"])
