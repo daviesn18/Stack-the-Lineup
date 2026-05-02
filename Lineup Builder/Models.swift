@@ -458,6 +458,28 @@ struct SeasonStats: Codable, Sendable {
     var dateRange: String
 }
 
+// MARK: - Scheduled Game
+
+/// A game imported from an iCal (.ics) subscription. Stored per-team.
+/// The icalUID is the stable dedup key — re-importing the same calendar
+/// updates existing records rather than creating duplicates.
+struct ScheduledGame: Identifiable, Codable {
+    var id: UUID = UUID()
+    /// Stable unique ID from the VEVENT UID field. Used for dedup on re-sync.
+    var icalUID: String
+    var date: Date
+    /// Parsed opponent name. Nil if SUMMARY didn't match any known pattern.
+    var opponent: String?
+    /// Raw LOCATION field value from the VEVENT.
+    var location: String?
+    /// Original SUMMARY field value, preserved for display if parsing fails.
+    var rawSummary: String
+    /// True if the VEVENT had STATUS:CANCELLED. Shown with strikethrough.
+    var isCancelled: Bool = false
+    /// When this record was last updated from a sync.
+    var lastSyncedAt: Date = Date()
+}
+
 // MARK: - Team
 
 struct Team: Identifiable, Codable {
@@ -474,6 +496,12 @@ struct Team: Identifiable, Codable {
     /// games keep their original inning count baked into the GameLog. Migrates to 7
     /// for any team decoded without this key.
     var gameInningCount: Int = 7
+    /// Games imported from an iCal subscription. Sorted by date ascending.
+    /// Re-syncing diffs by icalUID — existing records are updated, new ones appended.
+    var scheduledGames: [ScheduledGame] = []
+    /// The webcal:// or https:// URL the coach used to subscribe. Stored so
+    /// "Sync" can re-fetch without asking for the URL again.
+    var calendarSubscriptionURL: String? = nil
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -490,7 +518,9 @@ struct Team: Identifiable, Codable {
         lineup: Lineup = Lineup(),
         gameLogs: [GameLog] = [],
         createdAt: Date = Date(),
-        gameInningCount: Int = 7
+        gameInningCount: Int = 7,
+        scheduledGames: [ScheduledGame] = [],
+        calendarSubscriptionURL: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -500,20 +530,24 @@ struct Team: Identifiable, Codable {
         self.gameLogs = gameLogs
         self.createdAt = createdAt
         self.gameInningCount = gameInningCount
+        self.scheduledGames = scheduledGames
+        self.calendarSubscriptionURL = calendarSubscriptionURL
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
     // include it. Default to 7 so existing teams keep working unchanged.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id              = (try? c.decode(UUID.self,        forKey: .id))              ?? UUID()
-        name            = (try? c.decode(String.self,      forKey: .name))            ?? ""
-        colorHex        = (try? c.decode(String.self,      forKey: .colorHex))        ?? "0000FF"
-        players         = (try? c.decode([Player].self,    forKey: .players))         ?? []
-        lineup          = (try? c.decode(Lineup.self,      forKey: .lineup))          ?? Lineup()
-        gameLogs        = (try? c.decode([GameLog].self,   forKey: .gameLogs))        ?? []
-        createdAt       = (try? c.decode(Date.self,        forKey: .createdAt))       ?? Date()
-        gameInningCount = (try? c.decode(Int.self,         forKey: .gameInningCount)) ?? 7
+        id                       = (try? c.decode(UUID.self,            forKey: .id))                       ?? UUID()
+        name                     = (try? c.decode(String.self,          forKey: .name))                     ?? ""
+        colorHex                 = (try? c.decode(String.self,          forKey: .colorHex))                 ?? "0000FF"
+        players                  = (try? c.decode([Player].self,        forKey: .players))                  ?? []
+        lineup                   = (try? c.decode(Lineup.self,          forKey: .lineup))                   ?? Lineup()
+        gameLogs                 = (try? c.decode([GameLog].self,       forKey: .gameLogs))                 ?? []
+        createdAt                = (try? c.decode(Date.self,            forKey: .createdAt))                ?? Date()
+        gameInningCount          = (try? c.decode(Int.self,             forKey: .gameInningCount))          ?? 7
+        scheduledGames           = (try? c.decode([ScheduledGame].self, forKey: .scheduledGames))           ?? []
+        calendarSubscriptionURL  = (try? c.decode(String.self,         forKey: .calendarSubscriptionURL))
     }
 }
 
@@ -556,12 +590,14 @@ class LineupStore: ObservableObject {
 
     // MARK: - Passthrough Vars
     // These keep existing views working without changes for now.
-    var players: [Player]    { activeTeam.players }
-    var lineup: Lineup       { activeTeam.lineup }
-    var gameLogs: [GameLog]  { activeTeam.gameLogs }
-    var teamName: String     { activeTeam.name }
-    var teamColor: Color     { activeTeam.color }
-    var gameInningCount: Int { activeTeam.gameInningCount }
+    var players: [Player]                { activeTeam.players }
+    var lineup: Lineup                   { activeTeam.lineup }
+    var gameLogs: [GameLog]              { activeTeam.gameLogs }
+    var teamName: String                 { activeTeam.name }
+    var teamColor: Color                 { activeTeam.color }
+    var gameInningCount: Int             { activeTeam.gameInningCount }
+    var scheduledGames: [ScheduledGame]  { activeTeam.scheduledGames }
+    var calendarSubscriptionURL: String? { activeTeam.calendarSubscriptionURL }
 
     // MARK: - Constants
     private let teamsKey      = "stl_teams"
@@ -959,6 +995,72 @@ class LineupStore: ObservableObject {
 
         Analytics.signal("team.gameInningCount.changed", parameters: ["count": "\(clamped)"])
         save()
+    }
+
+    // MARK: - Schedule Management
+
+    /// Merges a parsed set of calendar events into the active team's scheduledGames.
+    /// Uses icalUID as the dedup key:
+    ///   - New UID → append
+    ///   - Existing UID, data changed → update in place
+    ///   - Existing UID, no change → skip
+    ///   - STATUS:CANCELLED in new data → mark isCancelled = true
+    /// Returns a summary tuple for the toast: (added, updated).
+    @discardableResult
+    func mergeScheduledGames(_ incoming: [ScheduledGame]) -> (added: Int, updated: Int) {
+        var added = 0
+        var updated = 0
+
+        for event in incoming {
+            if let idx = activeTeam.scheduledGames.firstIndex(where: { $0.icalUID == event.icalUID }) {
+                let existing = activeTeam.scheduledGames[idx]
+                let changed = existing.date != event.date
+                    || existing.opponent != event.opponent
+                    || existing.location != event.location
+                    || existing.isCancelled != event.isCancelled
+                if changed {
+                    activeTeam.scheduledGames[idx] = event
+                    activeTeam.scheduledGames[idx].id = existing.id // preserve stable SwiftUI identity
+                    updated += 1
+                }
+            } else {
+                activeTeam.scheduledGames.append(event)
+                added += 1
+            }
+        }
+
+        // Keep sorted by date ascending
+        activeTeam.scheduledGames.sort { $0.date < $1.date }
+        save()
+        return (added, updated)
+    }
+
+    /// Stores the webcal/https subscription URL on the active team.
+    func setCalendarSubscriptionURL(_ urlString: String) {
+        // Normalize webcal:// → https:// for URLSession compatibility
+        let normalized = urlString.replacingOccurrences(of: "webcal://", with: "https://")
+        activeTeam.calendarSubscriptionURL = normalized
+        save()
+    }
+
+    /// Removes all scheduled games from the active team and clears the URL.
+    func clearSchedule() {
+        activeTeam.scheduledGames = []
+        activeTeam.calendarSubscriptionURL = nil
+        save()
+        Analytics.signal("schedule.cleared")
+    }
+
+    /// Pre-fills the active lineup's date and opponent from a scheduled game.
+    /// Does not lock the fields — coach can still edit after selection.
+    func applyScheduledGame(_ game: ScheduledGame) {
+        revertToDraftIfFinalized()
+        activeTeam.lineup.gameDate = game.date
+        if let opponent = game.opponent {
+            activeTeam.lineup.opponent = opponent
+        }
+        save()
+        Analytics.signal("schedule.game.applied")
     }
 
     // MARK: - Team Management

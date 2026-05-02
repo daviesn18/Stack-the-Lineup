@@ -12,6 +12,9 @@ struct LineupView: View {
     @State private var showingTips = false
     @State private var showingPaywall = false
     @State private var lockedPDF: PDFDocument? = nil
+    @State private var showingScheduleImport = false
+    @State private var showingSchedulePicker = false
+    @State private var scheduleImportToast: String? = nil
 
     var orderedPlayers: [Player] {
         store.lineup.orderedPlayers(from: store.players)
@@ -51,6 +54,33 @@ struct LineupView: View {
 
             // MARK: - Game Info
             Section {
+                // Pick from schedule — shown only when a schedule has been imported
+                if !store.scheduledGames.isEmpty {
+                    Button {
+                        showingSchedulePicker = true
+                    } label: {
+                        HStack {
+                            Label("Pick from Schedule", systemImage: "calendar")
+                                .foregroundColor(.blue)
+                            Spacer()
+                            let startOfToday = Calendar.current.startOfDay(for: Date())
+                            let practiceKeywords = ["practice", "batting practice", "bp",
+                                "team practice", "infield", "skills", "clinic", "workout",
+                                "scrimmage", "tryout", "try-out", "warm-up", "warmup"]
+                            let upcoming = store.scheduledGames.filter { game in
+                                !game.isCancelled
+                                && game.date >= startOfToday
+                                && !practiceKeywords.contains(where: { game.rawSummary.lowercased().contains($0) })
+                            }.count
+                            Text("\(upcoming) game\(upcoming == 1 ? "" : "s")")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.bold())
+                                .foregroundColor(Color(.tertiaryLabel))
+                        }
+                    }
+                }
                 DatePicker("Game Date", selection: Binding(
                     get: { store.lineup.gameDate },
                     set: { store.updateGameDate($0) }
@@ -217,6 +247,47 @@ struct LineupView: View {
             PaywallView(source: "pdf_export")
                 .environmentObject(purchaseManager)
         }
+        .sheet(isPresented: $showingScheduleImport) {
+            ScheduleImportView { games, urlString in
+                let result = store.mergeScheduledGames(games)
+                if let url = urlString {
+                    store.setCalendarSubscriptionURL(url)
+                }
+                let total = result.added + result.updated
+                if total == 0 {
+                    scheduleImportToast = "Schedule is already up to date."
+                } else {
+                    var parts: [String] = []
+                    if result.added > 0 { parts.append("\(result.added) added") }
+                    if result.updated > 0 { parts.append("\(result.updated) updated") }
+                    scheduleImportToast = parts.joined(separator: ", ").capitalized + "."
+                }
+                // Clear toast after 3 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    scheduleImportToast = nil
+                }
+            }
+            .environmentObject(store)
+        }
+        .sheet(isPresented: $showingSchedulePicker) {
+            SchedulePickerView { game in
+                store.applyScheduledGame(game)
+            }
+            .environmentObject(store)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let toast = scheduleImportToast {
+                Text(toast)
+                    .font(.subheadline.bold())
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color(.label)))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.spring(duration: 0.35), value: scheduleImportToast)
+                    .padding(.bottom, 8)
+            }
+        }
         .navigationTitle("Lineup Builder")
         .navigationBarTitleDisplayMode(verticalSizeClass == .compact ? .inline : .large)
         .toolbar {
@@ -224,6 +295,12 @@ struct LineupView: View {
                 HStack(spacing: 16) {
                     Button { showingTips = true } label: {
                         Image(systemName: "info.circle")
+                    }
+                    Button {
+                        showingScheduleImport = true
+                        Analytics.signal("schedule.import.tapped")
+                    } label: {
+                        Image(systemName: "calendar.badge.plus")
                     }
                     Button { showingArchive = true } label: {
                         Label("Archive Game", systemImage: "archivebox")
