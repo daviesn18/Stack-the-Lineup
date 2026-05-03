@@ -14,17 +14,8 @@ struct SchedulePickerView: View {
     private var upcomingGames: [ScheduledGame] {
         let startOfToday = Calendar.current.startOfDay(for: Date())
         return store.scheduledGames
-            .filter { !$0.isCancelled && $0.date >= startOfToday && !isPractice($0.rawSummary) }
+            .filter { !$0.isCancelled && $0.date >= startOfToday && !ICalParser.isPractice($0.rawSummary) }
             .sorted { $0.date < $1.date }
-    }
-
-    /// Returns true if the summary looks like a practice rather than a game.
-    private func isPractice(_ summary: String) -> Bool {
-        let lower = summary.lowercased()
-        let keywords = ["practice", "batting practice", "bp", "team practice",
-                        "infield", "skills", "clinic", "workout", "scrimmage",
-                        "tryout", "try-out", "warm-up", "warmup"]
-        return keywords.contains(where: { lower.contains($0) })
     }
 
     /// Returns the active lineup status if the lineup's game date matches

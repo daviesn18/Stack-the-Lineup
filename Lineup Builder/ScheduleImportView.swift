@@ -320,7 +320,7 @@ struct ScheduleImportView: View {
         let startOfToday = Calendar.current.startOfDay(for: Date())
         return events.compactMap { event in
             guard event.date >= startOfToday else { return nil }
-            guard !isPractice(event.rawSummary) else { return nil }
+            guard !ICalParser.isPractice(event.rawSummary) else { return nil }
             return ScheduledGame(
                 icalUID: event.uid,
                 date: event.date,
@@ -331,15 +331,6 @@ struct ScheduleImportView: View {
             )
         }
         .sorted { $0.date < $1.date }
-    }
-
-    /// Returns true if the SUMMARY looks like a practice, not a game.
-    private func isPractice(_ summary: String) -> Bool {
-        let lower = summary.lowercased()
-        let practiceKeywords = ["practice", "batting practice", "bp", "team practice",
-                                "infield", "skills", "clinic", "workout", "scrimmage",
-                                "tryout", "try-out", "warm-up", "warmup"]
-        return practiceKeywords.contains(where: { lower.contains($0) })
     }
 
     @ViewBuilder

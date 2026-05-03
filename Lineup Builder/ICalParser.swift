@@ -205,6 +205,24 @@ enum ICalParser {
         return Calendar(identifier: .gregorian).date(from: comps)
     }
 
+    // MARK: - Practice Filter
+
+    /// Keywords used to identify practice, clinic, and non-game events in a
+    /// calendar SUMMARY. Shared across ScheduleImportView, SchedulePickerView,
+    /// and LineupView so the filter stays consistent everywhere.
+    static let practiceKeywords: [String] = [
+        "practice", "batting practice", "bp", "team practice",
+        "infield", "skills", "clinic", "workout", "scrimmage",
+        "tryout", "try-out", "warm-up", "warmup"
+    ]
+
+    /// Returns true if the given SUMMARY string looks like a practice or
+    /// non-game event rather than a scheduled game.
+    static func isPractice(_ summary: String) -> Bool {
+        let lower = summary.lowercased()
+        return practiceKeywords.contains(where: { lower.contains($0) })
+    }
+
     // MARK: - Opponent Parsing
 
     /// Extracts opponent name from SUMMARY using common baseball game patterns.

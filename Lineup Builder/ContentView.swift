@@ -76,6 +76,22 @@ struct ContentView: View {
                 }
             }
 
+            // v2.3 schedule import tip: skip for existing users who already
+            // have game history — they're mid-season and don't need the prompt.
+            if !UserDefaults.standard.bool(forKey: "hasSeenScheduleImportTip") {
+                if !store.gameLogs.isEmpty || !store.players.isEmpty {
+                    UserDefaults.standard.set(true, forKey: "hasSeenScheduleImportTip")
+                }
+            }
+
+            // v2.3 roster import tip: skip for existing users who already
+            // have players on their roster.
+            if !UserDefaults.standard.bool(forKey: "hasSeenRosterImportTip") {
+                if !store.players.isEmpty {
+                    UserDefaults.standard.set(true, forKey: "hasSeenRosterImportTip")
+                }
+            }
+
             if !showingWelcome, WhatsNewManager.shouldShow(), let content = WhatsNewContent.current {
                 whatsNewContent = content
                 showingWhatsNew = true

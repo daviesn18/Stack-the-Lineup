@@ -64,13 +64,10 @@ struct LineupView: View {
                                 .foregroundColor(.blue)
                             Spacer()
                             let startOfToday = Calendar.current.startOfDay(for: Date())
-                            let practiceKeywords = ["practice", "batting practice", "bp",
-                                "team practice", "infield", "skills", "clinic", "workout",
-                                "scrimmage", "tryout", "try-out", "warm-up", "warmup"]
                             let upcoming = store.scheduledGames.filter { game in
                                 !game.isCancelled
                                 && game.date >= startOfToday
-                                && !practiceKeywords.contains(where: { game.rawSummary.lowercased().contains($0) })
+                                && !ICalParser.isPractice(game.rawSummary)
                             }.count
                             Text("\(upcoming) game\(upcoming == 1 ? "" : "s")")
                                 .font(.subheadline)

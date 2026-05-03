@@ -15,6 +15,13 @@ struct WelcomeView: View {
             systemImage: "plus.circle.fill"
         ),
         TutorialPage(
+            icon: "square.and.arrow.down",
+            iconColor: .teal,
+            title: "Get Set Up Fast",
+            description: "Import your roster from GameChanger and sync your season schedule. Game length can be configured under Team Settings.",
+            systemImage: "calendar.badge.plus"
+        ),
+        TutorialPage(
             icon: "list.number",
             iconColor: .green,
             title: "Set Your Batting Order",
@@ -464,6 +471,10 @@ enum AppPage {
             return [
                 PageTip(icon: "plus.circle.fill", iconColor: .blue,
                         text: "Tap \"Add Player\" to add a player to your roster with their name and jersey number."),
+                PageTip(icon: "square.and.arrow.down", iconColor: .teal,
+                        text: "Tap Import Roster to bring in your full roster from a GameChanger CSV export. Names, jersey numbers, and position preferences are all imported."),
+                PageTip(icon: "square.and.arrow.up", iconColor: .orange,
+                        text: "Tap the share icon in the toolbar to export your roster as a .stlroster file. Use it to back up your roster or share it with an assistant coach."),
                 PageTip(icon: "pencil.circle", iconColor: .blue,
                         text: "Tap the pencil icon next to any player to edit their details, including position preferences."),
                 PageTip(icon: "star.circle.fill", iconColor: .green,
@@ -471,7 +482,7 @@ enum AppPage {
                 PageTip(icon: "bolt.fill", iconColor: .blue,
                         text: "Position preferences feed directly into Auto-Fill — the more accurately you tag each player, the smarter the automatic lineups."),
                 PageTip(icon: "paintpalette.fill", iconColor: .pink,
-                        text: "Tap the Team Name row to open Edit Team, where you can update your team name and color. Your color appears on all exported PDFs."),
+                        text: "Tap the Team Name row to open Edit Team, where you can update your team name, color, and game length. Your name and color appear on all exported PDFs."),
                 PageTip(icon: "arrow.left.arrow.right", iconColor: .orange,
                         text: "Managing multiple teams? Tap Add Team in the Team section header to create a new team. Once you have more than one, a Switch Team option appears to move between them."),
                 PageTip(icon: "gearshape.fill", iconColor: .gray,
@@ -480,6 +491,10 @@ enum AppPage {
 
         case .lineup:
             return [
+                PageTip(icon: "calendar.badge.plus", iconColor: .teal,
+                        text: "Tap the calendar icon in the toolbar to import your season schedule from GameChanger. Paste your calendar link and tap Import."),
+                PageTip(icon: "calendar", iconColor: .blue,
+                        text: "Once your schedule is imported, tap Pick from Schedule to pre-fill the game date and opponent. Tap Sync anytime to pull the latest changes from GameChanger."),
                 PageTip(icon: "plus.circle.fill", iconColor: .green,
                         text: "Tap + next to a player to add them to the batting order. Players without + are already in the order."),
                 PageTip(icon: "arrow.up.arrow.down", iconColor: .blue,
@@ -615,9 +630,11 @@ struct QuickTipsView: View {
             List {
                 Section("Players Tab") {
                     Label("Tap \"Add Player\" to add a player to your roster", systemImage: "plus.circle.fill")
+                    Label("Tap Import Roster to bring in your roster from a GameChanger CSV export", systemImage: "square.and.arrow.down")
+                    Label("Tap the share icon in the toolbar to export your roster as a .stlroster file — useful for backups or sharing with an assistant", systemImage: "square.and.arrow.up")
                     Label("Tap the pencil icon to edit a player's name, number, or position preferences", systemImage: "pencil.circle")
                     Label("Swipe left on a player to delete them", systemImage: "trash")
-                    Label("Tap the Team Name row to edit your team name and color — both appear on exported PDFs", systemImage: "paintpalette.fill")
+                    Label("Tap the Team Name row to edit your team name, color, and game length", systemImage: "paintpalette.fill")
                     Label("Tap Add Team to manage multiple teams — each has its own roster and history", systemImage: "person.3.fill")
                 }
 
@@ -655,6 +672,8 @@ struct QuickTipsView: View {
                 }
 
                 Section("Lineup Tab") {
+                    Label("Tap the calendar icon in the toolbar to import or sync your season schedule from GameChanger", systemImage: "calendar.badge.plus")
+                    Label("Tap Pick from Schedule to pre-fill the game date and opponent from your imported schedule", systemImage: "calendar")
                     Label("Tap + next to a player to add them to the batting order", systemImage: "plus.circle")
                     Label("Tap Edit, then drag to reorder the batting lineup", systemImage: "arrow.up.arrow.down")
                     Label("Toggle the switch to mark a player fully absent for the game", systemImage: "person.slash")

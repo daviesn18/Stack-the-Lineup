@@ -22,6 +22,35 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "2.3",
+            features: [
+                WhatsNewFeature(
+                    icon: "slider.horizontal.3",
+                    iconColor: .blue,
+                    title: "Set Your Game Length",
+                    description: "Configure the number of innings per game under Team Settings."
+                ),
+                WhatsNewFeature(
+                    icon: "square.and.arrow.down",
+                    iconColor: .teal,
+                    title: "Import Your Roster",
+                    description: "Import your roster directly from GameChanger. Tap Import Roster on the Players tab and follow the steps."
+                ),
+                WhatsNewFeature(
+                    icon: "calendar.badge.plus",
+                    iconColor: .green,
+                    title: "Sync Your Schedule",
+                    description: "Import your season schedule from GameChanger and pick games directly from the Lineup tab. Resync when your schedule changes."
+                ),
+                WhatsNewFeature(
+                    icon: "square.and.arrow.up",
+                    iconColor: .orange,
+                    title: "Export and Share Your Roster",
+                    description: "Back up your roster or share it with other coaches. Exports everything — names, jersey numbers, league ages, and position preferences."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "2.2",
             features: [
                 WhatsNewFeature(
