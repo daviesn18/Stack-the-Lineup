@@ -43,9 +43,22 @@
 		728924FE2FA11FCC0088F25D /* StackTheLineupTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StackTheLineupTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		72C3BC042FA82FD900E05F30 /* Exceptions for "Lineup Builder" folder in "Lineup Builder" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Lineup-Builder-Info.plist",
+			);
+			target = 720846F62F53C48900F70E89 /* Lineup Builder */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		720846F92F53C48900F70E89 /* Lineup Builder */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				72C3BC042FA82FD900E05F30 /* Exceptions for "Lineup Builder" folder in "Lineup Builder" target */,
+			);
 			path = "Lineup Builder";
 			sourceTree = "<group>";
 		};
@@ -485,6 +498,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Stack the Lineup";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_LSApplicationQueriesSchemes = "";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -534,6 +548,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Stack the Lineup";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_LSApplicationQueriesSchemes = "";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
