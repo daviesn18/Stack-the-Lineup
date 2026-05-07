@@ -92,6 +92,15 @@ struct ContentView: View {
                 }
             }
 
+            // PDF export tip: skip for existing users who have already archived
+            // at least one game — they've been through the full workflow and
+            // know the PDF export exists.
+            if !UserDefaults.standard.bool(forKey: "hasSeenPDFExportTip") {
+                if !store.gameLogs.isEmpty {
+                    UserDefaults.standard.set(true, forKey: "hasSeenPDFExportTip")
+                }
+            }
+
             if !showingWelcome, WhatsNewManager.shouldShow(), let content = WhatsNewContent.current {
                 whatsNewContent = content
                 showingWhatsNew = true

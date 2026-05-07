@@ -51,8 +51,22 @@ struct PositionSummaryView: View {
 
     var inningCount: Int { store.lineup.innings.count }
 
+    /// Infield positions visible under the active fair play config.
+    var activeInfieldPositions: [FieldPosition] {
+        store.lineup.activeFieldPositions(config: store.fairPlayConfig).filter { $0.isInfield }
+    }
+
+    /// Outfield positions visible under the active fair play config.
+    var activeOutfieldPositions: [FieldPosition] {
+        store.lineup.activeFieldPositions(config: store.fairPlayConfig).filter { $0.isOutfield }
+    }
+
     var benchRowCount: Int {
-        max(1, displayPlayers.count - FieldPosition.fieldPositions.count)
+        // Active field slot count depends on outfielder config:
+        // 3 OF = 9 slots (6 IF + 3 OF), 4 OF = 10 slots (6 IF + 4 OF).
+        let ofCount = store.fairPlayConfig.outfielderCount
+        let fieldSlots = FieldPosition.infieldPositions.count + ofCount
+        return max(1, displayPlayers.count - fieldSlots)
     }
 
     // MARK: - Body
@@ -259,11 +273,11 @@ struct PositionSummaryView: View {
                             .padding(.leading, 12)
                             .background(Color(.systemGray5))
                         Divider()
-                        ForEach(Array(FieldPosition.infieldPositions.enumerated()), id: \.element) { idx, pos in
+                        ForEach(Array(activeInfieldPositions.enumerated()), id: \.element) { idx, pos in
                             positionLabelCell(pos.displayName, isEven: idx.isMultiple(of: 2))
                             Divider()
                         }
-                        ForEach(Array(FieldPosition.outfieldPositions.enumerated()), id: \.element) { idx, pos in
+                        ForEach(Array(activeOutfieldPositions.enumerated()), id: \.element) { idx, pos in
                             positionLabelCell(pos.displayName, isEven: idx.isMultiple(of: 2))
                             Divider()
                         }
@@ -290,11 +304,11 @@ struct PositionSummaryView: View {
                             }
                             .background(Color(.systemGray5))
                             Divider()
-                            ForEach(Array(FieldPosition.infieldPositions.enumerated()), id: \.element) { idx, pos in
+                            ForEach(Array(activeInfieldPositions.enumerated()), id: \.element) { idx, pos in
                                 inningCellRow(position: pos, benchIndex: nil, isEven: idx.isMultiple(of: 2), colWidth: colWidth)
                                 Divider()
                             }
-                            ForEach(Array(FieldPosition.outfieldPositions.enumerated()), id: \.element) { idx, pos in
+                            ForEach(Array(activeOutfieldPositions.enumerated()), id: \.element) { idx, pos in
                                 inningCellRow(position: pos, benchIndex: nil, isEven: idx.isMultiple(of: 2), colWidth: colWidth)
                                 Divider()
                             }
@@ -351,12 +365,12 @@ struct PositionSummaryView: View {
 
         return Menu {
             Section("Infield") {
-                ForEach(FieldPosition.infieldPositions, id: \.self) { pos in
+                ForEach(activeInfieldPositions, id: \.self) { pos in
                     positionMenuButton(player: player, inning: inning, position: pos, current: position)
                 }
             }
             Section("Outfield") {
-                ForEach(FieldPosition.outfieldPositions, id: \.self) { pos in
+                ForEach(activeOutfieldPositions, id: \.self) { pos in
                     positionMenuButton(player: player, inning: inning, position: pos, current: position)
                 }
             }
@@ -517,15 +531,29 @@ struct PositionSummaryView: View {
 
     @ViewBuilder
     private var fairPlaySection: some View {
+        let config = store.fairPlayConfig
         let activePlayers = store.lineup.activePlayers(from: store.players)
-        let noInfield = store.lineup.playersWithoutInfield(players: activePlayers)
-        let noOutfield = store.lineup.playersWithoutOutfield(players: activePlayers)
-        let underMinimum = store.lineup.playersUnderFieldingMinimum(players: activePlayers)
+        let noInfield = config.minimumInfieldInnings > 0
+            ? store.lineup.playersWithoutInfield(players: activePlayers)
+            : []
+        let noOutfield = config.minimumOutfieldInnings > 0
+            ? store.lineup.playersWithoutOutfield(players: activePlayers)
+            : []
+        let underMinimum = config.minimumFieldingInnings > 0
+            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings)
+            : []
+        let consecutiveBenchPlayers = config.noConsecutiveBench
+            ? store.lineup.playersWithBackToBackBench(from: store.players)
+            : []
+        let catcherToPitcherViolators = store.lineup.playersViolatingCatcherToPitcher(
+            players: activePlayers, threshold: config.catcherToPitcherThreshold)
+        let pitcherToCatcherViolators = store.lineup.playersViolatingPitcherToCatcher(
+            players: activePlayers, threshold: config.pitcherToCatcherThreshold)
         let hasAssignments = store.lineup.innings.contains(where: { !$0.assignments.isEmpty })
+        let hasAnyWarning = !noInfield.isEmpty || !noOutfield.isEmpty || !consecutiveBenchPlayers.isEmpty
+            || !underMinimum.isEmpty || !catcherToPitcherViolators.isEmpty || !pitcherToCatcherViolators.isEmpty
 
-        let consecutiveBenchPlayers = store.lineup.playersWithBackToBackBench(from: store.players)
-
-        if !noInfield.isEmpty || !noOutfield.isEmpty || !consecutiveBenchPlayers.isEmpty || !underMinimum.isEmpty {
+        if hasAnyWarning {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Fair Play Warnings", systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline.bold())
@@ -549,9 +577,22 @@ struct PositionSummaryView: View {
                     }
                 }
                 if !underMinimum.isEmpty {
+                    let min = config.minimumFieldingInnings
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Under 4 Innings Fielded").font(.caption.bold()).foregroundColor(.orange)
+                        Text("Under \(min) Inning\(min == 1 ? "" : "s") Fielded").font(.caption.bold()).foregroundColor(.orange)
                         Text(underMinimum.map(\.displayName).joined(separator: ", ")).font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                if !catcherToPitcherViolators.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Catcher to Pitcher Violation").font(.caption.bold()).foregroundColor(.red)
+                        Text(catcherToPitcherViolators.map(\.displayName).joined(separator: ", ")).font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                if !pitcherToCatcherViolators.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Pitcher to Catcher Violation").font(.caption.bold()).foregroundColor(.red)
+                        Text(pitcherToCatcherViolators.map(\.displayName).joined(separator: ", ")).font(.caption).foregroundColor(.secondary)
                     }
                 }
             }

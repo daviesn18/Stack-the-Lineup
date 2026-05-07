@@ -360,6 +360,7 @@ struct TeamFormView: View {
     @State private var gameInningCount: Int = 7
     @State private var showingDeleteConfirmation = false
     @State private var showingShortenConfirmation = false
+    @State private var showingFairPlayRules = false
     @State private var pendingInningCount: Int = 7
 
     private var assignedInningsInLineup: Int {
@@ -398,6 +399,25 @@ struct TeamFormView: View {
                     Picker("Game Length", selection: $gameInningCount) {
                         ForEach(3...9, id: \.self) { count in
                             Text("\(count) innings").tag(count)
+                        }
+                    }
+
+                    // Fair Play Rules — only available when editing an existing team
+                    if isEditing, case .edit(let id) = mode {
+                        Button {
+                            showingFairPlayRules = true
+                        } label: {
+                            HStack {
+                                Text("Fair Play Rules")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .sheet(isPresented: $showingFairPlayRules) {
+                            FairPlayRulesView(teamID: id)
                         }
                     }
                 } header: {

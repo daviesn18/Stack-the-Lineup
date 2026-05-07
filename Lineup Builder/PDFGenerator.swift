@@ -4,7 +4,7 @@ import SwiftUI
 
 class PDFGenerator {
 
-    static func generate(type: PDFType, lineup: Lineup, players: [Player], teamName: String = "", teamColor: Color = .blue, showFairPlayRules: Bool = true) -> PDFDocument {
+    static func generate(type: PDFType, lineup: Lineup, players: [Player], teamName: String = "", teamColor: Color = .blue) -> PDFDocument {
         let pageWidth: CGFloat = 612   // US Letter
         let pageHeight: CGFloat = 792
         let margin: CGFloat = 48
@@ -18,7 +18,7 @@ class PDFGenerator {
                                   pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, teamName: teamName, teamColor: teamColor)
             case .coachesGuide:
                 drawCoachesGuide(ctx: ctx, lineup: lineup, players: players,
-                                  pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, teamName: teamName, teamColor: teamColor, showFairPlayRules: showFairPlayRules)
+                                  pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, teamName: teamName, teamColor: teamColor)
             }
         }
 
@@ -88,7 +88,7 @@ class PDFGenerator {
     // MARK: - Coaches Guide PDF
 
     private static func drawCoachesGuide(ctx: UIGraphicsPDFRendererContext, lineup: Lineup, players: [Player],
-                                          pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat, teamName: String = "", teamColor: Color = .blue, showFairPlayRules: Bool = true) {
+                                          pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat, teamName: String = "", teamColor: Color = .blue) {
         ctx.beginPage()
         var y: CGFloat = margin
 

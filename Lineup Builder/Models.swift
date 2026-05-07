@@ -25,10 +25,19 @@ enum FieldPosition: String, CaseIterable, Codable, Sendable {
     case shortstop = "SS"
     case thirdBase = "3B"
     case leftField = "LF"
+    case leftCenterField = "LCF"
     case centerField = "CF"
+    case rightCenterField = "RCF"
     case rightField = "RF"
     case bench = "Bench"
     case absent = "ABS"
+
+    // Safe decode: unknown raw values (e.g. from a future build decoded by an
+    // older one, or vice versa) fall back to bench rather than crashing.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = FieldPosition(rawValue: raw) ?? .bench
+    }
 
     nonisolated var displayName: String {
         switch self {
@@ -39,7 +48,9 @@ enum FieldPosition: String, CaseIterable, Codable, Sendable {
         case .thirdBase: return "3rd Base"
         case .shortstop: return "Shortstop"
         case .leftField: return "Left Field"
+        case .leftCenterField: return "Left Center"
         case .centerField: return "Center Field"
+        case .rightCenterField: return "Right Center"
         case .rightField: return "Right Field"
         case .bench: return "Bench"
         case .absent: return "Absent"
@@ -57,7 +68,7 @@ enum FieldPosition: String, CaseIterable, Codable, Sendable {
 
     nonisolated var isOutfield: Bool {
         switch self {
-        case .leftField, .centerField, .rightField:
+        case .leftField, .leftCenterField, .centerField, .rightCenterField, .rightField:
             return true
         default:
             return false
@@ -94,6 +105,118 @@ enum FieldPosition: String, CaseIterable, Codable, Sendable {
 
     nonisolated static var outfieldPositions: [FieldPosition] {
         allCases.filter { $0.isOutfield }
+    }
+}
+
+// MARK: - League Ruleset
+
+/// The league format a team plays under. Stored on FairPlayConfig.
+/// In v2.4 this is informational only — it persists the coach's selection
+/// but does not auto-apply rule presets yet. Preset application ships in
+/// v2.5 alongside the pitch count engine, which depends on league ruleset.
+enum LeagueRuleset: String, Codable, CaseIterable, Sendable {
+    case littleLeague = "Little League"
+    case calRipken    = "Cal Ripken"
+    case babeRuth     = "Babe Ruth"
+    case custom       = "Custom"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+// MARK: - Fair Play Config
+
+/// Per-team fair play rules. All defaults mirror the rules that were previously
+/// hardcoded, so existing teams decoded without this key get identical behavior.
+/// Lives on Team — a coach with a rec team and a travel team gets different rules for each.
+struct FairPlayConfig: Codable, Sendable {
+
+    // MARK: Position restrictions
+    /// When true, Pitcher is removed from the valid position pool entirely.
+    var noPitcher: Bool = false
+    /// When true, Catcher is removed from the valid position pool entirely.
+    var noCatcher: Bool = false
+    /// Number of outfielders on the field. 3 = standard (LF/CF/RF).
+    /// 4 = adds LCF and RCF; CF is hidden from the grid when this is 4.
+    var outfielderCount: Int = 3
+
+    // MARK: Bench rules
+    /// Prevents a player from sitting bench in two consecutive innings.
+    /// Was previously hardcoded on; now a toggle.
+    var noConsecutiveBench: Bool = true
+    /// Prevents a player from being assigned the same non-bench position
+    /// in back-to-back innings.
+    var noConsecutivePosition: Bool = false
+    /// Don't sit any player twice before everyone has sat once.
+    var equalBenchTime: Bool = false
+
+    // MARK: Fielding minimums
+    /// Minimum fielding innings each active player must play.
+    /// Was previously hardcoded at 4.
+    var minimumFieldingInnings: Int = 4
+    /// Minimum infield innings each active player must play.
+    /// Was previously hardcoded at 1.
+    var minimumInfieldInnings: Int = 1
+    /// Minimum outfield innings each active player must play.
+    /// Was previously hardcoded at 1.
+    var minimumOutfieldInnings: Int = 1
+
+    // MARK: Battery restrictions
+    /// If a player caught this many or more innings in the current game,
+    /// they cannot pitch. 0 = rule disabled.
+    var catcherToPitcherThreshold: Int = 0
+    /// If a player pitched this many or more innings in the current game,
+    /// they cannot catch. 0 = rule disabled.
+    var pitcherToCatcherThreshold: Int = 0
+
+    // MARK: League
+    /// The league format this team plays under. Informational in v2.4;
+    /// used for rule presets in v2.5.
+    var leagueRuleset: LeagueRuleset = .custom
+
+    // Safe decode: any missing key falls back to its default so adding
+    // new fields in future versions never breaks existing saved configs.
+    init(
+        noPitcher: Bool = false,
+        noCatcher: Bool = false,
+        outfielderCount: Int = 3,
+        noConsecutiveBench: Bool = true,
+        noConsecutivePosition: Bool = false,
+        equalBenchTime: Bool = false,
+        minimumFieldingInnings: Int = 4,
+        minimumInfieldInnings: Int = 1,
+        minimumOutfieldInnings: Int = 1,
+        catcherToPitcherThreshold: Int = 0,
+        pitcherToCatcherThreshold: Int = 0,
+        leagueRuleset: LeagueRuleset = .custom
+    ) {
+        self.noPitcher = noPitcher
+        self.noCatcher = noCatcher
+        self.outfielderCount = outfielderCount
+        self.noConsecutiveBench = noConsecutiveBench
+        self.noConsecutivePosition = noConsecutivePosition
+        self.equalBenchTime = equalBenchTime
+        self.minimumFieldingInnings = minimumFieldingInnings
+        self.minimumInfieldInnings = minimumInfieldInnings
+        self.minimumOutfieldInnings = minimumOutfieldInnings
+        self.catcherToPitcherThreshold = catcherToPitcherThreshold
+        self.pitcherToCatcherThreshold = pitcherToCatcherThreshold
+        self.leagueRuleset = leagueRuleset
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        noPitcher                  = (try? c.decodeIfPresent(Bool.self,           forKey: .noPitcher))                  ?? false
+        noCatcher                  = (try? c.decodeIfPresent(Bool.self,           forKey: .noCatcher))                  ?? false
+        outfielderCount            = (try? c.decodeIfPresent(Int.self,            forKey: .outfielderCount))            ?? 3
+        noConsecutiveBench         = (try? c.decodeIfPresent(Bool.self,           forKey: .noConsecutiveBench))         ?? true
+        noConsecutivePosition      = (try? c.decodeIfPresent(Bool.self,           forKey: .noConsecutivePosition))      ?? false
+        equalBenchTime             = (try? c.decodeIfPresent(Bool.self,           forKey: .equalBenchTime))             ?? false
+        minimumFieldingInnings     = (try? c.decodeIfPresent(Int.self,            forKey: .minimumFieldingInnings))     ?? 4
+        minimumInfieldInnings      = (try? c.decodeIfPresent(Int.self,            forKey: .minimumInfieldInnings))      ?? 1
+        minimumOutfieldInnings     = (try? c.decodeIfPresent(Int.self,            forKey: .minimumOutfieldInnings))     ?? 1
+        catcherToPitcherThreshold  = (try? c.decodeIfPresent(Int.self,            forKey: .catcherToPitcherThreshold))  ?? 0
+        pitcherToCatcherThreshold  = (try? c.decodeIfPresent(Int.self,            forKey: .pitcherToCatcherThreshold))  ?? 0
+        leagueRuleset              = (try? c.decodeIfPresent(LeagueRuleset.self,  forKey: .leagueRuleset))              ?? .custom
     }
 }
 
@@ -319,6 +442,52 @@ struct Lineup: Codable, Sendable {
         return FieldPosition.fieldPositions.filter { !filledPositions.contains($0) }
     }
 
+    /// Returns the field positions that are active under the given FairPlayConfig.
+    /// Removes Pitcher/Catcher when toggled off, swaps CF for LCF+RCF when 4 OFs are set.
+    /// Used by the position grid and picker so they only show relevant positions.
+    nonisolated func activeFieldPositions(config: FairPlayConfig) -> [FieldPosition] {
+        var positions = FieldPosition.fieldPositions
+        if config.noPitcher { positions.removeAll { $0 == .pitcher } }
+        if config.noCatcher { positions.removeAll { $0 == .catcher } }
+        if config.outfielderCount == 4 {
+            positions.removeAll { $0 == .centerField }
+        } else {
+            positions.removeAll { $0 == .leftCenterField || $0 == .rightCenterField }
+        }
+        return positions
+    }
+
+    /// Config-aware open positions — only reports slots that exist under the current ruleset.
+    nonisolated func openPositions(inning: Int, players: [Player], config: FairPlayConfig) -> [FieldPosition] {
+        let active = activePlayers(from: players)
+        guard !active.isEmpty else { return [] }
+        let assignment = innings[inning]
+        let filledPositions = Set(assignment.assignments.values.filter { !$0.isAbsent })
+        return activeFieldPositions(config: config).filter { !filledPositions.contains($0) }
+    }
+
+    /// Players who have caught at least `threshold` innings in this lineup AND
+    /// are also assigned Pitcher in any inning. Returns [] when threshold == 0 (rule off).
+    nonisolated func playersViolatingCatcherToPitcher(players: [Player], threshold: Int) -> [Player] {
+        guard threshold > 0 else { return [] }
+        return activePlayers(from: players).filter { player in
+            let catcherInnings = innings.filter { $0.position(for: player) == .catcher }.count
+            let hasPitcherInning = innings.contains { $0.position(for: player) == .pitcher }
+            return catcherInnings >= threshold && hasPitcherInning
+        }
+    }
+
+    /// Players who have pitched at least `threshold` innings in this lineup AND
+    /// are also assigned Catcher in any inning. Returns [] when threshold == 0 (rule off).
+    nonisolated func playersViolatingPitcherToCatcher(players: [Player], threshold: Int) -> [Player] {
+        guard threshold > 0 else { return [] }
+        return activePlayers(from: players).filter { player in
+            let pitcherInnings = innings.filter { $0.position(for: player) == .pitcher }.count
+            let hasCatcherInning = innings.contains { $0.position(for: player) == .catcher }
+            return pitcherInnings >= threshold && hasCatcherInning
+        }
+    }
+
     nonisolated func hasConsecutiveBench(player: Player, assigningBenchToInning inningIndex: Int) -> Bool {
         if inningIndex > 0 && innings[inningIndex - 1].position(for: player) == .bench { return true }
         if inningIndex < innings.count - 1 && innings[inningIndex + 1].position(for: player) == .bench { return true }
@@ -502,6 +671,9 @@ struct Team: Identifiable, Codable {
     /// The webcal:// or https:// URL the coach used to subscribe. Stored so
     /// "Sync" can re-fetch without asking for the URL again.
     var calendarSubscriptionURL: String? = nil
+    /// Per-team fair play rule configuration. Defaults match previously hardcoded
+    /// behavior so existing teams get identical validation after upgrading.
+    var fairPlayConfig: FairPlayConfig = FairPlayConfig()
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -520,7 +692,8 @@ struct Team: Identifiable, Codable {
         createdAt: Date = Date(),
         gameInningCount: Int = 7,
         scheduledGames: [ScheduledGame] = [],
-        calendarSubscriptionURL: String? = nil
+        calendarSubscriptionURL: String? = nil,
+        fairPlayConfig: FairPlayConfig = FairPlayConfig()
     ) {
         self.id = id
         self.name = name
@@ -532,6 +705,7 @@ struct Team: Identifiable, Codable {
         self.gameInningCount = gameInningCount
         self.scheduledGames = scheduledGames
         self.calendarSubscriptionURL = calendarSubscriptionURL
+        self.fairPlayConfig = fairPlayConfig
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -548,6 +722,9 @@ struct Team: Identifiable, Codable {
         gameInningCount          = (try? c.decode(Int.self,             forKey: .gameInningCount))          ?? 7
         scheduledGames           = (try? c.decode([ScheduledGame].self, forKey: .scheduledGames))           ?? []
         calendarSubscriptionURL  = (try? c.decode(String.self,         forKey: .calendarSubscriptionURL))
+        // fairPlayConfig is new in v2.4 — older Team blobs won't include it.
+        // Default constructs with safe values that match previous hardcoded behavior.
+        fairPlayConfig           = (try? c.decode(FairPlayConfig.self,  forKey: .fairPlayConfig))           ?? FairPlayConfig()
     }
 }
 
@@ -598,6 +775,7 @@ class LineupStore: ObservableObject {
     var gameInningCount: Int             { activeTeam.gameInningCount }
     var scheduledGames: [ScheduledGame]  { activeTeam.scheduledGames }
     var calendarSubscriptionURL: String? { activeTeam.calendarSubscriptionURL }
+    var fairPlayConfig: FairPlayConfig   { activeTeam.fairPlayConfig }
 
     // MARK: - Constants
     private let teamsKey      = "stl_teams"
@@ -963,6 +1141,20 @@ class LineupStore: ObservableObject {
 
     func updateTeamColor(_ color: Color) {
         activeTeam.color = color
+        save()
+    }
+
+    /// Updates the fair play config for a specific team. Scoped to teamID so
+    /// FairPlayRulesView can write to a team other than activeTeam if needed.
+    func updateFairPlayConfig(_ config: FairPlayConfig, for teamID: UUID) {
+        guard let idx = teams.firstIndex(where: { $0.id == teamID }) else { return }
+        teams[idx].fairPlayConfig = config
+        Analytics.signal("fairplay.config.updated", parameters: [
+            "noPitcher": "\(config.noPitcher)",
+            "noCatcher": "\(config.noCatcher)",
+            "outfielderCount": "\(config.outfielderCount)",
+            "minimumFieldingInnings": "\(config.minimumFieldingInnings)"
+        ])
         save()
     }
 

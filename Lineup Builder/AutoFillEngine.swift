@@ -39,10 +39,11 @@ enum AutoFillEngine {
         _ inningIndex: Int,
         in lineup: Lineup,
         players: [Player],
-        preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:]
+        preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
+        config: FairPlayConfig = FairPlayConfig()
     ) -> (lineup: Lineup, filledCount: Int) {
         var result = lineup
-        let count = fillInning(inningIndex, in: &result, players: players, preferences: preferences)
+        let count = fillInning(inningIndex, in: &result, players: players, preferences: preferences, config: config)
         return (result, count)
     }
 
@@ -51,24 +52,26 @@ enum AutoFillEngine {
         through lastInning: Int,
         in lineup: Lineup,
         players: [Player],
-        preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:]
+        preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
+        config: FairPlayConfig = FairPlayConfig()
     ) -> (lineup: Lineup, filledCount: Int) {
         var result = lineup
         var total = 0
         let clampedLast = max(0, min(lastInning, lineup.innings.count - 1))
         for inning in 0...clampedLast {
-            total += fillInning(inning, in: &result, players: players, preferences: preferences)
+            total += fillInning(inning, in: &result, players: players, preferences: preferences, config: config)
         }
         return (result, total)
     }
 
-    /// Fills open slots across all 7 innings. Returns (updatedLineup, filledCount).
+    /// Fills open slots across all innings. Returns (updatedLineup, filledCount).
     static func fillGame(
         in lineup: Lineup,
         players: [Player],
-        preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:]
+        preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
+        config: FairPlayConfig = FairPlayConfig()
     ) -> (lineup: Lineup, filledCount: Int) {
-        return fillInnings(through: lineup.innings.count - 1, in: lineup, players: players, preferences: preferences)
+        return fillInnings(through: lineup.innings.count - 1, in: lineup, players: players, preferences: preferences, config: config)
     }
 
     // MARK: - Private Core
@@ -78,7 +81,8 @@ enum AutoFillEngine {
         _ inningIndex: Int,
         in lineup: inout Lineup,
         players: [Player],
-        preferences: [UUID: [FieldPosition: PositionPreferenceTier]]
+        preferences: [UUID: [FieldPosition: PositionPreferenceTier]],
+        config: FairPlayConfig
     ) -> Int {
         let active = lineup.activePlayers(from: players)
         guard !active.isEmpty else { return 0 }
@@ -91,7 +95,22 @@ enum AutoFillEngine {
         let occupiedPositions = Set(
             lineup.innings[inningIndex].assignments.values.filter { !$0.isBench }
         )
-        var openPositions = FieldPosition.fieldPositions
+
+        // Build the valid position pool respecting config restrictions.
+        // noPitcher/noCatcher remove those positions entirely.
+        // outfielderCount=4 adds LCF/RCF and removes CF from the pool.
+        var validFieldPositions = FieldPosition.fieldPositions
+        if config.noPitcher       { validFieldPositions.removeAll { $0 == .pitcher } }
+        if config.noCatcher       { validFieldPositions.removeAll { $0 == .catcher } }
+        if config.outfielderCount == 4 {
+            validFieldPositions.removeAll { $0 == .centerField }
+            // LCF and RCF are already in fieldPositions via isOutfield — no additions needed
+        } else {
+            // Standard 3-OF: remove the 4-OF positions if somehow present
+            validFieldPositions.removeAll { $0 == .leftCenterField || $0 == .rightCenterField }
+        }
+
+        var openPositions = validFieldPositions
             .filter { !occupiedPositions.contains($0) }
             .shuffled()
 
@@ -134,8 +153,7 @@ enum AutoFillEngine {
 
         // MARK: - Pitcher Rule Helpers
         //
-        // QUICK FIX in v2.2.1 — these enforce two pitching rules that were
-        // missing from AutoFill:
+        // These enforce two pitching rules:
         //   1. Re-entry restriction (HARD) — once a player exits pitcher, they
         //      can't pitch again. Scans ALL innings, not just earlier ones, so
         //      manual assignments later in the game are respected.
@@ -143,9 +161,8 @@ enum AutoFillEngine {
         //      pitcher innings, but allow more if no other eligible pitcher
         //      remains.
         //
-        // TODO: v2.4 — read these thresholds from FairPlayConfig instead of
-        // hardcoding. Re-entry rule will likely become a per-team toggle, and
-        // the inning cap should align with league pitch-count rest-day rules.
+        // When config.noPitcher is true the entire pitcher block is a no-op
+        // because .pitcher was already removed from openPositions above.
 
         /// Hard-coded soft cap for pitcher innings per player. Pulled into a
         /// constant so v2.4 can swap in `team.fairPlayConfig.maxPitcherInnings`.

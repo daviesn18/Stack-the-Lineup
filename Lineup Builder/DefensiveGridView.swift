@@ -421,9 +421,9 @@ struct DefensiveGridView: View {
         let result: (lineup: Lineup, filledCount: Int)
         switch scope {
         case .thisInning:
-            result = AutoFillEngine.fillInning(selectedInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences)
+            result = AutoFillEngine.fillInning(selectedInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences, config: store.fairPlayConfig)
         case .through(let lastInning):
-            result = AutoFillEngine.fillInnings(through: lastInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences)
+            result = AutoFillEngine.fillInnings(through: lastInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences, config: store.fairPlayConfig)
         }
 
         guard result.filledCount > 0 else { return }
@@ -477,18 +477,28 @@ struct DefensiveGridView: View {
 
     var currentInningIssueCount: Int {
         let activePlayers = store.lineup.activePlayers(from: store.players)
-        let openPos = store.lineup.openPositions(inning: selectedInning, players: activePlayers)
+        let openPos = store.lineup.openPositions(inning: selectedInning, players: activePlayers, config: store.fairPlayConfig)
         let dupPos = store.lineup.duplicatePositionErrors(inning: selectedInning)
         return openPos.count + dupPos.count
     }
 
     var gameWideIssueCount: Int {
         let activePlayers = store.lineup.activePlayers(from: store.players)
-        let noInfield = store.lineup.playersWithoutInfield(players: activePlayers)
-        let noOutfield = store.lineup.playersWithoutOutfield(players: activePlayers)
-        let underMinimum = store.lineup.playersUnderFieldingMinimum(players: activePlayers)
-        let backToBack = store.lineup.playersWithBackToBackBench(from: store.players)
-        return noInfield.count + noOutfield.count + backToBack.count + underMinimum.count
+        let config = store.fairPlayConfig
+        var count = 0
+        if config.minimumInfieldInnings > 0 {
+            count += store.lineup.playersWithoutInfield(players: activePlayers).count
+        }
+        if config.minimumOutfieldInnings > 0 {
+            count += store.lineup.playersWithoutOutfield(players: activePlayers).count
+        }
+        if config.noConsecutiveBench {
+            count += store.lineup.playersWithBackToBackBench(from: store.players).count
+        }
+        count += store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings).count
+        count += store.lineup.playersViolatingCatcherToPitcher(players: activePlayers, threshold: config.catcherToPitcherThreshold).count
+        count += store.lineup.playersViolatingPitcherToCatcher(players: activePlayers, threshold: config.pitcherToCatcherThreshold).count
+        return count
     }
 
     var allWarningCount: Int {
@@ -529,7 +539,7 @@ struct DefensiveGridView: View {
     @ViewBuilder
     func inningStatusDot(inning: Int) -> some View {
         let activePlayers = store.lineup.activePlayers(from: store.players)
-        let openPos = store.lineup.openPositions(inning: inning, players: activePlayers)
+        let openPos = store.lineup.openPositions(inning: inning, players: activePlayers, config: store.fairPlayConfig)
         let dupPos = store.lineup.duplicatePositionErrors(inning: inning)
         let hasAny = !store.lineup.innings[inning].assignments.isEmpty
 
@@ -759,19 +769,22 @@ struct WarningsView: View {
 
     func computeInningWarnings() -> [String] {
         var warnings: [String] = []
+        let config = store.fairPlayConfig
         let activePlayers = store.lineup.activePlayers(from: store.players)
-        let openPos = store.lineup.openPositions(inning: inning, players: activePlayers)
+        let openPos = store.lineup.openPositions(inning: inning, players: activePlayers, config: config)
         let dupPos = store.lineup.duplicatePositionErrors(inning: inning)
         for pos in dupPos { warnings.append("Duplicate position: \(pos.displayName)") }
         for pos in openPos { warnings.append("Open position: \(pos.displayName)") }
-        for player in activePlayers {
-            if store.lineup.innings[inning].position(for: player) == .bench {
-                let prevBench = inning > 0 && store.lineup.innings[inning - 1].position(for: player) == .bench
-                let nextBench = inning < store.lineup.innings.count - 1 && store.lineup.innings[inning + 1].position(for: player) == .bench
-                if prevBench {
-                    warnings.append("\(player.displayName): back-to-back bench (inn \(inning) & \(inning + 1))")
-                } else if nextBench {
-                    warnings.append("\(player.displayName): back-to-back bench (inn \(inning + 1) & \(inning + 2))")
+        if config.noConsecutiveBench {
+            for player in activePlayers {
+                if store.lineup.innings[inning].position(for: player) == .bench {
+                    let prevBench = inning > 0 && store.lineup.innings[inning - 1].position(for: player) == .bench
+                    let nextBench = inning < store.lineup.innings.count - 1 && store.lineup.innings[inning + 1].position(for: player) == .bench
+                    if prevBench {
+                        warnings.append("\(player.displayName): back-to-back bench (inn \(inning) & \(inning + 1))")
+                    } else if nextBench {
+                        warnings.append("\(player.displayName): back-to-back bench (inn \(inning + 1) & \(inning + 2))")
+                    }
                 }
             }
         }
@@ -780,15 +793,35 @@ struct WarningsView: View {
 
     func computeOverallWarnings() -> [String] {
         var warnings: [String] = []
+        let config = store.fairPlayConfig
         let active = store.lineup.activePlayers(from: store.players)
-        for player in store.lineup.playersWithoutInfield(players: active) {
-            warnings.append("\(player.displayName): no infield inning assigned")
+        if config.minimumInfieldInnings > 0 {
+            for player in store.lineup.playersWithoutInfield(players: active) {
+                warnings.append("\(player.displayName): no infield inning assigned")
+            }
         }
-        for player in store.lineup.playersWithoutOutfield(players: active) {
-            warnings.append("\(player.displayName): no outfield inning assigned")
+        if config.minimumOutfieldInnings > 0 {
+            for player in store.lineup.playersWithoutOutfield(players: active) {
+                warnings.append("\(player.displayName): no outfield inning assigned")
+            }
         }
-        for player in store.lineup.playersUnderFieldingMinimum(players: active) {
-            warnings.append("\(player.displayName): under 4 innings fielded")
+        let minimum = config.minimumFieldingInnings
+        if minimum > 0 {
+            for player in store.lineup.playersUnderFieldingMinimum(players: active, minimumInnings: minimum) {
+                warnings.append("\(player.displayName): under \(minimum) inning\(minimum == 1 ? "" : "s") fielded")
+            }
+        }
+        let c2p = config.catcherToPitcherThreshold
+        if c2p > 0 {
+            for player in store.lineup.playersViolatingCatcherToPitcher(players: active, threshold: c2p) {
+                warnings.append("\(player.displayName): caught \(c2p)+ innings and is pitching (C to P restriction)")
+            }
+        }
+        let p2c = config.pitcherToCatcherThreshold
+        if p2c > 0 {
+            for player in store.lineup.playersViolatingPitcherToCatcher(players: active, threshold: p2c) {
+                warnings.append("\(player.displayName): pitched \(p2c)+ innings and is catching (P to C restriction)")
+            }
         }
         return warnings
     }
@@ -948,12 +981,12 @@ struct PositionPickerView: View {
                 }
 
                 Section("Infield") {
-                    ForEach(FieldPosition.infieldPositions, id: \.self) { pos in
+                    ForEach(store.lineup.activeFieldPositions(config: store.fairPlayConfig).filter { $0.isInfield }, id: \.self) { pos in
                         positionRow(pos)
                     }
                 }
                 Section("Outfield") {
-                    ForEach(FieldPosition.outfieldPositions, id: \.self) { pos in
+                    ForEach(store.lineup.activeFieldPositions(config: store.fairPlayConfig).filter { $0.isOutfield }, id: \.self) { pos in
                         positionRow(pos)
                     }
                 }
@@ -998,7 +1031,9 @@ struct PositionPickerView: View {
         let isSelected = store.lineup.innings[inning].position(for: player) == pos
         let occupant = store.lineup.innings[inning].player(at: pos, in: store.players)
         let occupiedByOther = occupant != nil && occupant?.id != player.id && !pos.isBench
-        let wouldBeConsecutiveBench = pos == .bench && store.lineup.hasConsecutiveBench(player: player, assigningBenchToInning: inning)
+        let wouldBeConsecutiveBench = pos == .bench
+            && store.fairPlayConfig.noConsecutiveBench
+            && store.lineup.hasConsecutiveBench(player: player, assigningBenchToInning: inning)
         Button {
             assignPosition(pos)
         } label: {
@@ -1034,7 +1069,9 @@ struct PositionPickerView: View {
     }
 
     private func assignPosition(_ pos: FieldPosition) {
-        if pos == .bench && store.lineup.hasConsecutiveBench(player: player, assigningBenchToInning: inning) {
+        if pos == .bench
+            && store.fairPlayConfig.noConsecutiveBench
+            && store.lineup.hasConsecutiveBench(player: player, assigningBenchToInning: inning) {
             pendingPosition = pos
             showingConsecutiveBenchWarning = true
             return

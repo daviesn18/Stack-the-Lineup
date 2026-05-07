@@ -305,8 +305,10 @@ struct ScheduleImportView: View {
                 }
             case .failure(let err):
                 errorMessage = err.errorDescription ?? "Couldn't parse the calendar file."
+                Analytics.signal("schedule.import.failed", parameters: ["reason": "\(err)", "source": "file"])
             }
         case .failure:
+            Analytics.signal("schedule.import.failed", parameters: ["reason": "file_picker_error", "source": "file"])
             break
         }
     }

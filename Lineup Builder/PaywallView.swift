@@ -126,7 +126,10 @@ struct PaywallView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Not Now") { dismiss() }
+                    Button("Not Now") {
+                        Analytics.signal("paywall.dismissed", parameters: ["source": source])
+                        dismiss()
+                    }
                 }
             }
             .onChange(of: purchaseManager.isPro) { _, newValue in

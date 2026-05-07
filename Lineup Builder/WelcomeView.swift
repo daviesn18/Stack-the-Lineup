@@ -46,7 +46,7 @@ struct WelcomeView: View {
             icon: "exclamationmark.triangle.fill",
             iconColor: .red,
             title: "Fair Play Warnings",
-            description: "The app enforces four rules: every player gets at least 1 infield inning, 1 outfield inning, no back-to-back bench innings, and a minimum of 4 innings fielded per game. Assign ABS on the Positions tab for individual innings a player misses — they're still exempt from the 4-inning minimum but need 1 infield and 1 outfield.",
+            description: "Fair play rules are configurable per team. By default, the app warns you when a player is missing an infield or outfield inning, sitting back-to-back bench, or under the fielding minimum. To adjust the rules for your league, tap the Team Name on the Players tab, then tap Fair Play Rules.",
             systemImage: "shield.checkered"
         ),
         TutorialPage(
@@ -420,6 +420,100 @@ struct AutoFillContextTip: View {
     }
 }
 
+// MARK: - PDF Export Context Tip
+// One-time tip shown on the Lineup tab when a free user has 3+ players in their
+// batting order. Surfaces the Coaches Guide PDF as the key Pro value prop at the
+// moment the coach has real lineup data to export.
+// Gated with hasSeenPDFExportTip — never shown again after dismissal or tap-through.
+
+struct PDFExportContextTip: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        if isPresented {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack(alignment: .top, spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.blue.opacity(0.12))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "doc.richtext.fill")
+                            .foregroundColor(.blue)
+                            .font(.system(size: 18))
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Export a Coaches Guide PDF")
+                            .font(.subheadline.bold())
+                        Text("When your lineup is ready, export a full inning-by-inning position grid to print or share with your assistant coach.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation { isPresented = false }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(Color(.tertiaryLabel))
+                            .font(.body)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(14)
+
+                Divider()
+
+                // What's in the PDF
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("The Coaches Guide includes:")
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").foregroundColor(.green).font(.caption)
+                        Text("Every player's position for each inning").font(.caption)
+                    }
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").foregroundColor(.green).font(.caption)
+                        Text("Full batting order with jersey numbers").font(.caption)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+
+                Divider()
+
+                // CTA
+                Button {
+                    withAnimation { isPresented = false }
+                } label: {
+                    Text("Got it")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                }
+
+                Button {
+                    withAnimation { isPresented = false }
+                } label: {
+                    Text("Maybe later")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+            }
+            .background(Color(.systemBackground))
+            .cornerRadius(14)
+            .shadow(color: .black.opacity(0.12), radius: 16, x: 0, y: 4)
+            .padding(.horizontal, 20)
+            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+        }
+    }
+}
+
 // MARK: - Tier Explanation Row
 
 private struct TierExplanationRow: View {
@@ -483,6 +577,8 @@ enum AppPage {
                         text: "Position preferences feed directly into Auto-Fill — the more accurately you tag each player, the smarter the automatic lineups."),
                 PageTip(icon: "paintpalette.fill", iconColor: .pink,
                         text: "Tap the Team Name row to open Edit Team, where you can update your team name, color, and game length. Your name and color appear on all exported PDFs."),
+                PageTip(icon: "shield.checkered", iconColor: .blue,
+                        text: "Tap the Team Name row, then Fair Play Rules to configure your league's rules per team. Set fielding minimums, toggle no back-to-back bench, restrict pitcher and catcher positions, and more."),
                 PageTip(icon: "arrow.left.arrow.right", iconColor: .orange,
                         text: "Managing multiple teams? Tap Add Team in the Team section header to create a new team. Once you have more than one, a Switch Team option appears to move between them."),
                 PageTip(icon: "gearshape.fill", iconColor: .gray,
@@ -526,7 +622,7 @@ enum AppPage {
                 PageTip(icon: "checkmark.circle.fill", iconColor: .green,
                         text: "Tap \"Finalize lineup\" in the status strip when your defensive assignments are locked in. Any subsequent edit automatically reverts the lineup to Draft."),
                 PageTip(icon: "exclamationmark.triangle.fill", iconColor: .orange,
-                        text: "Tap the warnings icon to see a full list of issues — open positions, duplicates, back-to-back bench, and under-4-innings fielded warnings."),
+                        text: "Tap the warnings icon to see a full list of issues — open positions, duplicates, back-to-back bench, and any fair play rule violations configured for your team."),
                 PageTip(icon: "archivebox", iconColor: .teal,
                         text: "Tap the Archive button when the game is over to save the defensive grid to History.")
             ]
@@ -635,6 +731,7 @@ struct QuickTipsView: View {
                     Label("Tap the pencil icon to edit a player's name, number, or position preferences", systemImage: "pencil.circle")
                     Label("Swipe left on a player to delete them", systemImage: "trash")
                     Label("Tap the Team Name row to edit your team name, color, and game length", systemImage: "paintpalette.fill")
+                    Label("Tap Fair Play Rules inside Edit Team to configure your league's rules per team — fielding minimums, bench rules, position restrictions, and battery restrictions", systemImage: "shield.checkered")
                     Label("Tap Add Team to manage multiple teams — each has its own roster and history", systemImage: "person.3.fill")
                 }
 
@@ -705,28 +802,28 @@ struct QuickTipsView: View {
                 Section("Fair Play Rules") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "1.circle.fill").foregroundColor(.blue)
-                            Text("Every player must play at least 1 inning in the infield (P, C, 1B, 2B, SS, 3B)")
+                            Image(systemName: "slider.horizontal.3").foregroundColor(.blue)
+                            Text("Fair play rules are configurable per team. Open Edit Team from the Players tab, then tap Fair Play Rules.")
                                 .font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "2.circle.fill").foregroundColor(.green)
-                            Text("Every player must play at least 1 inning in the outfield (LF, CF, RF)")
+                            Image(systemName: "shield.checkered").foregroundColor(.blue)
+                            Text("Default rules: 1 infield inning minimum, 1 outfield inning minimum, no back-to-back bench, and 4 innings fielded minimum.")
                                 .font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "3.circle.fill").foregroundColor(.orange)
-                            Text("No player should sit the bench for 2 consecutive innings")
+                            Image(systemName: "baseball.fill").foregroundColor(.orange)
+                            Text("Additional rules include: No Pitcher, No Catcher, 4 outfielders (LCF/RCF), equal bench time, and battery restrictions (Catcher to Pitcher, Pitcher to Catcher).")
                                 .font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "4.circle.fill").foregroundColor(.purple)
-                            Text("Every player must field for at least 4 innings (checked once all innings are planned)")
+                            Image(systemName: "person.3.fill").foregroundColor(.purple)
+                            Text("Rules are scoped per team. Your rec team and travel team can have completely different configurations.")
                                 .font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "clock.fill").foregroundColor(Color(.systemGray))
-                            Text("Players with ABS innings (late arrival/early departure) are exempt from the 4-inning minimum, but still need 1 infield and 1 outfield inning")
+                            Text("Players with ABS innings are exempt from the fielding minimum but still need 1 infield and 1 outfield inning among the innings they play.")
                                 .font(.callout)
                         }
                     }

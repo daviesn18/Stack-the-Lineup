@@ -6,7 +6,6 @@ struct SettingsView: View {
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
-    @AppStorage("complianceChecksEnabled") private var complianceChecksEnabled = true
     @State private var showingTutorial = false
     @State private var showingQuickTips = false
     @State private var showingResetConfirmation = false
@@ -94,28 +93,6 @@ struct SettingsView: View {
                         showingQuickTips = true
                     } label: {
                         Label("Quick Tips", systemImage: "lightbulb.fill")
-                    }
-                }
-
-                // MARK: - Fair Play Rules
-                Section {
-                    Toggle(isOn: $complianceChecksEnabled) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Fair Play Rules")
-                                .font(.body)
-                            Text("Enforce infield/outfield requirements and consecutive bench warnings")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .tint(.blue)
-                } header: {
-                    Text("Lineup Rules")
-                } footer: {
-                    if complianceChecksEnabled {
-                        Text("The app will warn you when players are missing required positions or sitting bench for consecutive innings.")
-                    } else {
-                        Text("Fair play rules are disabled. You can assign positions freely without warnings.")
                     }
                 }
 
@@ -215,7 +192,6 @@ struct SettingsView: View {
         store.updateTeamName("")
         store.updateTeamColor(.blue)
         UserDefaults.standard.set(false, forKey: "hasCompletedTutorial")
-        complianceChecksEnabled = true
         UserDefaults.standard.removeObject(forKey: "lastSeenWhatsNewVersion")
     }
 }

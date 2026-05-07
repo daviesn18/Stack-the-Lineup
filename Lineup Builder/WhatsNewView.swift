@@ -22,6 +22,29 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "2.4",
+            features: [
+                WhatsNewFeature(
+                    icon: "shield.checkered",
+                    iconColor: .blue,
+                    title: "Configurable Fair Play Rules",
+                    description: "Every team can now have its own fair play ruleset. Set fielding minimums, toggle no back-to-back bench, restrict pitcher and catcher, configure 4 outfielders, and more. Find it under Edit Team on the Players tab."
+                ),
+                WhatsNewFeature(
+                    icon: "baseball.fill",
+                    iconColor: .orange,
+                    title: "Battery Restrictions",
+                    description: "New rules for catcher-to-pitcher and pitcher-to-catcher transitions. Set an inning threshold and the app warns you if a player crosses it."
+                ),
+                WhatsNewFeature(
+                    icon: "arrow.left.arrow.right",
+                    iconColor: .green,
+                    title: "4-Outfielder Support",
+                    description: "Younger leagues can now enable LCF and RCF from Fair Play Rules and the position grid and Auto-Fill update automatically."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "2.3",
             features: [
                 WhatsNewFeature(

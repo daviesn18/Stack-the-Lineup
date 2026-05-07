@@ -5,9 +5,10 @@ struct LineupView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @AppStorage("complianceChecksEnabled") private var complianceChecksEnabled = true
     @AppStorage("hasCompletedChecklist") private var hasCompletedChecklist = false
+    @AppStorage("hasSeenPDFExportTip") private var hasSeenPDFExportTip = false
     @State private var generatedPDF: PDFDocument? = nil
+    @State private var showingPDFExportTip = false
     @Binding var showingArchive: Bool
     @State private var showingTips = false
     @State private var showingPaywall = false
@@ -122,6 +123,25 @@ struct LineupView: View {
                 }
             }
 
+            // MARK: - PDF Export Context Tip
+            // Shown once to free users who have 3+ players in the batting order.
+            // Surfaces PDF export as the key Pro value prop at the moment the
+            // coach has real lineup data worth exporting.
+            if showingPDFExportTip {
+                Section {
+                    PDFExportContextTip(isPresented: Binding(
+                        get: { showingPDFExportTip },
+                        set: { newValue in
+                            showingPDFExportTip = newValue
+                            if !newValue { hasSeenPDFExportTip = true }
+                        }
+                    ))
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            }
+
             // MARK: - Batting Order & Availability
             Section {
                 ForEach(Array(orderedPlayers.enumerated()), id: \.element.id) { index, player in
@@ -189,8 +209,7 @@ struct LineupView: View {
                         lineup: store.lineup,
                         players: store.players,
                         teamName: store.teamName,
-                        teamColor: store.teamColor,
-                        showFairPlayRules: complianceChecksEnabled
+                        teamColor: store.teamColor
                     )
                     generatedPDF = doc
                     Analytics.signal("pdf.exported", parameters: ["type": "battingOrder"])
@@ -204,8 +223,7 @@ struct LineupView: View {
                         lineup: store.lineup,
                         players: store.players,
                         teamName: store.teamName,
-                        teamColor: store.teamColor,
-                        showFairPlayRules: complianceChecksEnabled
+                        teamColor: store.teamColor
                     )
                     if purchaseManager.isPro {
                         generatedPDF = doc
@@ -240,6 +258,17 @@ struct LineupView: View {
         .sheet(isPresented: $showingTips) {
             PageTipsView(page: .lineup)
         }
+        .onAppear {
+            // Show PDF export tip once to free users who have 3+ players
+            // in the batting order — they have real data worth exporting.
+            if !hasSeenPDFExportTip && !purchaseManager.isPro {
+                if orderedPlayers.count >= 3 {
+                    withAnimation(.easeIn(duration: 0.3)) {
+                        showingPDFExportTip = true
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $showingPaywall) {
             PaywallView(source: "pdf_export")
                 .environmentObject(purchaseManager)
@@ -253,6 +282,7 @@ struct LineupView: View {
                 let total = result.added + result.updated
                 if total == 0 {
                     scheduleImportToast = "Schedule is already up to date."
+                    Analytics.signal("schedule.import.already_current")
                 } else {
                     var parts: [String] = []
                     if result.added > 0 { parts.append("\(result.added) added") }
@@ -311,57 +341,105 @@ struct LineupView: View {
 
     @ViewBuilder
     var complianceSection: some View {
-        if complianceChecksEnabled {
-            let activePlayers = store.lineup.activePlayers(from: store.players)
-            let noInfield = store.lineup.playersWithoutInfield(players: activePlayers)
-            let noOutfield = store.lineup.playersWithoutOutfield(players: activePlayers)
-            let underMinimum = store.lineup.playersUnderFieldingMinimum(players: activePlayers)
+        let config = store.fairPlayConfig
+        let activePlayers = store.lineup.activePlayers(from: store.players)
+        let noInfield = config.minimumInfieldInnings > 0
+            ? store.lineup.playersWithoutInfield(players: activePlayers) : []
+        let noOutfield = config.minimumOutfieldInnings > 0
+            ? store.lineup.playersWithoutOutfield(players: activePlayers) : []
+        let underMinimum = config.minimumFieldingInnings > 0
+            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings) : []
+        let backToBack = config.noConsecutiveBench
+            ? store.lineup.playersWithBackToBackBench(from: store.players) : []
+        let catcherToPitcher = store.lineup.playersViolatingCatcherToPitcher(
+            players: activePlayers, threshold: config.catcherToPitcherThreshold)
+        let pitcherToCatcher = store.lineup.playersViolatingPitcherToCatcher(
+            players: activePlayers, threshold: config.pitcherToCatcherThreshold)
 
-            if !noInfield.isEmpty || !noOutfield.isEmpty || !underMinimum.isEmpty {
-                Section(header: ComplianceRulesHeader(title: "Fair Play Warnings")) {
-                    if !noInfield.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label("Missing Infield Inning", systemImage: "exclamationmark.triangle.fill")
-                                .font(.subheadline.bold())
-                                .foregroundColor(.orange)
-                            ForEach(noInfield) { player in
-                                Text("• \(player.displayName)")
-                                    .font(.callout)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    if !noOutfield.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label("Missing Outfield Inning", systemImage: "exclamationmark.triangle.fill")
-                                .font(.subheadline.bold())
-                                .foregroundColor(.orange)
-                            ForEach(noOutfield) { player in
-                                Text("• \(player.displayName)")
-                                    .font(.callout)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    if !underMinimum.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label("Under 4 Innings Fielded", systemImage: "exclamationmark.triangle.fill")
-                                .font(.subheadline.bold())
-                                .foregroundColor(.orange)
-                            ForEach(underMinimum) { player in
-                                Text("• \(player.displayName)")
-                                    .font(.callout)
-                                    .foregroundColor(.secondary)
-                            }
+        let hasWarnings = !noInfield.isEmpty || !noOutfield.isEmpty || !underMinimum.isEmpty
+            || !backToBack.isEmpty || !catcherToPitcher.isEmpty || !pitcherToCatcher.isEmpty
+
+        if hasWarnings {
+            Section(header: ComplianceRulesHeader(title: "Fair Play Warnings")) {
+                if !noInfield.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Missing Infield Inning", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.orange)
+                        ForEach(noInfield) { player in
+                            Text("• \(player.displayName)")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
-            } else if !activePlayers.isEmpty && store.lineup.innings.contains(where: { !$0.assignments.isEmpty }) {
-                Section(header: ComplianceRulesHeader(title: "Fair Play Rules")) {
-                    Label("All active players meet infield & outfield requirements", systemImage: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.subheadline)
+                if !noOutfield.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Missing Outfield Inning", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.orange)
+                        ForEach(noOutfield) { player in
+                            Text("• \(player.displayName)")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
+                if !underMinimum.isEmpty {
+                    let min = config.minimumFieldingInnings
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Under \(min) Inning\(min == 1 ? "" : "s") Fielded", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.orange)
+                        ForEach(underMinimum) { player in
+                            Text("• \(player.displayName)")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if !backToBack.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Back-to-Back Bench", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.red)
+                        ForEach(backToBack) { player in
+                            Text("• \(player.displayName)")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if !catcherToPitcher.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Catcher to Pitcher Violation", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.red)
+                        ForEach(catcherToPitcher) { player in
+                            Text("• \(player.displayName)")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if !pitcherToCatcher.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Pitcher to Catcher Violation", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.red)
+                        ForEach(pitcherToCatcher) { player in
+                            Text("• \(player.displayName)")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        } else if !activePlayers.isEmpty && store.lineup.innings.contains(where: { !$0.assignments.isEmpty }) {
+            Section(header: ComplianceRulesHeader(title: "Fair Play Rules")) {
+                Label("All active players meet fair play requirements", systemImage: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.subheadline)
             }
         }
     }
