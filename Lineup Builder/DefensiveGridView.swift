@@ -486,6 +486,13 @@ struct DefensiveGridView: View {
         let activePlayers = store.lineup.activePlayers(from: store.players)
         let config = store.fairPlayConfig
         var count = 0
+        // Open positions across all innings (any inning that has at least one assignment
+        // but is still missing one or more field positions)
+        for inningIndex in 0..<store.lineup.innings.count {
+            guard !store.lineup.innings[inningIndex].assignments.isEmpty else { continue }
+            let open = store.lineup.openPositions(inning: inningIndex, players: activePlayers, config: config)
+            count += open.count
+        }
         if config.minimumInfieldInnings > 0 {
             count += store.lineup.playersWithoutInfield(players: activePlayers).count
         }
@@ -743,6 +750,21 @@ struct WarningsView: View {
                     }
                 }
 
+                let missingPositionWarnings = computeMissingPositionWarnings()
+                Section(header: ComplianceRulesHeader(title: "Missing Positions")) {
+                    if missingPositionWarnings.isEmpty {
+                        Label("All innings have positions filled.", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.callout)
+                    } else {
+                        ForEach(missingPositionWarnings, id: \.self) { msg in
+                            Label(msg, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.callout)
+                        }
+                    }
+                }
+
                 Section(header: ComplianceRulesHeader(title: "Overall Lineup")) {
                     if overallWarnings.isEmpty {
                         Label("All players meet infield & outfield requirements.", systemImage: "checkmark.circle.fill")
@@ -787,6 +809,20 @@ struct WarningsView: View {
                     }
                 }
             }
+        }
+        return warnings
+    }
+
+    func computeMissingPositionWarnings() -> [String] {
+        var warnings: [String] = []
+        let activePlayers = store.lineup.activePlayers(from: store.players)
+        let config = store.fairPlayConfig
+        for i in 0..<store.lineup.innings.count {
+            guard !store.lineup.innings[i].assignments.isEmpty else { continue }
+            let open = store.lineup.openPositions(inning: i, players: activePlayers, config: config)
+            guard !open.isEmpty else { continue }
+            let posNames = open.map { $0.displayName }.joined(separator: ", ")
+            warnings.append("Inning \(i + 1): \(posNames)")
         }
         return warnings
     }
