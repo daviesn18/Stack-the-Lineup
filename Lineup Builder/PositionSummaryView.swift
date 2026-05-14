@@ -5,6 +5,7 @@ import SwiftUI
 enum SummaryViewMode: String, CaseIterable {
     case byPlayer   = "By Player"
     case byPosition = "By Position"
+    case pitching   = "Pitching"
 }
 
 // MARK: - PositionSummaryView
@@ -20,6 +21,16 @@ struct PositionSummaryView: View {
     var smartDefaultLastInning: Int
 
     @State private var viewMode: SummaryViewMode = .byPlayer
+
+    // Pitch eligibility alert — fired when coach assigns an ineligible pitcher
+    // from the grid menu. Same pattern as PositionPickerView in DefensiveGridView.
+    @State private var pendingPitchAssignment: PendingAssignment? = nil
+
+    struct PendingAssignment {
+        let player: Player
+        let inning: Int
+        let status: PitchEligibilityStatus
+    }
 
     // MARK: - Layout Constants
 
@@ -89,13 +100,34 @@ struct PositionSummaryView: View {
             // remain in struct scope — no local-scope compiler errors.
             GeometryReader { geo in
                 let colWidth = inningColumnWidth(availableWidth: geo.size.width)
+                let containerWidth = geo.size.width
                 VStack(spacing: 0) {
                     titleBar
                     if viewMode == .byPlayer {
-                        byPlayerTable(colWidth: colWidth)
+                        byPlayerTable(colWidth: colWidth, containerWidth: containerWidth)
+                    } else if viewMode == .byPosition {
+                        byPositionTable(colWidth: colWidth, containerWidth: containerWidth)
                     } else {
-                        byPositionTable(colWidth: colWidth)
+                        pitchingTable
                     }
+                }
+            }
+            .alert("Pitch Eligibility Warning", isPresented: Binding(
+                get: { pendingPitchAssignment != nil },
+                set: { if !$0 { pendingPitchAssignment = nil } }
+            )) {
+                Button("Assign Pitcher Anyway", role: .destructive) {
+                    if let pending = pendingPitchAssignment {
+                        store.assignPosition(player: pending.player, inning: pending.inning, position: .pitcher)
+                    }
+                    pendingPitchAssignment = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingPitchAssignment = nil
+                }
+            } message: {
+                if let pending = pendingPitchAssignment {
+                    Text("\(pending.player.firstName) may not be eligible to pitch. \(pending.status.displayLabel). You can still assign this position if needed.")
                 }
             }
         }
@@ -117,7 +149,7 @@ struct PositionSummaryView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 260)
+                    .frame(maxWidth: 360)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -188,9 +220,9 @@ struct PositionSummaryView: View {
 
     // MARK: - By Player Table
 
-    private func byPlayerTable(colWidth: CGFloat) -> some View {
+    private func byPlayerTable(colWidth: CGFloat, containerWidth: CGFloat) -> some View {
         let totalInningWidth = CGFloat(inningCount) * colWidth
-        let needsHScroll = totalInningWidth > UIScreen.main.bounds.width - playerColumnWidth
+        let needsHScroll = totalInningWidth > containerWidth - playerColumnWidth
 
         return ScrollView(.vertical) {
             VStack(spacing: 0) {
@@ -257,9 +289,9 @@ struct PositionSummaryView: View {
 
     // MARK: - By Position Table
 
-    private func byPositionTable(colWidth: CGFloat) -> some View {
+    private func byPositionTable(colWidth: CGFloat, containerWidth: CGFloat) -> some View {
         let totalInningWidth = CGFloat(inningCount) * colWidth
-        let needsHScroll = totalInningWidth > UIScreen.main.bounds.width - positionLabelWidth
+        let needsHScroll = totalInningWidth > containerWidth - positionLabelWidth
 
         return ScrollView(.vertical) {
             VStack(spacing: 0) {
@@ -363,6 +395,18 @@ struct PositionSummaryView: View {
     private func playerPositionCell(player: Player, inning: Int, colWidth: CGFloat) -> some View {
         let position = store.lineup.innings[inning].position(for: player)
 
+        // Pitch eligibility warning — only relevant when this cell is Pitcher
+        let pitchWarning: PitchEligibilityStatus? = {
+            guard position == .pitcher, store.pitchingConfig.rulesEnabled else { return nil }
+            let status = PitchEligibilityEngine.status(
+                for: player,
+                gameLogs: store.gameLogs,
+                config: store.pitchingConfig,
+                referenceDate: store.lineup.gameDate
+            )
+            return status.blocksAssignment ? status : nil
+        }()
+
         return Menu {
             Section("Infield") {
                 ForEach(activeInfieldPositions, id: \.self) { pos in
@@ -388,29 +432,40 @@ struct PositionSummaryView: View {
                 }
             }
         } label: {
-            VStack(spacing: 1) {
-                if let pos = position {
-                    Text(pos.rawValue)
-                        .font(.caption2.bold())
-                        .foregroundColor(pos.isAbsent ? Color(.systemGray) : .primary)
-                } else {
-                    Text("—")
-                        .font(.caption2)
-                        .foregroundStyle(.quaternary)
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 1) {
+                    if let pos = position {
+                        Text(pos.rawValue)
+                            .font(.caption2.bold())
+                            .foregroundColor(pos.isAbsent ? Color(.systemGray) : .primary)
+                    } else {
+                        Text("—")
+                            .font(.caption2)
+                            .foregroundStyle(.quaternary)
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 6, weight: .bold))
+                        .foregroundColor(.secondary)
                 }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 6, weight: .bold))
-                    .foregroundColor(.secondary)
-            }
-            .frame(width: colWidth, height: 40)
-            .background(cellColor(for: position))
-            .overlay {
-                if let borderColor = preferenceBorderColor(player: player, position: position) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(borderColor, lineWidth: 2)
+                .frame(width: colWidth, height: 40)
+                .background(pitchWarning != nil ? Color.red.opacity(0.12) : cellColor(for: position))
+                .overlay {
+                    if let borderColor = preferenceBorderColor(player: player, position: position) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .strokeBorder(borderColor, lineWidth: 2)
+                    }
+                }
+                .contentShape(Rectangle())
+
+                // Red dot in top-right corner when pitcher is ineligible
+                if pitchWarning != nil {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 4)
+                        .padding(.trailing, 4)
                 }
             }
-            .contentShape(Rectangle())
         }
     }
 
@@ -497,7 +552,24 @@ struct PositionSummaryView: View {
         let isCurrentPlayerPosition = current == position
 
         Button {
-            store.assignPosition(player: player, inning: inning, position: position)
+            // Check pitch eligibility before assigning the pitcher slot
+            if position == .pitcher, store.pitchingConfig.rulesEnabled {
+                let status = PitchEligibilityEngine.status(
+                    for: player,
+                    gameLogs: store.gameLogs,
+                    config: store.pitchingConfig,
+                    referenceDate: store.lineup.gameDate
+                )
+                if status.blocksAssignment {
+                    pendingPitchAssignment = PendingAssignment(
+                        player: player, inning: inning, status: status
+                    )
+                } else {
+                    store.assignPosition(player: player, inning: inning, position: position)
+                }
+            } else {
+                store.assignPosition(player: player, inning: inning, position: position)
+            }
         } label: {
             HStack {
                 if occupiedByOther, let other = occupant {
@@ -527,6 +599,206 @@ struct PositionSummaryView: View {
         return str
     }
 
+    // MARK: - Pitching Table
+
+    @State private var pitchingAssignmentPlayer: Player? = nil
+
+    private var pitchingTable: some View {
+        let pitchers = displayPlayers.filter { $0.positionPreferences[.pitcher] != .never }
+
+        return ScrollView(.vertical) {
+            VStack(spacing: 0) {
+                if !store.pitchingConfig.rulesEnabled {
+                    HStack(spacing: 10) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.secondary)
+                        Text("Enable Pitching Rules in team settings to track eligibility and pitch counts.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.systemGray6))
+                }
+
+                // Header
+                HStack(spacing: 0) {
+                    Text("Player")
+                        .font(.caption.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
+                    Text("Thrown")
+                        .font(.caption.bold())
+                        .frame(width: 60, alignment: .center)
+                    Text("Available")
+                        .font(.caption.bold())
+                        .frame(width: 80, alignment: .center)
+                    Text("Status")
+                        .font(.caption.bold())
+                        .frame(width: 82, alignment: .center)
+                        .padding(.trailing, 8)
+                }
+                .frame(height: 34)
+                .background(Color(.systemGray5))
+
+                Divider()
+
+                if pitchers.isEmpty {
+                    Text("No players have Pitcher as an available position preference.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ForEach(Array(pitchingRows(for: pitchers).enumerated()), id: \.element.player.id) { index, row in
+                        Button {
+                            pitchingAssignmentPlayer = row.player
+                        } label: {
+                            HStack(spacing: 0) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(row.player.displayName)
+                                        .font(.subheadline)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                    if !row.assignedInnings.isEmpty {
+                                        Text("Pitching: \(row.assignedInnings.map { "Inn \($0 + 1)" }.joined(separator: ", "))")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    } else {
+                                        Text("Tap to assign innings")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue.opacity(0.7))
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 16)
+
+                                // Thrown — pitches in the rolling window
+                                Text("\(row.windowPitches)")
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 60, alignment: .center)
+
+                                // Available — min(dailyMax, weeklyRemaining) minus window pitches
+                                Text(row.dailyMax > 0 ? "\(row.available)" : "—")
+                                    .font(.subheadline.monospacedDigit().bold())
+                                    .foregroundColor(remainingColor(row.available, max: row.dailyMax))
+                                    .frame(width: 80, alignment: .center)
+
+                                Text(row.status.displayLabel)
+                                    .font(.caption)
+                                    .foregroundColor(row.status.isRestricted ? .red : .secondary)
+                                    .multilineTextAlignment(.center)
+                                    .frame(width: 74, alignment: .center)
+
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 16)
+                                    .padding(.trailing, 8)
+                            }
+                            .frame(minHeight: 48)
+                            .background(index.isMultiple(of: 2) ? Color(.systemBackground) : Color(.systemGray6).opacity(0.5))
+                        }
+                        Divider()
+                    }
+                }
+
+                fairPlaySection
+            }
+        }
+        .sheet(item: $pitchingAssignmentPlayer) { player in
+            PitchingAssignmentSheet(player: player)
+                .environmentObject(store)
+        }
+    }
+
+    // MARK: - Pitching Table Helpers
+
+    struct PitchingRow {
+        let player: Player
+        let windowPitches: Int
+        let dailyMax: Int
+        let available: Int   // min(dailyMax, weeklyRemaining) — pitches available for today's game
+        let status: PitchEligibilityStatus
+        let assignedInnings: [Int]
+    }
+
+    private func pitchingRows(for players: [Player]) -> [PitchingRow] {
+        let cal = Calendar.current
+        let gameDate = cal.startOfDay(for: store.lineup.gameDate)
+
+        let windowStart: Date = {
+            switch store.pitchingConfig.rollingWindowType {
+            case .calendarWeek:
+                var comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: gameDate)
+                comps.weekday = 2
+                return cal.date(from: comps) ?? gameDate
+            case .rolling:
+                return cal.date(byAdding: .day,
+                    value: -(store.pitchingConfig.rollingWindowDays - 1), to: gameDate) ?? gameDate
+            }
+        }()
+
+        let rows: [PitchingRow] = players.map { player in
+            let key = player.id.uuidString
+            // Window pitches = all logs before the game date (not including game day itself)
+            let windowPitches = store.gameLogs
+                .filter { cal.startOfDay(for: $0.gameDate) >= windowStart && cal.startOfDay(for: $0.gameDate) < gameDate }
+                .reduce(0) { $0 + ($1.pitchCounts[key] ?? 0) }
+
+            let dailyMax: Int = {
+                guard let age = player.leagueAge,
+                      let bracket = PitchingAgeBracket.bracket(for: age),
+                      let limits = store.pitchingConfig.ageLimits[bracket] else { return 0 }
+                return limits.dailyMax
+            }()
+
+            // Available = min(daily max, weekly cap remaining if enabled)
+            // This matches the engine's .limited calculation — the constraint
+            // is whichever ceiling is lower for today's game, not daily max
+            // minus historical pitches (those were thrown on past days, not today).
+            var available = dailyMax
+            if store.pitchingConfig.weeklyLimitEnabled && store.pitchingConfig.weeklyLimit > 0 {
+                let weeklyRemaining = max(0, store.pitchingConfig.weeklyLimit - windowPitches)
+                available = min(dailyMax, weeklyRemaining)
+            }
+
+            let status = PitchEligibilityEngine.status(
+                for: player, gameLogs: store.gameLogs, config: store.pitchingConfig,
+                referenceDate: store.lineup.gameDate
+            )
+
+            let assignedInnings = store.lineup.innings.indices.filter { i in
+                store.lineup.innings[i].assignments[player.id] == .pitcher
+            }
+
+            return PitchingRow(
+                player: player,
+                windowPitches: windowPitches,
+                dailyMax: dailyMax,
+                available: available,
+                status: status,
+                assignedInnings: assignedInnings
+            )
+        }
+
+        return rows.sorted { a, b in
+            if a.status.isRestricted != b.status.isRestricted {
+                return !a.status.isRestricted
+            }
+            return a.available > b.available
+        }
+    }
+
+    private func remainingColor(_ remaining: Int, max: Int) -> Color {
+        guard max > 0 else { return .secondary }
+        let fraction = Double(remaining) / Double(max)
+        if fraction >= 0.6 { return Color(red: 0.1, green: 0.5, blue: 0.2) }
+        if fraction >= 0.25 { return Color(red: 0.6, green: 0.35, blue: 0.0) }
+        return .red
+    }
+
     // MARK: - Fair Play Warnings
 
     @ViewBuilder
@@ -553,7 +825,28 @@ struct PositionSummaryView: View {
         let hasAnyWarning = !noInfield.isEmpty || !noOutfield.isEmpty || !consecutiveBenchPlayers.isEmpty
             || !underMinimum.isEmpty || !catcherToPitcherViolators.isEmpty || !pitcherToCatcherViolators.isEmpty
 
-        if hasAnyWarning {
+        // Pitch eligibility — only computed when rules are enabled
+        let pitchViolators: [(player: Player, status: PitchEligibilityStatus)] = {
+            guard store.pitchingConfig.rulesEnabled else { return [] }
+            let assignedPitcherIDs = Set(
+                store.lineup.innings.flatMap { inning in
+                    inning.assignments.compactMap { (pid, pos) -> UUID? in pos == .pitcher ? pid : nil }
+                }
+            )
+            return assignedPitcherIDs.compactMap { pid -> (Player, PitchEligibilityStatus)? in
+                guard let player = store.players.first(where: { $0.id == pid }) else { return nil }
+                let status = PitchEligibilityEngine.status(
+                    for: player, gameLogs: store.gameLogs, config: store.pitchingConfig,
+                    referenceDate: store.lineup.gameDate
+                )
+                switch status {
+                case .eligible: return nil
+                default: return (player, status)
+                }
+            }
+        }()
+
+        if hasAnyWarning || !pitchViolators.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Fair Play Warnings", systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline.bold())
@@ -595,6 +888,16 @@ struct PositionSummaryView: View {
                         Text(pitcherToCatcherViolators.map(\.displayName).joined(separator: ", ")).font(.caption).foregroundColor(.secondary)
                     }
                 }
+                if !pitchViolators.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Pitch Eligibility").font(.caption.bold()).foregroundColor(.red)
+                        ForEach(pitchViolators, id: \.player.id) { item in
+                            Text("\(item.player.displayName): \(item.status.displayLabel)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -609,5 +912,159 @@ struct PositionSummaryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.systemGray6))
         }
+    }
+}
+
+// MARK: - Pitching Assignment Sheet
+
+/// Lets the coach assign or remove a player from the Pitcher slot for specific innings.
+/// Only pitcher assignments are made here — other positions are not touched.
+struct PitchingAssignmentSheet: View {
+    @EnvironmentObject var store: LineupStore
+    @Environment(\.dismiss) var dismiss
+
+    let player: Player
+
+    @State private var showingEligibilityWarning = false
+    @State private var pendingInning: Int? = nil
+
+    private var eligibilityStatus: PitchEligibilityStatus {
+        PitchEligibilityEngine.status(
+            for: player, gameLogs: store.gameLogs, config: store.pitchingConfig,
+            referenceDate: store.lineup.gameDate
+        )
+    }
+
+    private var remaining: Int? {
+        pitchesRemaining(
+            for: player, gameLogs: store.gameLogs, config: store.pitchingConfig,
+            referenceDate: store.lineup.gameDate
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: "figure.baseball.pitcher")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            switch eligibilityStatus {
+                            case .eligible:
+                                Text("Eligible to pitch")
+                                    .font(.subheadline.bold())
+                                if let r = remaining {
+                                    Text("\(r) pitches available today")
+                                        .font(.caption).foregroundColor(.secondary)
+                                }
+                            case .limited(let r):
+                                Text("Eligible — limited")
+                                    .font(.subheadline.bold())
+                                    .foregroundColor(Color(red: 0.6, green: 0.35, blue: 0.0))
+                                Text("\(r) pitches available today")
+                                    .font(.caption).foregroundColor(.secondary)
+                            case .mustRest:
+                                Text("Must rest")
+                                    .font(.subheadline.bold()).foregroundColor(.red)
+                                Text(eligibilityStatus.displayLabel)
+                                    .font(.caption).foregroundColor(.secondary)
+                            case .unknownAge:
+                                Text("League age not set")
+                                    .font(.subheadline.bold()).foregroundColor(.orange)
+                                Text("Set age on the player card to track pitching eligibility")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+
+                        Spacer()
+
+                        if let r = remaining, r > 0 {
+                            VStack(spacing: 0) {
+                                Text("\(r)")
+                                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                                    .foregroundColor(remainingColor(r))
+                                Text("left")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section {
+                    ForEach(0..<store.lineup.innings.count, id: \.self) { inning in
+                        let isAssigned = store.lineup.innings[inning].assignments[player.id] == .pitcher
+                        let occupant = store.lineup.innings[inning].player(at: .pitcher, in: store.players)
+                        let occupiedByOther = !isAssigned && occupant != nil
+
+                        Button {
+                            if isAssigned {
+                                store.removeAssignment(player: player, inning: inning)
+                            } else if eligibilityStatus.blocksAssignment {
+                                pendingInning = inning
+                                showingEligibilityWarning = true
+                            } else {
+                                store.assignPosition(player: player, inning: inning, position: .pitcher)
+                            }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Inning \(inning + 1)")
+                                        .foregroundColor(.primary)
+                                    if occupiedByOther, let other = occupant {
+                                        Text("Currently: \(other.displayName)")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: isAssigned ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(isAssigned ? .blue : .secondary)
+                                    .font(.title3)
+                            }
+                        }
+                        .listRowBackground(isAssigned ? Color.blue.opacity(0.06) : nil)
+                    }
+                } header: {
+                    Text("Assign Pitcher Innings")
+                } footer: {
+                    Text("Tap an inning to assign or remove this player as pitcher. Other position assignments in that inning are not affected.")
+                }
+            }
+            .navigationTitle(player.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+            .alert("Pitch Eligibility Warning", isPresented: $showingEligibilityWarning) {
+                Button("Assign Anyway", role: .destructive) {
+                    if let inning = pendingInning {
+                        store.assignPosition(player: player, inning: inning, position: .pitcher)
+                    }
+                    pendingInning = nil
+                }
+                Button("Cancel", role: .cancel) { pendingInning = nil }
+            } message: {
+                Text("\(player.firstName) may not be eligible to pitch. \(eligibilityStatus.displayLabel). You can still assign this inning if needed.")
+            }
+        }
+    }
+
+    private func remainingColor(_ remaining: Int) -> Color {
+        guard let age = player.leagueAge,
+              let bracket = PitchingAgeBracket.bracket(for: age),
+              let limits = store.pitchingConfig.ageLimits[bracket] else { return .secondary }
+        let fraction = limits.dailyMax > 0 ? Double(remaining) / Double(limits.dailyMax) : 0
+        if fraction >= 0.6 { return Color(red: 0.1, green: 0.5, blue: 0.2) }
+        if fraction >= 0.25 { return Color(red: 0.6, green: 0.35, blue: 0.0) }
+        return .red
     }
 }

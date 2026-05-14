@@ -7,7 +7,10 @@ import SwiftUI
 
 struct GameLogDetailView: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     let log: GameLog
+
+    @State private var showingPitchCountEdit = false
 
     private var archivedAtString: String {
         let f = DateFormatter()
@@ -17,15 +20,25 @@ struct GameLogDetailView: View {
     }
 
     private var orderedPlayers: [PlayerSnapshot] {
-        log.battingOrder.compactMap { id in
-            log.snapshot(for: id)
-        }
+        log.battingOrder.compactMap { id in log.snapshot(for: id) }
     }
 
-    // Players in the snapshot who are NOT in the batting order
     private var benchOnlyPlayers: [PlayerSnapshot] {
         let orderedIDs = Set(log.battingOrder)
         return log.playerSnapshot.filter { !orderedIDs.contains($0.id) }
+    }
+
+    /// Pitch count entries resolved to display names, sorted by pitches descending.
+    private var pitchCountEntries: [(name: String, pitches: Int)] {
+        log.pitchCounts
+            .compactMap { (uuidString, count) -> (String, Int)? in
+                guard count > 0, let uuid = UUID(uuidString: uuidString) else { return nil }
+                let name = log.snapshot(for: uuid)?.displayName
+                    ?? store.players.first(where: { $0.id == uuid })?.displayName
+                    ?? "Unknown"
+                return (name, count)
+            }
+            .sorted { $0.1 > $1.1 }
     }
 
     var body: some View {
@@ -46,6 +59,58 @@ struct GameLogDetailView: View {
                 }
                 .padding(.horizontal)
                 .padding(.top)
+
+                // Pitch Counts — shown to Pro users, always accessible for retroactive entry
+                if purchaseManager.isPro {
+                    HStack {
+                        Text("Pitch Counts")
+                            .font(.headline)
+                        Spacer()
+                        Button {
+                            showingPitchCountEdit = true
+                        } label: {
+                            Label(
+                                pitchCountEntries.isEmpty ? "Add" : "Edit",
+                                systemImage: pitchCountEntries.isEmpty ? "plus.circle" : "pencil"
+                            )
+                            .font(.subheadline)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 24)
+                    .padding(.bottom, 8)
+
+                    GroupBox {
+                        if pitchCountEntries.isEmpty {
+                            Button {
+                                showingPitchCountEdit = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "figure.baseball.pitcher")
+                                        .foregroundStyle(.secondary)
+                                    Text("No pitch counts recorded. Tap Add to enter them.")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(Array(pitchCountEntries.enumerated()), id: \.offset) { index, entry in
+                                    if index > 0 { Divider().padding(.vertical, 4) }
+                                    HStack {
+                                        Text(entry.name)
+                                        Spacer()
+                                        Text("\(entry.pitches) pitches")
+                                            .foregroundColor(.secondary)
+                                            .font(.subheadline)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
 
                 // Batting Order
                 Text("Batting Order")
@@ -83,7 +148,7 @@ struct GameLogDetailView: View {
                 }
                 .padding(.horizontal)
 
-                // Defensive Grid — unconstrained, full height
+                // Defensive Grid
                 Text("Defensive Positions")
                     .font(.headline)
                     .padding(.horizontal)
@@ -97,6 +162,10 @@ struct GameLogDetailView: View {
         .navigationTitle(log.opponent.isEmpty ? "Game Log" : "vs. \(log.opponent)")
         .navigationBarTitleDisplayMode(.inline)
         .background(Color(.systemGroupedBackground))
+        .sheet(isPresented: $showingPitchCountEdit) {
+            RetroactivePitchCountSheet(log: log)
+                .environmentObject(store)
+        }
     }
 
     @ViewBuilder
@@ -109,6 +178,207 @@ struct GameLogDetailView: View {
                 .font(valueFont)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+// MARK: - Retroactive Pitch Count Sheet
+
+/// Lets the coach add or edit pitch counts on an already-archived game.
+/// Players are sourced from the game's snapshot so names always match
+/// what was on the roster at game time. The coach can also add players
+/// who weren't in the snapshot (e.g. a pitcher who subbed in late).
+struct RetroactivePitchCountSheet: View {
+    @EnvironmentObject var store: LineupStore
+    @Environment(\.dismiss) var dismiss
+
+    let log: GameLog
+
+    @State private var counts: [UUID: String] = [:]
+    @State private var includedIDs: [UUID] = []
+    @State private var showingAddPitcher = false
+
+    /// All players in the snapshot, keyed by ID for fast lookup.
+    private var snapshotByID: [UUID: PlayerSnapshot] {
+        Dictionary(uniqueKeysWithValues: log.playerSnapshot.map { ($0.id, $0) })
+    }
+
+    /// Display name for a UUID — snapshot first, live roster fallback.
+    private func displayName(for id: UUID) -> String {
+        snapshotByID[id]?.displayName
+            ?? store.players.first(where: { $0.id == id })?.displayName
+            ?? "Unknown"
+    }
+
+    /// Players in the snapshot who aren't already in the list.
+    private var availableToAdd: [PlayerSnapshot] {
+        log.playerSnapshot
+            .filter { !includedIDs.contains($0.id) }
+            .sorted { $0.displayName < $1.displayName }
+    }
+
+    private var canSave: Bool { !includedIDs.isEmpty }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Enter pitches thrown in this game. Changes update eligibility calculations going forward.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                if includedIDs.isEmpty {
+                    Section {
+                        Text("No pitchers listed. Tap Add Pitcher to enter counts.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section {
+                        ForEach(includedIDs, id: \.self) { id in
+                            HStack {
+                                Text(displayName(for: id))
+                                Spacer()
+                                TextField("0", text: countBinding(for: id))
+                                    .keyboardType(.numberPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 64)
+                                    .foregroundStyle(.blue)
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                        .onDelete { offsets in
+                            for i in offsets {
+                                let id = includedIDs[i]
+                                counts.removeValue(forKey: id)
+                            }
+                            includedIDs.remove(atOffsets: offsets)
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        showingAddPitcher = true
+                    } label: {
+                        Label("Add Pitcher", systemImage: "plus.circle")
+                    }
+                }
+            }
+            .navigationTitle("Pitch Counts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .fontWeight(.semibold)
+                        .disabled(!canSave)
+                }
+            }
+            .sheet(isPresented: $showingAddPitcher) {
+                RetroactivePitcherPickerSheet(available: availableToAdd) { snapshot in
+                    if !includedIDs.contains(snapshot.id) {
+                        includedIDs.append(snapshot.id)
+                        counts[snapshot.id] = ""
+                    }
+                }
+            }
+            .onAppear { loadExisting() }
+        }
+    }
+
+    private func loadExisting() {
+        // Pre-populate from any existing pitch counts on the log
+        var ids: [UUID] = []
+        for (uuidString, count) in log.pitchCounts where count > 0 {
+            if let id = UUID(uuidString: uuidString) {
+                ids.append(id)
+                counts[id] = "\(count)"
+            }
+        }
+        // If no existing counts, pre-populate detected pitchers from the grid
+        if ids.isEmpty {
+            ids = log.innings.flatMap { inning in
+                inning.assignments.compactMap { (playerID, pos) -> UUID? in
+                    pos == .pitcher ? playerID : nil
+                }
+            }
+            var seen = Set<UUID>()
+            ids = ids.filter { seen.insert($0).inserted }
+            for id in ids { counts[id] = "" }
+        }
+        includedIDs = ids
+    }
+
+    private func countBinding(for id: UUID) -> Binding<String> {
+        Binding(
+            get: { counts[id] ?? "" },
+            set: { counts[id] = $0 }
+        )
+    }
+
+    private func save() {
+        var parsed: [String: Int] = [:]
+        for (id, text) in counts {
+            if let value = Int(text), value > 0 {
+                parsed[id.uuidString] = value
+            }
+        }
+        // replacePitchCounts replaces the entire dict so removed pitchers are cleared
+        store.replacePitchCounts(parsed, for: log.id)
+        Analytics.signal("pitchcounts.retroactive", parameters: [
+            "pitcherCount": "\(parsed.count)"
+        ])
+        dismiss()
+    }
+}
+
+// MARK: - Retroactive Pitcher Picker Sheet
+
+private struct RetroactivePitcherPickerSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let available: [PlayerSnapshot]
+    let onSelect: (PlayerSnapshot) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if available.isEmpty {
+                    ContentUnavailableView(
+                        "All players added",
+                        systemImage: "person.crop.circle.badge.checkmark",
+                        description: Text("Every player in this game's roster has been added.")
+                    )
+                } else {
+                    List(available) { snap in
+                        Button {
+                            onSelect(snap)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(snap.displayName)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if !snap.number.isEmpty {
+                                    Text("#\(snap.number)")
+                                        .foregroundStyle(.secondary)
+                                        .font(.subheadline)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add Pitcher")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }

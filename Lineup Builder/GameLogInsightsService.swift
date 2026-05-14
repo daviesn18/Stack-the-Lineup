@@ -163,11 +163,17 @@ class GameLogInsightsService: ObservableObject {
     nonisolated private static func buildStaticPrompt(logs: [GameLog]) -> String {
         let stats = SeasonStatsCalculator.compute(from: logs)
 
-        guard let statsJSON = try? JSONEncoder().encode(stats),
-              let statsString = String(data: statsJSON, encoding: .utf8) else {
-            return "No stats available."
+        // Manually build the stats string rather than using JSONEncoder in a nonisolated
+        // context, which triggers a Swift 6 actor isolation warning.
+        var lines: [String] = []
+        lines.append("Games played: \(stats.gameCount)")
+        if !stats.dateRange.isEmpty {
+            lines.append("Date range: \(stats.dateRange)")
         }
-
-        return "Here are the season stats (JSON): \(statsString)"
+        for p in stats.players {
+            let positions = p.posCounts.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
+            lines.append("\(p.playerName): \(p.totalInnings) innings, \(p.benchInnings) bench, \(p.infieldInnings) infield, \(p.outfieldInnings) outfield — \(positions)")
+        }
+        return "Here are the season stats:\n" + lines.joined(separator: "\n")
     }
 }

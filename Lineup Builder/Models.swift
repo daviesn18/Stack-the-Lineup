@@ -123,6 +123,150 @@ enum LeagueRuleset: String, Codable, CaseIterable, Sendable {
     nonisolated var displayName: String { rawValue }
 }
 
+// MARK: - Pitching Config
+
+/// Age bracket for pitch count rule lookup. Covers all rec-ball divisions up to 16.
+/// No bracket above 16 — out of scope for the recreational youth target audience.
+enum PitchingAgeBracket: String, Codable, CaseIterable, Sendable {
+    case u8  = "7-8"
+    case u10 = "9-10"
+    case u12 = "11-12"
+    case u14 = "13-14"
+    case u16 = "15-16"
+
+    nonisolated var displayName: String { rawValue }
+
+    /// Returns the bracket that applies to a given league age, or nil if out of range.
+    static func bracket(for age: Int) -> PitchingAgeBracket? {
+        switch age {
+        case ...8:  return .u8
+        case 9...10: return .u10
+        case 11...12: return .u12
+        case 13...14: return .u14
+        case 15...16: return .u16
+        default:    return nil
+        }
+    }
+}
+
+/// Rest day thresholds and daily pitch maximum for a single age bracket.
+/// Upper tiers are optional — the 7-8 bracket has no 3 or 4 rest day tier.
+struct PitchingLimits: Codable, Sendable {
+    /// Maximum pitches allowed in a single game for this age group.
+    var dailyMax: Int
+    /// Minimum pitches thrown that require 1 day of rest. 0 = no threshold at this tier.
+    var restDay1Min: Int
+    /// Minimum pitches thrown that require 2 days of rest. 0 = no threshold at this tier.
+    var restDay2Min: Int
+    /// Minimum pitches thrown that require 3 days of rest. nil = tier does not apply.
+    var restDay3Min: Int?
+    /// Minimum pitches thrown that require 4 days of rest. nil = tier does not apply.
+    var restDay4Min: Int?
+
+    /// Returns the number of rest days required for a given pitch count.
+    func restDaysRequired(for pitches: Int) -> Int {
+        if let min4 = restDay4Min, pitches >= min4 { return 4 }
+        if let min3 = restDay3Min, pitches >= min3 { return 3 }
+        if pitches >= restDay2Min { return 2 }
+        if pitches >= restDay1Min { return 1 }
+        return 0
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        dailyMax    = (try? c.decodeIfPresent(Int.self, forKey: .dailyMax))    ?? 85
+        restDay1Min = (try? c.decodeIfPresent(Int.self, forKey: .restDay1Min)) ?? 1
+        restDay2Min = (try? c.decodeIfPresent(Int.self, forKey: .restDay2Min)) ?? 36
+        restDay3Min = try? c.decodeIfPresent(Int.self, forKey: .restDay3Min)
+        restDay4Min = try? c.decodeIfPresent(Int.self, forKey: .restDay4Min)
+    }
+
+    init(dailyMax: Int, restDay1Min: Int, restDay2Min: Int,
+         restDay3Min: Int? = nil, restDay4Min: Int? = nil) {
+        self.dailyMax    = dailyMax
+        self.restDay1Min = restDay1Min
+        self.restDay2Min = restDay2Min
+        self.restDay3Min = restDay3Min
+        self.restDay4Min = restDay4Min
+    }
+}
+
+/// How the rolling pitch-count window is measured.
+enum RollingWindowType: String, Codable, CaseIterable, Sendable {
+    case calendarWeek = "Calendar Week"
+    case rolling      = "Rolling 7 Days"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+/// Per-team pitching rules. Stored alongside FairPlayConfig on Team.
+/// Defaults to disabled so existing teams are unaffected on upgrade.
+struct PitchingConfig: Codable, Sendable {
+
+    /// Master toggle. When false the rules engine is bypassed entirely.
+    var rulesEnabled: Bool = false
+
+    /// Age-bracket limits. Keyed by bracket. Pre-loaded by applyLittleLeaguePreset().
+    var ageLimits: [PitchingAgeBracket: PitchingLimits] = [:]
+
+    /// Whether a rolling pitch-count window cap is enforced.
+    var weeklyLimitEnabled: Bool = false
+
+    /// Maximum total pitches allowed in the rolling window period.
+    var weeklyLimit: Int = 0
+
+    /// How the rolling window is calculated. Calendar week = Mon-Sun.
+    /// Rolling = true 7-day window from any given game date.
+    var rollingWindowType: RollingWindowType = .rolling
+
+    /// Duration of the rolling window in days. Not surfaced in UI yet —
+    /// UI exposes calendarWeek vs rolling7Days toggle only. Reserved for
+    /// a future release when variable window lengths ship.
+    var rollingWindowDays: Int = 7
+
+    // MARK: Presets
+
+    /// Seeds ageLimits with the standard Little League pitch count rules.
+    /// The coach can edit any value after applying — the preset is a starting point only.
+    mutating func applyLittleLeaguePreset() {
+        ageLimits = [
+            .u8:  PitchingLimits(dailyMax: 50, restDay1Min: 21, restDay2Min: 36),
+            .u10: PitchingLimits(dailyMax: 75, restDay1Min: 21, restDay2Min: 36, restDay3Min: 51, restDay4Min: 66),
+            .u12: PitchingLimits(dailyMax: 85, restDay1Min: 21, restDay2Min: 36, restDay3Min: 51, restDay4Min: 66),
+            .u14: PitchingLimits(dailyMax: 95, restDay1Min: 21, restDay2Min: 36, restDay3Min: 51, restDay4Min: 66),
+            .u16: PitchingLimits(dailyMax: 95, restDay1Min: 31, restDay2Min: 46, restDay3Min: 61, restDay4Min: 76)
+        ]
+    }
+
+    // MARK: Safe decode
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rulesEnabled       = (try? c.decodeIfPresent(Bool.self,                              forKey: .rulesEnabled))       ?? false
+        ageLimits          = (try? c.decodeIfPresent([PitchingAgeBracket: PitchingLimits].self, forKey: .ageLimits))       ?? [:]
+        weeklyLimitEnabled = (try? c.decodeIfPresent(Bool.self,                              forKey: .weeklyLimitEnabled)) ?? false
+        weeklyLimit        = (try? c.decodeIfPresent(Int.self,                               forKey: .weeklyLimit))        ?? 0
+        rollingWindowType  = (try? c.decodeIfPresent(RollingWindowType.self,                 forKey: .rollingWindowType))  ?? .rolling
+        rollingWindowDays  = (try? c.decodeIfPresent(Int.self,                               forKey: .rollingWindowDays))  ?? 7
+    }
+
+    init(
+        rulesEnabled: Bool = false,
+        ageLimits: [PitchingAgeBracket: PitchingLimits] = [:],
+        weeklyLimitEnabled: Bool = false,
+        weeklyLimit: Int = 0,
+        rollingWindowType: RollingWindowType = .rolling,
+        rollingWindowDays: Int = 7
+    ) {
+        self.rulesEnabled       = rulesEnabled
+        self.ageLimits          = ageLimits
+        self.weeklyLimitEnabled = weeklyLimitEnabled
+        self.weeklyLimit        = weeklyLimit
+        self.rollingWindowType  = rollingWindowType
+        self.rollingWindowDays  = rollingWindowDays
+    }
+}
+
 // MARK: - Fair Play Config
 
 /// Per-team fair play rules. All defaults mirror the rules that were previously
@@ -594,6 +738,9 @@ struct GameLog: Identifiable, Codable, Sendable {
     var innings: [InningAssignment]          // Always 7 entries stored
     var playerSnapshot: [PlayerSnapshot]     // Roster frozen at archive time
     var archivedAt: Date = Date()
+    /// Pitch counts entered or imported at archive time. Keyed by player UUID string.
+    /// Optional per log — games archived before v2.5 will have nil/empty here.
+    var pitchCounts: [String: Int] = [:]
 
     nonisolated var playedInnings: [InningAssignment] {
         Array(innings.prefix(inningsPlayed))
@@ -601,6 +748,35 @@ struct GameLog: Identifiable, Codable, Sendable {
 
     nonisolated func snapshot(for id: UUID) -> PlayerSnapshot? {
         playerSnapshot.first { $0.id == id }
+    }
+
+    // Custom decode: pitchCounts is new in v2.5 — older GameLog blobs won't include it.
+    // All other fields are load-bearing; propagate failures so corrupt logs surface clearly.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id             = (try? c.decode(UUID.self,             forKey: .id))             ?? UUID()
+        gameDate       = try c.decode(Date.self,               forKey: .gameDate)
+        opponent       = try c.decode(String.self,             forKey: .opponent)
+        inningsPlayed  = try c.decode(Int.self,                forKey: .inningsPlayed)
+        battingOrder   = try c.decode([UUID].self,             forKey: .battingOrder)
+        innings        = try c.decode([InningAssignment].self, forKey: .innings)
+        playerSnapshot = try c.decode([PlayerSnapshot].self,   forKey: .playerSnapshot)
+        archivedAt     = (try? c.decode(Date.self,             forKey: .archivedAt))     ?? Date()
+        pitchCounts    = (try? c.decodeIfPresent([String: Int].self, forKey: .pitchCounts)) ?? [:]
+    }
+
+    init(id: UUID = UUID(), gameDate: Date, opponent: String, inningsPlayed: Int,
+         battingOrder: [UUID], innings: [InningAssignment], playerSnapshot: [PlayerSnapshot],
+         archivedAt: Date = Date(), pitchCounts: [String: Int] = [:]) {
+        self.id             = id
+        self.gameDate       = gameDate
+        self.opponent       = opponent
+        self.inningsPlayed  = inningsPlayed
+        self.battingOrder   = battingOrder
+        self.innings        = innings
+        self.playerSnapshot = playerSnapshot
+        self.archivedAt     = archivedAt
+        self.pitchCounts    = pitchCounts
     }
 }
 
@@ -674,6 +850,9 @@ struct Team: Identifiable, Codable {
     /// Per-team fair play rule configuration. Defaults match previously hardcoded
     /// behavior so existing teams get identical validation after upgrading.
     var fairPlayConfig: FairPlayConfig = FairPlayConfig()
+    /// Per-team pitching rules configuration. Disabled by default — existing teams
+    /// are unaffected until a coach explicitly enables pitching rules.
+    var pitchingConfig: PitchingConfig = PitchingConfig()
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -693,7 +872,8 @@ struct Team: Identifiable, Codable {
         gameInningCount: Int = 7,
         scheduledGames: [ScheduledGame] = [],
         calendarSubscriptionURL: String? = nil,
-        fairPlayConfig: FairPlayConfig = FairPlayConfig()
+        fairPlayConfig: FairPlayConfig = FairPlayConfig(),
+        pitchingConfig: PitchingConfig = PitchingConfig()
     ) {
         self.id = id
         self.name = name
@@ -706,6 +886,7 @@ struct Team: Identifiable, Codable {
         self.scheduledGames = scheduledGames
         self.calendarSubscriptionURL = calendarSubscriptionURL
         self.fairPlayConfig = fairPlayConfig
+        self.pitchingConfig = pitchingConfig
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -725,6 +906,9 @@ struct Team: Identifiable, Codable {
         // fairPlayConfig is new in v2.4 — older Team blobs won't include it.
         // Default constructs with safe values that match previous hardcoded behavior.
         fairPlayConfig           = (try? c.decode(FairPlayConfig.self,  forKey: .fairPlayConfig))           ?? FairPlayConfig()
+        // pitchingConfig is new in v2.5 — older Team blobs won't include it.
+        // Default to disabled so existing teams are unaffected on upgrade.
+        pitchingConfig           = (try? c.decode(PitchingConfig.self,  forKey: .pitchingConfig))           ?? PitchingConfig()
     }
 }
 
@@ -776,6 +960,7 @@ class LineupStore: ObservableObject {
     var scheduledGames: [ScheduledGame]  { activeTeam.scheduledGames }
     var calendarSubscriptionURL: String? { activeTeam.calendarSubscriptionURL }
     var fairPlayConfig: FairPlayConfig   { activeTeam.fairPlayConfig }
+    var pitchingConfig: PitchingConfig   { activeTeam.pitchingConfig }
 
     // MARK: - Constants
     private let teamsKey      = "stl_teams"
@@ -973,7 +1158,8 @@ class LineupStore: ObservableObject {
 
     // MARK: - Game Log Operations
 
-    func archiveCurrentLineup(inningsPlayed: Int) {
+    @discardableResult
+    func archiveCurrentLineup(inningsPlayed: Int) -> UUID {
         let snapshot = activeTeam.players.map { PlayerSnapshot(from: $0) }
 
         let log = GameLog(
@@ -992,6 +1178,7 @@ class LineupStore: ObservableObject {
 
         clearPositions()
         save()
+        return log.id
     }
 
     func deleteGameLog(id: UUID) {
@@ -1155,6 +1342,44 @@ class LineupStore: ObservableObject {
             "outfielderCount": "\(config.outfielderCount)",
             "minimumFieldingInnings": "\(config.minimumFieldingInnings)"
         ])
+        save()
+    }
+
+    /// Updates the pitching config for a specific team. Scoped to teamID so
+    /// PitchingRulesView can write to a team other than activeTeam if needed.
+    func updatePitchingConfig(_ config: PitchingConfig, for teamID: UUID) {
+        guard let idx = teams.firstIndex(where: { $0.id == teamID }) else { return }
+        teams[idx].pitchingConfig = config
+        Analytics.signal("pitching.config.updated", parameters: [
+            "rulesEnabled": "\(config.rulesEnabled)",
+            "weeklyLimitEnabled": "\(config.weeklyLimitEnabled)",
+            "rollingWindowType": config.rollingWindowType.rawValue
+        ])
+        save()
+    }
+
+    /// Saves pitch counts to a specific game log. Merges with any existing counts
+    /// so that a GC import and manual entry don't overwrite each other if called
+    /// in sequence — last write per player ID wins.
+    func savePitchCounts(_ counts: [String: Int], for gameLogID: UUID) {
+        guard let teamIdx = teams.firstIndex(where: { $0.id == activeTeamID }),
+              let logIdx = teams[teamIdx].gameLogs.firstIndex(where: { $0.id == gameLogID }) else { return }
+        for (key, value) in counts {
+            teams[teamIdx].gameLogs[logIdx].pitchCounts[key] = value
+        }
+        Analytics.signal("pitchcounts.saved", parameters: [
+            "pitcherCount": "\(counts.count)"
+        ])
+        save()
+    }
+
+    /// Replaces pitch counts on a specific game log entirely.
+    /// Used when editing retroactively — the new dict is the source of truth,
+    /// so players removed from the list are also removed from the log.
+    func replacePitchCounts(_ counts: [String: Int], for gameLogID: UUID) {
+        guard let teamIdx = teams.firstIndex(where: { $0.id == activeTeamID }),
+              let logIdx = teams[teamIdx].gameLogs.firstIndex(where: { $0.id == gameLogID }) else { return }
+        teams[teamIdx].gameLogs[logIdx].pitchCounts = counts
         save()
     }
 

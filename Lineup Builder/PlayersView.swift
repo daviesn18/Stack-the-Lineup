@@ -15,6 +15,9 @@ struct PlayersView: View {
     @State private var showingAddTeam = false
     @State private var showingEditTeam = false
 
+    // Bulk add flow
+    @State private var showingBulkAdd = false
+
     // Roster import flow
     @State private var showingImportInstructions = false
     @State private var showingFileImporter = false
@@ -127,10 +130,16 @@ struct PlayersView: View {
                             .foregroundColor(.blue)
                     }
                     Button {
+                        showingBulkAdd = true
+                    } label: {
+                        Label("Add Multiple Players", systemImage: "person.3.fill")
+                            .foregroundColor(.blue)
+                    }
+                    Button {
                         Analytics.signal("roster.import.started")
                         showingImportInstructions = true
                     } label: {
-                        Label("Import Roster", systemImage: "square.and.arrow.down")
+                        Label("Import from GameChanger", systemImage: "square.and.arrow.down")
                             .foregroundColor(.blue)
                     }
                 }
@@ -144,9 +153,9 @@ struct PlayersView: View {
 
                 if store.players.isEmpty {
                     ContentUnavailableView(
-                        "No Players",
+                        "No Players Yet",
                         systemImage: "person.badge.plus",
-                        description: Text("Tap Add Player to build your roster.")
+                        description: Text("Add players one at a time, paste your whole roster at once, or import from GameChanger.")
                     )
                     .listRowBackground(Color.clear)
                 }
@@ -202,6 +211,10 @@ struct PlayersView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     EditButton()
                 }
+            }
+            .sheet(isPresented: $showingBulkAdd) {
+                BulkAddPlayersView()
+                    .environmentObject(store)
             }
             .sheet(isPresented: $showingAddPlayer) {
                 PlayerFormView(mode: .add)
@@ -361,6 +374,7 @@ struct TeamFormView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingShortenConfirmation = false
     @State private var showingFairPlayRules = false
+    @State private var showingPitchingRules = false
     @State private var pendingInningCount: Int = 7
 
     private var assignedInningsInLineup: Int {
@@ -419,11 +433,25 @@ struct TeamFormView: View {
                         .sheet(isPresented: $showingFairPlayRules) {
                             FairPlayRulesView(teamID: id)
                         }
+
+                        Button {
+                            showingPitchingRules = true
+                        } label: {
+                            HStack {
+                                Text("Pitching Rules")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .sheet(isPresented: $showingPitchingRules) {
+                            PitchingRulesView(teamID: id)
+                        }
                     }
                 } header: {
                     Text("Game Settings")
-                } footer: {
-                    Text("Past archived games keep their original inning count.")
                 }
 
                 // Delete option — only in edit mode, only if more than 1 team exists

@@ -86,12 +86,6 @@
             ReferencedContainer = "container:Lineup Builder.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-         <CommandLineArgument
-            argument = "-hasSeenPDFExportTip NO"
-            isEnabled = "YES">
-         </CommandLineArgument>
-      </CommandLineArguments>
       <StoreKitConfigurationFileReference
          identifier = "../../Lineup Builder/StoreKitConfig.storekit">
       </StoreKitConfigurationFileReference>

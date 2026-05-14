@@ -124,7 +124,7 @@ struct FairPlayRulesView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if config.noConsecutiveBench {
-                    Text("No player can sit bench two innings in a row. A warning fires if this happens.")
+                    Text("No player can sit bench two innings in a row.")
                 }
                 if config.equalBenchTime {
                     Text("No player sits bench twice until every player has sat once.")
@@ -136,7 +136,7 @@ struct FairPlayRulesView: View {
     private var fieldingMinimumsSection: some View {
         Section {
             InningMinimumRow(
-                label: "Min. Innings Fielded",
+                label: "Min. Innings Fielding",
                 value: $config.minimumFieldingInnings,
                 range: 0...9,
                 zeroLabel: "Off"
@@ -156,7 +156,7 @@ struct FairPlayRulesView: View {
         } header: {
             Text("Fielding Minimums")
         } footer: {
-            Text("Set to Off to disable a minimum. Warnings fire when all innings are fully planned and a player falls short.")
+            Text("Set to Off to disable a minimum.")
         }
     }
 

@@ -786,12 +786,22 @@ struct GameLogRow: View {
         return f.string(from: log.gameDate)
     }
 
+    private var pitchCountPlayerCount: Int {
+        log.pitchCounts.values.filter { $0 > 0 }.count
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(dateString)
                     .font(.subheadline.bold())
                 Spacer()
+                if pitchCountPlayerCount > 0 {
+                    Label("\(pitchCountPlayerCount) pitchers", systemImage: "figure.baseball.pitcher")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.trailing, 4)
+                }
                 Text("\(log.inningsPlayed) inn.")
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
