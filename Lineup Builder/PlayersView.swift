@@ -18,6 +18,9 @@ struct PlayersView: View {
     // Bulk add flow
     @State private var showingBulkAdd = false
 
+    // Tip overlay driven by parent iPhoneTabView
+    @Binding var showingTabTip: Bool
+
     // Roster import flow
     @State private var showingImportInstructions = false
     @State private var showingFileImporter = false
@@ -275,6 +278,30 @@ struct PlayersView: View {
             }
             .sheet(item: $exportShareItem) { item in
                 ShareSheet(items: [item.data], filename: item.filename)
+            }
+            .overlay {
+                if showingTabTip {
+                    TabFirstTipOverlay(
+                        config: TabTipConfig(
+                            tabName: "Players",
+                            title: "Set position preferences",
+                            body: "Tap the pencil icon next to any player and tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to build smarter lineups.",
+                            accentColor: .blue,
+                            targetRect: CGRect(x: 16, y: 238, width: 200, height: 44),
+                            targetCornerRadius: 10,
+                            arrowDirection: .up
+                        ),
+                        onDismiss: {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                showingTabTip = false
+                                UserDefaults.standard.set(true, forKey: "hasSeenPlayersTabTip")
+                            }
+                        }
+                    )
+                    .ignoresSafeArea()
+                    .zIndex(100)
+                    .transition(.opacity)
+                }
             }
         }
     }

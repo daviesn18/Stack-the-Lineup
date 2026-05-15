@@ -58,18 +58,6 @@ struct PitchingRulesView: View {
                     weeklyLimitText = config.weeklyLimit > 0 ? "\(config.weeklyLimit)" : ""
                 }
             }
-            .confirmationDialog(
-                "Apply Little League Preset?",
-                isPresented: $showingPresetConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Apply Preset") {
-                    withAnimation { config.applyLittleLeaguePreset() }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will overwrite your current age bracket values with the standard Little League pitch count rules. You can edit them after.")
-            }
         }
     }
 
@@ -407,6 +395,18 @@ struct PitchingRulesView: View {
                     Text("Apply Little League Preset")
                     Spacer()
                 }
+            }
+            .confirmationDialog(
+                "Apply Little League Preset?",
+                isPresented: $showingPresetConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Apply Preset") {
+                    withAnimation { config.applyLittleLeaguePreset() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will overwrite your current age bracket values with the standard Little League pitch count rules. You can edit them after.")
             }
 
             Button(role: .destructive) {

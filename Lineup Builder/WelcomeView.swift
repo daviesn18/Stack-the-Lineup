@@ -1,6 +1,340 @@
 import SwiftUI
 
-// MARK: - Welcome / Tutorial View
+// MARK: - Welcome Cards (New-User First-Launch Flow)
+// Three short cards shown on first launch. Replaces the 9-slide tutorial as
+// the entry-point experience. The full tutorial remains accessible from Settings.
+// Gated by "hasCompletedTutorial" — existing users already have this set to true.
+
+struct WelcomeCardsView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var currentPage = 0
+
+    private struct WelcomeCard {
+        let icon: String
+        let iconColor: Color
+        let tint: Color
+        let title: String
+        let body: String
+        let cta: String
+    }
+
+    private let cards: [WelcomeCard] = [
+        WelcomeCard(
+            icon: "baseball.diamond.bases",
+            iconColor: .blue,
+            tint: Color.blue.opacity(0.12),
+            title: "Welcome to Stack the Lineup.",
+            body: "Build fair lineups, track positions, and share PDFs — all from your phone.",
+            cta: "Show me around"
+        ),
+        WelcomeCard(
+            icon: "shield.checkered",
+            iconColor: .green,
+            tint: Color.green.opacity(0.12),
+            title: "Fair play is automatic.",
+            body: "Everyone gets 1 infield inning, 1 outfield inning, and 4 fielding innings. The app flags issues as you go.",
+            cta: "Got it"
+        ),
+        WelcomeCard(
+            icon: "hand.tap.fill",
+            iconColor: .purple,
+            tint: Color.purple.opacity(0.12),
+            title: "Tips pop up as you go.",
+            body: "The first time you visit each tab, we will highlight the one thing to try first.",
+            cta: "Let's start"
+        ),
+    ]
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                VStack(spacing: 0) {
+                    // Skip row
+                    HStack {
+                        Spacer()
+                        Button("Skip") {
+                            UserDefaults.standard.set(true, forKey: "hasCompletedTutorial")
+                            dismiss()
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(Color(.tertiaryLabel))
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                        .padding(.bottom, 4)
+                    }
+
+                    let card = cards[currentPage]
+
+                    // Icon disc
+                    ZStack {
+                        Circle()
+                            .fill(card.tint)
+                            .frame(width: 88, height: 88)
+                        Image(systemName: card.icon)
+                            .font(.system(size: 40))
+                            .foregroundColor(card.iconColor)
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 18)
+
+                    // Title
+                    Text(card.title)
+                        .font(.system(size: 24, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 10)
+
+                    // Body
+                    Text(card.body)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 24)
+
+                    // Dot progress
+                    HStack(spacing: 6) {
+                        ForEach(0..<cards.count, id: \.self) { i in
+                            Capsule()
+                                .fill(i == currentPage ? card.iconColor : Color(.systemGray4))
+                                .frame(width: i == currentPage ? 20 : 6, height: 6)
+                                .animation(.spring(duration: 0.3), value: currentPage)
+                        }
+                    }
+                    .padding(.bottom, 20)
+
+                    // CTA button
+                    Button {
+                        if currentPage < cards.count - 1 {
+                            withAnimation(.spring(duration: 0.35)) {
+                                currentPage += 1
+                            }
+                        } else {
+                            UserDefaults.standard.set(true, forKey: "hasCompletedTutorial")
+                            dismiss()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(card.cta)
+                                .font(.headline)
+                            if currentPage < cards.count - 1 {
+                                Image(systemName: "chevron.right")
+                                    .font(.subheadline.bold())
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(card.iconColor)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 20)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 28)
+                }
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .shadow(color: .black.opacity(0.3), radius: 30, x: 0, y: 8)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
+                .animation(.spring(duration: 0.35), value: currentPage)
+            }
+        }
+        .interactiveDismissDisabled()
+    }
+}
+
+// MARK: - Tab First Tip Overlay
+// Full-screen dim overlay with a glowing ring around a target element,
+// an arrow pointing to it, and a tooltip card.
+// Used for the five contextual tips fired on first visit to each tab.
+
+struct TabFirstTipOverlay: View {
+    let config: TabTipConfig
+    let onDismiss: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                // Dim layer
+                Color.black.opacity(0.30)
+                    .ignoresSafeArea()
+                    .onTapGesture { onDismiss() }
+
+                // Glowing highlight ring around the target element.
+                // The ring is a white-filled rounded rect with a colored stroke
+                // and a shadow glow — matches the design exactly.
+                RoundedRectangle(cornerRadius: config.targetCornerRadius)
+                    .fill(Color(.systemBackground))
+                    .frame(width: config.targetRect.width + 12, height: config.targetRect.height + 12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: config.targetCornerRadius)
+                            .strokeBorder(config.accentColor, lineWidth: 2)
+                    )
+                    .shadow(color: config.accentColor.opacity(0.5), radius: 10, x: 0, y: 0)
+                    .position(
+                        x: config.targetRect.midX,
+                        y: config.targetRect.midY
+                    )
+
+                // Arrow
+                TabTipArrow(
+                    arrowDirection: config.arrowDirection,
+                    accentColor: config.accentColor,
+                    targetRect: config.targetRect
+                )
+
+                // Tooltip card
+                TabTipCard(config: config, onDismiss: onDismiss)
+            }
+        }
+        .transition(.opacity)
+    }
+}
+
+// MARK: - Tab Tip Arrow
+
+private struct TabTipArrow: View {
+    let arrowDirection: TabTipConfig.ArrowDirection
+    let accentColor: Color
+    let targetRect: CGRect
+
+    var body: some View {
+        GeometryReader { geo in
+            let midX = targetRect.midX
+            let arrowX = max(20, min(geo.size.width - 20, midX))
+
+            Group {
+                if arrowDirection == .up {
+                    // Arrow points up: sits below the target, points upward
+                    Image(systemName: "arrowtriangle.up.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
+                        .position(x: arrowX, y: targetRect.maxY + 14)
+                } else {
+                    // Arrow points down: sits above the target, points downward
+                    Image(systemName: "arrowtriangle.down.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
+                        .position(x: arrowX, y: targetRect.minY - 14)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Tab Tip Card
+
+private struct TabTipCard: View {
+    let config: TabTipConfig
+    let onDismiss: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let cardWidth = geo.size.width - 32
+            let cardX = geo.size.width / 2
+            // Place card below target for up-arrows, above for down-arrows.
+            // Clamp so the card never clips off screen.
+            let cardY: CGFloat = {
+                if config.arrowDirection == .up {
+                    let idealTop = config.targetRect.maxY + 28
+                    return idealTop + 80 // 80 = approx half card height
+                } else {
+                    let idealBottom = config.targetRect.minY - 28
+                    return idealBottom - 80
+                }
+            }()
+
+            VStack(alignment: .leading, spacing: 0) {
+                // Kicker row
+                HStack(spacing: 6) {
+                    ZStack {
+                        Circle()
+                            .fill(config.accentColor)
+                            .frame(width: 20, height: 20)
+                        Image(systemName: "hand.tap.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white)
+                    }
+                    Text("First time on \(config.tabName)")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(0.8)
+                        .textCase(.uppercase)
+                        .foregroundColor(config.accentColor)
+                }
+                .padding(.bottom, 6)
+
+                // Title
+                Text(config.title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(.primary)
+                    .padding(.bottom, 4)
+
+                // Body
+                Text(config.body)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Footer buttons
+                HStack {
+                    Button("Don't show again") {
+                        onDismiss()
+                    }
+                    .font(.caption)
+                    .foregroundColor(Color(.tertiaryLabel))
+
+                    Spacer()
+
+                    Button("Got it") {
+                        onDismiss()
+                    }
+                    .font(.subheadline.bold())
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(config.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .padding(.top, 12)
+            }
+            .padding(16)
+            .frame(width: cardWidth)
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.22), radius: 20, x: 0, y: 6)
+            .position(x: cardX, y: cardY)
+        }
+    }
+}
+
+// MARK: - Tab Tip Config
+// Defines the content and geometry for each contextual tip overlay.
+// targetRect is in the coordinate space of the tab's root view.
+
+struct TabTipConfig {
+    enum ArrowDirection { case up, down }
+
+    let tabName: String
+    let title: String
+    let body: String
+    let accentColor: Color
+    // CGRect describing the element to highlight, in screen-relative coords.
+    // Pass values appropriate for the device's safe area / layout.
+    let targetRect: CGRect
+    let targetCornerRadius: CGFloat
+    let arrowDirection: ArrowDirection
+}
+
+// MARK: - Welcome / Tutorial View (Full — accessible from Settings)
 
 struct WelcomeView: View {
     @Environment(\.dismiss) var dismiss
@@ -32,14 +366,14 @@ struct WelcomeView: View {
             icon: "baseball.diamond.bases",
             iconColor: .orange,
             title: "Assign Positions",
-            description: "On the Positions tab, select an inning and tap any player to assign their defensive position. Tap the bolt icon to auto-fill open slots — Auto-Fill respects each player's position preferences when filling. Switch to Summary view to see and edit all innings in one grid.",
+            description: "On the Positions tab, select an inning and tap any player to assign their defensive position. Tap the bolt icon to auto-fill open slots. Auto-Fill respects each player's position preferences when filling. Switch to Summary view to see and edit all innings in one grid.",
             systemImage: "bolt.fill"
         ),
         TutorialPage(
             icon: "star.circle.fill",
             iconColor: .yellow,
             title: "Set Position Preferences",
-            description: "In each player's edit screen, tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to place players in the right spots automatically — the more accurately you tag each player, the smarter your lineups get.",
+            description: "In each player's edit screen, tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to place players in the right spots automatically. The more accurately you tag each player, the smarter your lineups get.",
             systemImage: "wand.and.stars"
         ),
         TutorialPage(
@@ -53,7 +387,7 @@ struct WelcomeView: View {
             icon: "checkmark.circle.fill",
             iconColor: .green,
             title: "Finalize Your Lineup",
-            description: "When your defensive assignments are set, tap \"Finalize lineup\" on the Positions tab. The Lineup tab shows your status as Finalized — any edit automatically reverts it to Draft so you always know where things stand.",
+            description: "When your defensive assignments are set, tap \"Finalize lineup\" on the Positions tab. The Lineup tab shows your status as Finalized. Any edit automatically reverts it to Draft so you always know where things stand.",
             systemImage: "checkmark.seal.fill"
         ),
         TutorialPage(
@@ -66,8 +400,8 @@ struct WelcomeView: View {
         TutorialPage(
             icon: "doc.text.fill",
             iconColor: .purple,
-            title: "Export & Manage Teams",
-            description: "Export a Batting Order or Coaches Guide PDF from the Lineup tab. Tap the Team Name row on the Players tab to set your team name and color — both appear on exported PDFs. Managing multiple teams? Tap Add Team to create a new team with its own roster and history.",
+            title: "Export and Manage Teams",
+            description: "Export a Batting Order or Coaches Guide PDF from the Lineup tab. Tap the Team Name row on the Players tab to set your team name and color. Both appear on exported PDFs. Managing multiple teams? Tap Add Team to create a new team with its own roster and history.",
             systemImage: "square.and.arrow.up"
         )
     ]
@@ -124,10 +458,9 @@ struct WelcomeView: View {
                     .buttonStyle(.borderedProminent)
                 } else {
                     Button {
-                        UserDefaults.standard.set(true, forKey: "hasCompletedTutorial")
                         dismiss()
                     } label: {
-                        Label("Get Started", systemImage: "checkmark")
+                        Label("Done", systemImage: "checkmark")
                             .font(.body.bold())
                     }
                     .buttonStyle(.borderedProminent)
@@ -136,7 +469,6 @@ struct WelcomeView: View {
             }
             .padding()
         }
-        .interactiveDismissDisabled()
     }
 }
 
@@ -350,7 +682,7 @@ struct AutoFillContextTip: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Make Auto-Fill Smarter")
                             .font(.subheadline.bold())
-                        Text("Auto-Fill uses position preferences for each player to buid better rosters.")
+                        Text("Auto-Fill uses position preferences for each player to build better lineups.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -574,7 +906,7 @@ enum AppPage {
                 PageTip(icon: "star.circle.fill", iconColor: .green,
                         text: "Set position preferences for each player: Strength positions are tried first by Auto-Fill, Capable next, Emergency as a last resort, and Never positions are never assigned."),
                 PageTip(icon: "bolt.fill", iconColor: .blue,
-                        text: "Position preferences feed directly into Auto-Fill — the more accurately you tag each player, the smarter the automatic lineups."),
+                        text: "Position preferences feed directly into Auto-Fill. The more accurately you tag each player, the smarter the automatic lineups."),
                 PageTip(icon: "paintpalette.fill", iconColor: .pink,
                         text: "Tap the Team Name row to open Edit Team, where you can update your team name, color, and game length. Your name and color appear on all exported PDFs."),
                 PageTip(icon: "shield.checkered", iconColor: .blue,
@@ -600,7 +932,7 @@ enum AppPage {
                 PageTip(icon: "clock", iconColor: .purple,
                         text: "For late arrivals or early departures, keep the player in the lineup and assign ABS to their missed innings in the Positions tab. They still need 1 infield and 1 outfield inning among the innings they play."),
                 PageTip(icon: "checkmark.circle.fill", iconColor: .green,
-                        text: "When your lineup is ready, tap \"Finalize lineup\" on the Positions tab. The status shows here as Finalized — any edit automatically reverts it to Draft so you always know where things stand."),
+                        text: "When your lineup is ready, tap \"Finalize lineup\" on the Positions tab. The status shows here as Finalized. Any edit automatically reverts it to Draft so you always know where things stand."),
                 PageTip(icon: "archivebox", iconColor: .teal,
                         text: "Tap the Archive button after each game to save it to your History. Defensive positions are cleared but your batting order is kept."),
                 PageTip(icon: "doc.richtext", iconColor: .purple,
@@ -614,7 +946,7 @@ enum AppPage {
                 PageTip(icon: "tablecells", iconColor: .blue,
                         text: "Tap Summary in the toolbar to see all players and innings in one grid. Tap any cell to assign a position from a dropdown menu."),
                 PageTip(icon: "bolt.fill", iconColor: .blue,
-                        text: "Tap the bolt icon next to the title to auto-fill open positions. Choose to fill just the current inning, or select how many innings to fill — useful for shorter games. Auto-Fill respects each player's position preferences."),
+                        text: "Tap the bolt icon next to the title to auto-fill open positions. Choose to fill just the current inning, or select how many innings to fill. Auto-Fill respects each player's position preferences."),
                 PageTip(icon: "star.circle.fill", iconColor: .green,
                         text: "Auto-Fill is smarter when players have position preferences set. Open any player on the Players tab and tag positions as Strength, Capable, Emergency, or Never."),
                 PageTip(icon: "clock", iconColor: .purple,
@@ -873,7 +1205,11 @@ struct QuickTipsView: View {
 
 // MARK: - Previews
 
-#Preview("Welcome") {
+#Preview("Welcome Cards") {
+    WelcomeCardsView()
+}
+
+#Preview("Full Tutorial") {
     WelcomeView()
 }
 
@@ -898,4 +1234,22 @@ struct QuickTipsView: View {
     AutoFillContextTip(isPresented: .constant(true), onGoToPlayers: {})
         .padding(.top, 40)
         .background(Color(.systemGroupedBackground))
+}
+
+#Preview("Tab First Tip Overlay") {
+    ZStack {
+        Color(.systemGroupedBackground).ignoresSafeArea()
+        TabFirstTipOverlay(
+            config: TabTipConfig(
+                tabName: "Players",
+                title: "Set position preferences",
+                body: "Tap the pencil icon next to any player and tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to build smarter lineups.",
+                accentColor: .blue,
+                targetRect: CGRect(x: 20, y: 120, width: 140, height: 36),
+                targetCornerRadius: 10,
+                arrowDirection: .up
+            ),
+            onDismiss: {}
+        )
+    }
 }

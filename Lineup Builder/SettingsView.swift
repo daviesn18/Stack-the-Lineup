@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var showingPaywall = false
     @State private var showingSeedConfirmation = false
     @State private var showingSeedDoneAlert = false
+    @State private var showingResetTipsConfirmation = false
+    @State private var showingResetTipsDoneAlert = false
 
     var body: some View {
         NavigationStack {
@@ -105,7 +107,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    // Long-press for 1.5s to trigger debug data seeder
+                    // Long-press 1.5s to reveal debug data seeder
                     HStack {
                         Text("Version")
                         Spacer()
@@ -115,6 +117,18 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                     .onLongPressGesture(minimumDuration: 1.5) {
                         showingSeedConfirmation = true
+                    }
+
+                    // Long-press 1.5s to reset welcome cards and contextual tips
+                    HStack {
+                        Text("Build")
+                        Spacer()
+                        Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 1.5) {
+                        showingResetTipsConfirmation = true
                     }
 
                     Button {
@@ -184,6 +198,20 @@ struct SettingsView: View {
             } message: {
                 Text("Switch to \"Test Team\" from the Players tab to review the History tab. Delete the team when you're done.")
             }
+            .confirmationDialog("Reset Onboarding?", isPresented: $showingResetTipsConfirmation, titleVisibility: .visible) {
+                Button("Reset Welcome and Tips", role: .destructive) {
+                    resetOnboardingFlags()
+                    showingResetTipsDoneAlert = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Resets the welcome cards and all contextual tips so they appear again on next launch. Your data is not affected.")
+            }
+            .alert("Onboarding Reset", isPresented: $showingResetTipsDoneAlert) {
+                Button("OK") {}
+            } message: {
+                Text("Close and reopen the app to see the welcome cards. Visit each tab to trigger the contextual tips.")
+            }
         }
     }
 
@@ -193,6 +221,24 @@ struct SettingsView: View {
         store.updateTeamColor(.blue)
         UserDefaults.standard.set(false, forKey: "hasCompletedTutorial")
         UserDefaults.standard.removeObject(forKey: "lastSeenWhatsNewVersion")
+    }
+
+    private func resetOnboardingFlags() {
+        let keys = [
+            "hasCompletedTutorial",
+            "hasCompletedChecklist",
+            "hasRunTabTipGrandfathering",
+            "hasSeenPlayersTabTip",
+            "hasSeenLineupDragTip",
+            "hasSeenArchiveTip",
+            "hasSeenPositionsTabTip",
+            "hasSeenHistoryTabTip",
+            "hasSeenAutoFillTip",
+            "hasSeenPDFExportTip",
+            "hasSeenScheduleImportTip",
+            "hasSeenRosterImportTip",
+        ]
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
     }
 }
 

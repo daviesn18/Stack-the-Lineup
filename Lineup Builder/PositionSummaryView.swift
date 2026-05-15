@@ -704,6 +704,15 @@ struct PositionSummaryView: View {
                     }
                 }
 
+                if store.pitchingConfig.rulesEnabled && !pitchers.isEmpty {
+                    Text("Available is the lower of the daily max and the pitches remaining in the current weekly window.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 fairPlaySection
             }
         }

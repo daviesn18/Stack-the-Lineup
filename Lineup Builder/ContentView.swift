@@ -39,6 +39,10 @@ struct ContentView: View {
     @State private var showingNudge = false
     @State private var nudgePastGameCount: Int = 0
 
+    // Grandfathering gate — runs once per install so a debug reset of this
+    // flag allows contextual tips to re-appear without re-grandfathering.
+    @AppStorage("hasRunTabTipGrandfathering") private var hasRunTabTipGrandfathering = false
+
     var body: some View {
         Group {
             if horizontalSizeClass == .regular {
@@ -101,13 +105,50 @@ struct ContentView: View {
                 }
             }
 
+            // MARK: Tab-First Tip Grandfathering
+            // Any existing user (has players or archived games) should skip all
+            // tab-first tips — they already know the app.
+            // Gated so a debug reset of this flag re-enables the tips without
+            // onAppear immediately re-grandfathering them.
+            if !hasRunTabTipGrandfathering {
+                hasRunTabTipGrandfathering = true
+                let isExistingUser = !store.players.isEmpty || !store.gameLogs.isEmpty
+
+                if !UserDefaults.standard.bool(forKey: "hasSeenPlayersTabTip") {
+                    if isExistingUser { UserDefaults.standard.set(true, forKey: "hasSeenPlayersTabTip") }
+                }
+                if !UserDefaults.standard.bool(forKey: "hasSeenLineupDragTip") {
+                    if !store.lineup.battingOrder.isEmpty || isExistingUser {
+                        UserDefaults.standard.set(true, forKey: "hasSeenLineupDragTip")
+                    }
+                }
+                if !UserDefaults.standard.bool(forKey: "hasSeenArchiveTip") {
+                    if !store.gameLogs.isEmpty || isExistingUser {
+                        UserDefaults.standard.set(true, forKey: "hasSeenArchiveTip")
+                    }
+                }
+                if !UserDefaults.standard.bool(forKey: "hasSeenPositionsTabTip") {
+                    let hasAssignments = store.lineup.innings.contains { !$0.assignments.isEmpty }
+                    if hasAssignments || isExistingUser {
+                        UserDefaults.standard.set(true, forKey: "hasSeenPositionsTabTip")
+                    }
+                }
+                if !UserDefaults.standard.bool(forKey: "hasSeenHistoryTabTip") {
+                    if !store.gameLogs.isEmpty || isExistingUser {
+                        UserDefaults.standard.set(true, forKey: "hasSeenHistoryTabTip")
+                    }
+                }
+            }
+
             if !showingWelcome, WhatsNewManager.shouldShow(), let content = WhatsNewContent.current {
                 whatsNewContent = content
                 showingWhatsNew = true
             }
         }
-        .sheet(isPresented: $showingWelcome) {
-            WelcomeView()
+        // New-user welcome cards — full screen cover so the dim overlay fills
+        // edge-to-edge without the sheet's card handle chrome.
+        .fullScreenCover(isPresented: $showingWelcome) {
+            WelcomeCardsView()
         }
         .sheet(isPresented: $showingWhatsNew) {
             if let content = whatsNewContent {
@@ -362,34 +403,77 @@ struct ContentView: View {
 }
 
 // MARK: - iPhone Tab View
-// Extracted so ContentView stays clean.
+// Owns all tab-first tip state and fires tips via onChange(of: selectedTab).
+// This is more reliable than onAppear inside tab views, which SwiftUI may
+// pre-fire at launch for all tabs before the user navigates to them.
 
 private struct iPhoneTabView: View {
+    @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     @Binding var showingArchive: Bool
     @Binding var selectedTab: Int
 
+    // Tab-first tip flags — read/written via UserDefaults directly so that
+    // a debug reset (which clears UserDefaults) is reflected immediately
+    // without stale @AppStorage cache invalidation issues.
+    @AppStorage("hasSeenPlayersTabTip")  private var hasSeenPlayersTabTip  = false
+    @AppStorage("hasSeenLineupDragTip")  private var hasSeenLineupDragTip  = false
+    @AppStorage("hasSeenArchiveTip")     private var hasSeenArchiveTip     = false
+    @AppStorage("hasSeenPositionsTabTip") private var hasSeenPositionsTabTip = false
+    @AppStorage("hasSeenHistoryTabTip")  private var hasSeenHistoryTabTip  = false
+
+    // Local show-state passed as bindings into each tab view
+    @State private var showingPlayersTabTip   = false
+    @State private var showingLineupDragTip   = false
+    @State private var showingArchiveTabTip   = false
+    @State private var showingPositionsTabTip = false
+    @State private var showingHistoryTabTip   = false
+
     var body: some View {
         TabView(selection: $selectedTab) {
-            PlayersView()
-                .tabItem {
-                    Label("Players", systemImage: "person.3.fill")
-                }
+            PlayersView(showingTabTip: $showingPlayersTabTip)
+                .tabItem { Label("Players", systemImage: "person.3.fill") }
                 .tag(0)
-            LineupView(showingArchive: $showingArchive)
-                .tabItem {
-                    Label("Lineup", systemImage: "list.number")
-                }
+            LineupView(
+                showingArchive: $showingArchive,
+                showingDragTip: $showingLineupDragTip,
+                showingArchiveTip: $showingArchiveTabTip
+            )
+                .tabItem { Label("Lineup", systemImage: "list.number") }
                 .tag(1)
-            DefensiveGridView(showingArchive: $showingArchive, selectedTab: $selectedTab)
-                .tabItem {
-                    Label("Positions", systemImage: "baseball.diamond.bases")
-                }
+            DefensiveGridView(
+                showingArchive: $showingArchive,
+                selectedTab: $selectedTab,
+                showingTabTip: $showingPositionsTabTip
+            )
+                .tabItem { Label("Positions", systemImage: "baseball.diamond.bases") }
                 .tag(2)
-            GameLogsView()
-                .tabItem {
-                    Label("History", systemImage: "clock.arrow.circlepath")
-                }
+            GameLogsView(showingTabTip: $showingHistoryTabTip)
+                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
                 .tag(3)
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            fireTipIfNeeded(for: newTab)
+        }
+        .onAppear {
+            // Fire tip for the initial tab (selectedTab = 1, Lineup) on first launch
+            fireTipIfNeeded(for: selectedTab)
+        }
+    }
+
+    private func fireTipIfNeeded(for tab: Int) {
+        print("🟡 fireTipIfNeeded called for tab \(tab)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            print("🟡 After delay, tab \(tab), players flag: \(UserDefaults.standard.bool(forKey: "hasSeenPlayersTabTip"))")
+            switch tab {
+            case 0:
+                if !UserDefaults.standard.bool(forKey: "hasSeenPlayersTabTip") {
+                    print("🟢 Setting showingPlayersTabTip = true")
+                    withAnimation(.easeOut(duration: 0.25)) { showingPlayersTabTip = true }
+                }
+            default:
+                break
+            }
         }
     }
 }

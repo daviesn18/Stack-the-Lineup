@@ -7,9 +7,12 @@ struct LineupView: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @AppStorage("hasCompletedChecklist") private var hasCompletedChecklist = false
     @AppStorage("hasSeenPDFExportTip") private var hasSeenPDFExportTip = false
+    @Binding var showingArchive: Bool
+    // Tip overlays driven by parent iPhoneTabView
+    @Binding var showingDragTip: Bool
+    @Binding var showingArchiveTip: Bool
     @State private var generatedPDF: PDFDocument? = nil
     @State private var showingPDFExportTip = false
-    @Binding var showingArchive: Bool
     @State private var showingTips = false
     @State private var showingPaywall = false
     @State private var lockedPDF: PDFDocument? = nil
@@ -223,7 +226,9 @@ struct LineupView: View {
                         lineup: store.lineup,
                         players: store.players,
                         teamName: store.teamName,
-                        teamColor: store.teamColor
+                        teamColor: store.teamColor,
+                        gameLogs: store.gameLogs,
+                        pitchingConfig: store.pitchingConfig
                     )
                     if purchaseManager.isPro {
                         generatedPDF = doc
@@ -333,6 +338,56 @@ struct LineupView: View {
                         Label("Archive Game", systemImage: "archivebox")
                     }
                 }
+            }
+        }
+        // Drag-to-reorder tip — fires on first Lineup tab visit
+        .overlay {
+            if showingDragTip {
+                TabFirstTipOverlay(
+                    config: TabTipConfig(
+                        tabName: "Lineup",
+                        title: "Drag to set your batting order",
+                        body: "Tap Edit in the section header, then press and hold the lines on the right side of any row and drag up or down.",
+                        accentColor: .green,
+                        targetRect: CGRect(x: 340, y: 390, width: 36, height: 36),
+                        targetCornerRadius: 8,
+                        arrowDirection: .up
+                    ),
+                    onDismiss: {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            showingDragTip = false
+                            UserDefaults.standard.set(true, forKey: "hasSeenLineupDragTip")
+                        }
+                    }
+                )
+                .ignoresSafeArea()
+                .zIndex(100)
+                .transition(.opacity)
+            }
+        }
+        // Archive tip — fires on the visit after the drag tip is dismissed
+        .overlay {
+            if showingArchiveTip {
+                TabFirstTipOverlay(
+                    config: TabTipConfig(
+                        tabName: "Lineup",
+                        title: "Archive the game when it ends",
+                        body: "Tap the archive icon to save the game to History. Positions clear for next week, your batting order is kept, and season stats only count archived games.",
+                        accentColor: .teal,
+                        targetRect: CGRect(x: 340, y: 56, width: 36, height: 36),
+                        targetCornerRadius: 8,
+                        arrowDirection: .down
+                    ),
+                    onDismiss: {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            showingArchiveTip = false
+                            UserDefaults.standard.set(true, forKey: "hasSeenArchiveTip")
+                        }
+                    }
+                )
+                .ignoresSafeArea()
+                .zIndex(100)
+                .transition(.opacity)
             }
         }
     }

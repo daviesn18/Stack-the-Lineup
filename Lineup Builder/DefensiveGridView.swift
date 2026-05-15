@@ -29,6 +29,9 @@ struct DefensiveGridView: View {
     @AppStorage("hasSeenAutoFillTip") private var hasSeenAutoFillTip = false
     @State private var showingAutoFillTip = false
 
+    // Tip overlay driven by parent iPhoneTabView
+    @Binding var showingTabTip: Bool
+
     enum FillScope {
         case thisInning
         case through(Int)
@@ -331,6 +334,31 @@ struct DefensiveGridView: View {
                     .zIndex(10)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .animation(.easeOut(duration: 0.25), value: showingAutoFillTip)
+                }
+            }
+            // Positions tab first-visit tip — full-screen dim overlay
+            .overlay {
+                if showingTabTip {
+                    TabFirstTipOverlay(
+                        config: TabTipConfig(
+                            tabName: "Positions",
+                            title: "Tap the bolt to auto-fill",
+                            body: "The app fills open spots while checking every fair play rule. Set position preferences on the Players tab first for the best results.",
+                            accentColor: .orange,
+                            targetRect: CGRect(x: 160, y: 56, width: 36, height: 36),
+                            targetCornerRadius: 8,
+                            arrowDirection: .down
+                        ),
+                        onDismiss: {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                showingTabTip = false
+                                UserDefaults.standard.set(true, forKey: "hasSeenPositionsTabTip")
+                            }
+                        }
+                    )
+                    .ignoresSafeArea()
+                    .zIndex(100)
+                    .transition(.opacity)
                 }
             }
         }
@@ -1183,6 +1211,8 @@ struct PositionPickerView: View {
                    store.pitchingConfig.rulesEnabled {
                     Section {
                         pitchStatusRow
+                    } footer: {
+                        Text("Available is the lower of the daily max and the pitches remaining in the current weekly window.")
                     }
                 }
 

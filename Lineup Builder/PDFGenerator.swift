@@ -4,7 +4,15 @@ import SwiftUI
 
 class PDFGenerator {
 
-    static func generate(type: PDFType, lineup: Lineup, players: [Player], teamName: String = "", teamColor: Color = .blue) -> PDFDocument {
+    static func generate(
+        type: PDFType,
+        lineup: Lineup,
+        players: [Player],
+        teamName: String = "",
+        teamColor: Color = .blue,
+        gameLogs: [GameLog] = [],
+        pitchingConfig: PitchingConfig = PitchingConfig()
+    ) -> PDFDocument {
         let pageWidth: CGFloat = 612   // US Letter
         let pageHeight: CGFloat = 792
         let margin: CGFloat = 48
@@ -18,7 +26,9 @@ class PDFGenerator {
                                   pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, teamName: teamName, teamColor: teamColor)
             case .coachesGuide:
                 drawCoachesGuide(ctx: ctx, lineup: lineup, players: players,
-                                  pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, teamName: teamName, teamColor: teamColor)
+                                  pageWidth: pageWidth, pageHeight: pageHeight, margin: margin,
+                                  teamName: teamName, teamColor: teamColor,
+                                  gameLogs: gameLogs, pitchingConfig: pitchingConfig)
             }
         }
 
@@ -87,8 +97,18 @@ class PDFGenerator {
 
     // MARK: - Coaches Guide PDF
 
-    private static func drawCoachesGuide(ctx: UIGraphicsPDFRendererContext, lineup: Lineup, players: [Player],
-                                          pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat, teamName: String = "", teamColor: Color = .blue) {
+    private static func drawCoachesGuide(
+        ctx: UIGraphicsPDFRendererContext,
+        lineup: Lineup,
+        players: [Player],
+        pageWidth: CGFloat,
+        pageHeight: CGFloat,
+        margin: CGFloat,
+        teamName: String = "",
+        teamColor: Color = .blue,
+        gameLogs: [GameLog] = [],
+        pitchingConfig: PitchingConfig = PitchingConfig()
+    ) {
         ctx.beginPage()
         var y: CGFloat = margin
 
@@ -153,7 +173,275 @@ class PDFGenerator {
             }
         }
 
+        // MARK: - Pitch Count Section
+        // Compute rows using the same logic as PositionSummaryView.pitchingRows(),
+        // scoped to lineup.gameDate (not today) so eligibility matches what the coach sees.
+
+        let pitchRows = buildPitchingRows(
+            players: players,
+            gameLogs: gameLogs,
+            pitchingConfig: pitchingConfig,
+            gameDate: lineup.gameDate
+        )
+
+        if !pitchRows.isEmpty {
+            // Estimated height: divider+title (20) + header row (22) + rows in the taller column
+            // Two-column layout means vertical rows = ceil(count / 2)
+            let halfRows = Int(ceil(Double(pitchRows.count) / 2.0))
+            let sectionHeight = CGFloat(20 + 22 + halfRows * 21 + 20)
+            let spaceRemaining = pageHeight - margin - y
+
+            if spaceRemaining < sectionHeight {
+                // Not enough room — start a new page
+                drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
+                ctx.beginPage()
+                y = margin
+            } else {
+                y += 16
+            }
+
+            drawPitchCountSection(
+                rows: pitchRows,
+                y: &y,
+                pageWidth: pageWidth,
+                pageHeight: pageHeight,
+                margin: margin,
+                ctx: ctx
+            )
+        }
+
         drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
+    }
+
+    // MARK: - Pitch Rows Builder
+    // Exact port of PositionSummaryView.pitchingRows() — uses gameDate as reference,
+    // not Date(), so numbers match what the coach sees in the Pitching tab.
+
+    private struct PDFPitchingRow {
+        let player: Player
+        let windowPitches: Int
+        let dailyMax: Int
+        let available: Int   // min(dailyMax, weeklyRemaining)
+        let status: PitchEligibilityStatus
+    }
+
+    private static func buildPitchingRows(
+        players: [Player],
+        gameLogs: [GameLog],
+        pitchingConfig: PitchingConfig,
+        gameDate: Date
+    ) -> [PDFPitchingRow] {
+        guard pitchingConfig.rulesEnabled else { return [] }
+
+        let pitchablePlayers = players.filter {
+            $0.positionPreferences[.pitcher] != .never
+        }
+        guard !pitchablePlayers.isEmpty else { return [] }
+
+        let cal = Calendar.current
+        let gameDayStart = cal.startOfDay(for: gameDate)
+
+        let windowStart: Date = {
+            switch pitchingConfig.rollingWindowType {
+            case .calendarWeek:
+                var comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: gameDayStart)
+                comps.weekday = 2
+                return cal.date(from: comps) ?? gameDayStart
+            case .rolling:
+                return cal.date(byAdding: .day,
+                    value: -(pitchingConfig.rollingWindowDays - 1), to: gameDayStart) ?? gameDayStart
+            }
+        }()
+
+        let rows: [PDFPitchingRow] = pitchablePlayers.map { player in
+            let key = player.id.uuidString
+            // Window pitches = logs from windowStart up to (not including) game day
+            let windowPitches = gameLogs
+                .filter {
+                    let d = cal.startOfDay(for: $0.gameDate)
+                    return d >= windowStart && d < gameDayStart
+                }
+                .reduce(0) { $0 + ($1.pitchCounts[key] ?? 0) }
+
+            let dailyMax: Int = {
+                guard let age = player.leagueAge,
+                      let bracket = PitchingAgeBracket.bracket(for: age),
+                      let limits = pitchingConfig.ageLimits[bracket] else { return 0 }
+                return limits.dailyMax
+            }()
+
+            // Available = min(dailyMax, weeklyRemaining) — mirrors in-app calculation exactly
+            var available = dailyMax
+            if pitchingConfig.weeklyLimitEnabled && pitchingConfig.weeklyLimit > 0 {
+                let weeklyRemaining = max(0, pitchingConfig.weeklyLimit - windowPitches)
+                available = min(dailyMax, weeklyRemaining)
+            }
+
+            let status = PitchEligibilityEngine.status(
+                for: player, gameLogs: gameLogs, config: pitchingConfig,
+                referenceDate: gameDate
+            )
+
+            return PDFPitchingRow(
+                player: player,
+                windowPitches: windowPitches,
+                dailyMax: dailyMax,
+                available: available,
+                status: status
+            )
+        }
+
+        return rows.sorted { a, b in
+            if a.status.isRestricted != b.status.isRestricted { return !a.status.isRestricted }
+            return a.available > b.available
+        }
+    }
+
+    // MARK: - Pitch Count Section Helper
+    // Renders as two side-by-side mini-tables so the section stays on one page
+    // regardless of roster size. Left table gets the first half of rows, right
+    // gets the second half. Both share the same column proportions.
+
+    private static func drawPitchCountSection(
+        rows: [PDFPitchingRow],
+        y: inout CGFloat,
+        pageWidth: CGFloat,
+        pageHeight: CGFloat,
+        margin: CGFloat,
+        ctx: UIGraphicsPDFRendererContext
+    ) {
+        // Section divider line
+        let divPath = UIBezierPath()
+        divPath.move(to: CGPoint(x: margin, y: y))
+        divPath.addLine(to: CGPoint(x: pageWidth - margin, y: y))
+        UIColor.lightGray.withAlphaComponent(0.6).setStroke()
+        divPath.lineWidth = 0.5
+        divPath.stroke()
+        y += 6
+
+        // Section title
+        drawText("Pitch Counts", x: margin, y: y,
+                 font: .boldSystemFont(ofSize: 11), color: .black)
+        y += 14
+
+        // Split rows into left and right halves
+        let half = Int(ceil(Double(rows.count) / 2.0))
+        let leftRows  = Array(rows.prefix(half))
+        let rightRows = Array(rows.dropFirst(half))
+
+        // Two mini-tables side by side with a gap between them
+        let gap: CGFloat = 12
+        let tableWidth = pageWidth - margin * 2
+        let miniWidth = (tableWidth - gap) / 2
+
+        // Column proportions within each mini-table
+        // Player | Thrown | Avail | Status
+        let pct: (player: CGFloat, thrown: CGFloat, avail: CGFloat, status: CGFloat) =
+            (0.38, 0.15, 0.15, 0.32)
+
+        let rowHeight: CGFloat = 20
+        let headerBg  = UIColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1.0)
+        let evenBg    = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
+
+        // Helper: draw one mini-table starting at (originX, originY)
+        // Returns the Y of the bottom of the last row.
+        func drawMiniTable(originX: CGFloat, originY: CGFloat, tableRows: [PDFPitchingRow]) -> CGFloat {
+            var ty = originY
+            let w = miniWidth
+
+            // Column x positions
+            let xPlayer = originX
+            let xThrown = originX + w * pct.player
+            let xAvail  = xThrown + w * pct.thrown
+            let xStatus = xAvail  + w * pct.avail
+
+            // Column widths
+            let wPlayer = w * pct.player
+            let wThrown = w * pct.thrown
+            let wAvail  = w * pct.avail
+            let wStatus = w * pct.status
+
+            // Header row
+            let hRect = CGRect(x: originX, y: ty, width: w, height: rowHeight)
+            headerBg.setFill()
+            UIBezierPath(roundedRect: hRect, cornerRadius: 3).fill()
+
+            drawText("Player",
+                     x: xPlayer + 4, y: ty + 5,
+                     font: .boldSystemFont(ofSize: 8), color: .darkGray)
+            drawCenteredText("Thrown",
+                             in: CGRect(x: xThrown, y: ty, width: wThrown, height: rowHeight),
+                             font: .boldSystemFont(ofSize: 8), color: .darkGray)
+            drawCenteredText("Avail",
+                             in: CGRect(x: xAvail, y: ty, width: wAvail, height: rowHeight),
+                             font: .boldSystemFont(ofSize: 8), color: .darkGray)
+            drawText("Status",
+                     x: xStatus + 4, y: ty + 5,
+                     font: .boldSystemFont(ofSize: 8), color: .darkGray)
+            ty += rowHeight + 2
+
+            // Data rows
+            for (idx, row) in tableRows.enumerated() {
+                let rowBg = idx % 2 == 0 ? evenBg : UIColor.white
+                let rRect = CGRect(x: originX, y: ty, width: w, height: rowHeight)
+                rowBg.setFill()
+                UIBezierPath(roundedRect: rRect, cornerRadius: 3).fill()
+
+                // Available color
+                let availColor: UIColor
+                switch row.status {
+                case .eligible:
+                    availColor = UIColor(red: 0.13, green: 0.55, blue: 0.13, alpha: 1.0)
+                case .limited:
+                    availColor = UIColor(red: 0.80, green: 0.50, blue: 0.0,  alpha: 1.0)
+                case .mustRest, .unknownAge:
+                    availColor = UIColor(red: 0.75, green: 0.10, blue: 0.10, alpha: 1.0)
+                }
+
+                // Player name — truncate to first name if too wide
+                let nameFont = UIFont.systemFont(ofSize: 9)
+                let fullName = row.player.displayName
+                let nameAttrs: [NSAttributedString.Key: Any] = [.font: nameFont, .foregroundColor: UIColor.black]
+                let nw = (fullName as NSString).size(withAttributes: nameAttrs).width
+                let nameText = nw > wPlayer - 8 ? row.player.firstName : fullName
+                drawText(nameText, x: xPlayer + 4, y: ty + 5,
+                         font: nameFont, color: .black)
+
+                // Thrown
+                drawCenteredText("\(row.windowPitches)",
+                                 in: CGRect(x: xThrown, y: ty, width: wThrown, height: rowHeight),
+                                 font: .systemFont(ofSize: 9), color: .darkGray)
+
+                // Available
+                let availText = row.status.isRestricted ? "—" : (row.dailyMax > 0 ? "\(row.available)" : "—")
+                drawCenteredText(availText,
+                                 in: CGRect(x: xAvail, y: ty, width: wAvail, height: rowHeight),
+                                 font: .boldSystemFont(ofSize: 9), color: availColor)
+
+                // Status
+                drawText(row.status.displayLabel,
+                         x: xStatus + 4, y: ty + 5,
+                         font: .systemFont(ofSize: 8), color: .darkGray)
+
+                ty += rowHeight + 1
+            }
+            return ty
+        }
+
+        let leftOriginX  = margin
+        let rightOriginX = margin + miniWidth + gap
+
+        let leftBottom  = drawMiniTable(originX: leftOriginX,  originY: y, tableRows: leftRows)
+        let rightBottom = drawMiniTable(originX: rightOriginX, originY: y, tableRows: rightRows)
+
+        // Advance y past whichever column is taller
+        y = max(leftBottom, rightBottom)
+
+        y += 4
+        drawText("Available is the lower of the daily max and pitches remaining in the current weekly window.",
+                 x: margin, y: y,
+                 font: .italicSystemFont(ofSize: 7), color: .gray)
+        y += 10
     }
 
     // MARK: - Helpers

@@ -25,6 +25,9 @@ struct GameLogsView: View {
     @State private var showingPaywall = false
     @State private var showingArchive = false
 
+    // Tip overlay driven by parent iPhoneTabView
+    @Binding var showingTabTip: Bool
+
     enum HistoryTab { case players, games, team }
 
     // Pre-compute season stats once so all sub-views share the same result
@@ -94,6 +97,31 @@ struct GameLogsView: View {
         }
         .onChange(of: purchaseManager.isPro) { _, newValue in
             if newValue { insightsService.loadIfNeeded(logs: store.gameLogs) }
+        }
+        // History tab first-visit tip — full-screen dim overlay
+        .overlay {
+            if showingTabTip {
+                TabFirstTipOverlay(
+                    config: TabTipConfig(
+                        tabName: "History",
+                        title: "Coaching Insights unlock at 2 games",
+                        body: "Keep archiving after each game and the app starts analyzing bench time, infield/outfield balance, and playing time across your season.",
+                        accentColor: .purple,
+                        targetRect: CGRect(x: 16, y: 170, width: 370, height: 90),
+                        targetCornerRadius: 12,
+                        arrowDirection: .up
+                    ),
+                    onDismiss: {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            showingTabTip = false
+                            UserDefaults.standard.set(true, forKey: "hasSeenHistoryTabTip")
+                        }
+                    }
+                )
+                .ignoresSafeArea()
+                .zIndex(100)
+                .transition(.opacity)
+            }
         }
     }
 
@@ -954,7 +982,7 @@ struct EmptyStateFeatureRow: View {
 // MARK: - Preview
 
 #Preview {
-    GameLogsView()
+    GameLogsView(showingTabTip: .constant(false))
         .environmentObject(LineupStore())
         .environmentObject(PurchaseManager())
 }

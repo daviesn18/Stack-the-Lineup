@@ -1044,7 +1044,13 @@ class LineupStore: ObservableObject {
         if let data = teamsData {
             if let decoded = try? decoder.decode([Team].self, from: data) {
                 // Happy path — data exists and decoded cleanly.
-                teams = decoded
+                // Sort each team's game logs by gameDate descending — corrects any
+                // logs stored out of order due to the archive-order bug.
+                teams = decoded.map { team in
+                    var t = team
+                    t.gameLogs = t.gameLogs.sorted { $0.gameDate > $1.gameDate }
+                    return t
+                }
             } else {
                 // Data exists but failed to decode (e.g. schema mismatch).
                 // DO NOT fall through to migration — that would overwrite iCloud
@@ -1171,7 +1177,8 @@ class LineupStore: ObservableObject {
             playerSnapshot: snapshot
         )
 
-        activeTeam.gameLogs.insert(log, at: 0)
+        activeTeam.gameLogs.append(log)
+        activeTeam.gameLogs.sort { $0.gameDate > $1.gameDate }
         if activeTeam.gameLogs.count > maxGameLogs {
             activeTeam.gameLogs = Array(activeTeam.gameLogs.prefix(maxGameLogs))
         }
@@ -1186,8 +1193,18 @@ class LineupStore: ObservableObject {
         save()
     }
 
+    /// Replaces the entire pitchCounts dictionary on a specific game log.
+    /// Used by GameLogDetailView when the coach edits pitch counts retroactively.
+    /// Replacing the whole dict (rather than merging) ensures removed pitchers are cleared.
+    func replacePitchCounts(_ counts: [String: Int], for logID: UUID) {
+        guard let idx = activeTeam.gameLogs.firstIndex(where: { $0.id == logID }) else { return }
+        activeTeam.gameLogs[idx].pitchCounts = counts
+        save()
+    }
+
     func insertDebugGameLog(_ log: GameLog) {
-        activeTeam.gameLogs.insert(log, at: 0)
+        activeTeam.gameLogs.append(log)
+        activeTeam.gameLogs.sort { $0.gameDate > $1.gameDate }
         if activeTeam.gameLogs.count > maxGameLogs {
             activeTeam.gameLogs = Array(activeTeam.gameLogs.prefix(maxGameLogs))
         }
@@ -1370,16 +1387,6 @@ class LineupStore: ObservableObject {
         Analytics.signal("pitchcounts.saved", parameters: [
             "pitcherCount": "\(counts.count)"
         ])
-        save()
-    }
-
-    /// Replaces pitch counts on a specific game log entirely.
-    /// Used when editing retroactively — the new dict is the source of truth,
-    /// so players removed from the list are also removed from the log.
-    func replacePitchCounts(_ counts: [String: Int], for gameLogID: UUID) {
-        guard let teamIdx = teams.firstIndex(where: { $0.id == activeTeamID }),
-              let logIdx = teams[teamIdx].gameLogs.firstIndex(where: { $0.id == gameLogID }) else { return }
-        teams[teamIdx].gameLogs[logIdx].pitchCounts = counts
         save()
     }
 
