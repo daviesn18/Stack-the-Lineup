@@ -14,6 +14,7 @@ struct PlayersView: View {
     @State private var showingTips = false
     @State private var showingAddTeam = false
     @State private var showingEditTeam = false
+    @State private var showingTeamSwitcher = false
 
     // Bulk add flow
     @State private var showingBulkAdd = false
@@ -57,94 +58,54 @@ struct PlayersView: View {
     var body: some View {
         NavigationStack {
             List {
-                // MARK: - Team Section
+                // MARK: - Team Card Section
                 Section {
-                    // Team name row — pencil icon signals editability
-                    Button {
-                        showingEditTeam = true
-                    } label: {
-                        HStack {
-                            Text("Team Name")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text(store.teamName.isEmpty ? "Unnamed Team" : store.teamName)
-                                .foregroundColor(.secondary)
-                            Image(systemName: "pencil")
-                                .font(.caption)
-                                .foregroundColor(.blue)
+                    TeamCardView(
+                        onSettings: { showingEditTeam = true },
+                        onSwitch: { showingTeamSwitcher = true },
+                        onAddTeam: { showingAddTeam = true }
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
+                    // MARK: - Roster Actions
+                    HStack(spacing: 0) {
+                        RosterActionButton(
+                            icon: "plus.circle.fill",
+                            iconColor: .blue,
+                            title: "New Player",
+                            subtitle: "One at a time"
+                        ) { showingAddPlayer = true }
+
+                        Divider().frame(height: 36)
+
+                        RosterActionButton(
+                            icon: "text.alignleft",
+                            iconColor: .gray,
+                            title: "Paste List",
+                            subtitle: "Bulk add"
+                        ) { showingBulkAdd = true }
+
+                        Divider().frame(height: 36)
+
+                        RosterActionButton(
+                            icon: "square.and.arrow.down",
+                            iconColor: .blue,
+                            title: "GameChanger",
+                            subtitle: "Import",
+                            iconBackground: .blue
+                        ) {
+                            Analytics.signal("roster.import.started")
+                            showingImportInstructions = true
                         }
                     }
-
-                    // Team color row — read only, reflects active team
-                    HStack {
-                        Text("Team Color")
-                        Spacer()
-                        Circle()
-                            .fill(store.teamColor)
-                            .frame(width: 24, height: 24)
-                            .overlay(Circle().strokeBorder(Color(.systemGray4), lineWidth: 1))
-                    }
-
-                    // Switch team — only visible when multiple teams exist
-                    if store.teams.count > 1 {
-                        Menu {
-                            ForEach(store.teams) { team in
-                                Button {
-                                    store.switchTeam(to: team.id)
-                                } label: {
-                                    HStack {
-                                        Text(team.name.isEmpty ? "Unnamed Team" : team.name)
-                                        if team.id == store.activeTeamID {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack {
-                                Text("Switch Team")
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                Image(systemName: "arrow.left.arrow.right")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Team")
-                        Spacer()
-                        Button {
-                            showingAddTeam = true
-                        } label: {
-                            Text("Add Team")
-                                .font(.caption.bold())
-                        }
-                    }
-                }
-
-                // MARK: - Roster Section
-                Section {
-                    Button {
-                        showingAddPlayer = true
-                    } label: {
-                        Label("Add Player", systemImage: "plus.circle.fill")
-                            .foregroundColor(.blue)
-                    }
-                    Button {
-                        showingBulkAdd = true
-                    } label: {
-                        Label("Add Multiple Players", systemImage: "person.3.fill")
-                            .foregroundColor(.blue)
-                    }
-                    Button {
-                        Analytics.signal("roster.import.started")
-                        showingImportInstructions = true
-                    } label: {
-                        Label("Import from GameChanger", systemImage: "square.and.arrow.down")
-                            .foregroundColor(.blue)
-                    }
+                    .padding(.vertical, 10)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
 
                 ForEach(store.players) { player in
@@ -236,6 +197,18 @@ struct PlayersView: View {
             }
             .sheet(isPresented: $showingEditTeam) {
                 TeamFormView(mode: .edit(store.activeTeamID ?? UUID()))
+            }
+            .sheet(isPresented: $showingTeamSwitcher) {
+                TeamSwitcherSheet(
+                    onAddTeam: {
+                        showingTeamSwitcher = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            showingAddTeam = true
+                        }
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showingImportInstructions) {
                 RosterImportInstructionsView {
@@ -382,6 +355,245 @@ struct PlayersView: View {
     }
 }
 
+// MARK: - Team Card
+
+private struct TeamCardView: View {
+    @EnvironmentObject var store: LineupStore
+
+    let onSettings: () -> Void
+    let onSwitch: () -> Void
+    let onAddTeam: () -> Void
+
+    private var team: Team? {
+        store.teams.first(where: { $0.id == store.activeTeamID })
+    }
+
+    // Fair play pill: "Off" if all rules disabled, "Custom" if any rule differs
+    // from the out-of-box defaults, "Default" otherwise.
+    private var fairPlayLabel: String {
+        guard let t = team else { return "Default" }
+        let cfg = t.fairPlayConfig
+        let allOff = !cfg.noConsecutiveBench
+            && cfg.minimumFieldingInnings == 0
+            && cfg.minimumInfieldInnings == 0
+            && cfg.minimumOutfieldInnings == 0
+        if allOff { return "Off" }
+        let isDefault = cfg.noConsecutiveBench
+            && cfg.minimumFieldingInnings == 4
+            && cfg.minimumInfieldInnings == 1
+            && cfg.minimumOutfieldInnings == 1
+        return isDefault ? "Default" : "Custom"
+    }
+
+    // Pitching pill: Off when disabled. Default when enabled with unmodified LL preset.
+    // Custom when enabled with any values changed, or a weekly cap added.
+    private var pitchingLabel: String {
+        guard let t = team else { return "Off" }
+        let cfg = t.pitchingConfig
+        guard cfg.rulesEnabled else { return "Off" }
+        let preset: [PitchingAgeBracket: PitchingLimits] = [
+            .u8:  PitchingLimits(dailyMax: 50, restDay1Min: 21, restDay2Min: 36),
+            .u10: PitchingLimits(dailyMax: 75, restDay1Min: 21, restDay2Min: 36, restDay3Min: 51, restDay4Min: 66),
+            .u12: PitchingLimits(dailyMax: 85, restDay1Min: 21, restDay2Min: 36, restDay3Min: 51, restDay4Min: 66),
+            .u14: PitchingLimits(dailyMax: 95, restDay1Min: 21, restDay2Min: 36, restDay3Min: 51, restDay4Min: 66),
+            .u16: PitchingLimits(dailyMax: 95, restDay1Min: 31, restDay2Min: 46, restDay3Min: 61, restDay4Min: 76)
+        ]
+        guard cfg.ageLimits.count == preset.count else { return "Custom" }
+        for (bracket, limits) in preset {
+            guard let stored = cfg.ageLimits[bracket],
+                  stored.dailyMax == limits.dailyMax,
+                  stored.restDay1Min == limits.restDay1Min,
+                  stored.restDay2Min == limits.restDay2Min,
+                  stored.restDay3Min == limits.restDay3Min,
+                  stored.restDay4Min == limits.restDay4Min else { return "Custom" }
+        }
+        if cfg.weeklyLimitEnabled { return "Custom" }
+        return "Default"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Top row: circle + name + gear + switch
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(store.teamColor)
+                    .frame(width: 26, height: 26)
+
+                Text(store.teamName.isEmpty ? "Unnamed Team" : store.teamName)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                // Settings gear — opens Edit Team sheet
+                Button(action: onSettings) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(Color(.systemGray5))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+
+                // Add Team when solo, Switch when multiple teams exist
+                Button(action: store.teams.count > 1 ? onSwitch : onAddTeam) {
+                    Text(store.teams.count > 1 ? "Switch" : "Add Team")
+                        .font(.caption.bold())
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Pills row — gets the full card width so nothing truncates
+            HStack(spacing: 6) {
+                TeamInfoPill(
+                    label: "\(store.activeTeam.gameInningCount) innings",
+                    color: .blue
+                )
+                TeamInfoPill(
+                    label: "Fair play: \(fairPlayLabel)",
+                    color: fairPlayLabel == "Custom" ? .green : .secondary
+                )
+                TeamInfoPill(
+                    label: "Pitching: \(pitchingLabel)",
+                    color: pitchingLabel == "Off" ? .secondary : (pitchingLabel == "Custom" ? .orange : .secondary)
+                )
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 20)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+// Small pill used inside TeamCardView
+private struct TeamInfoPill: View {
+    let label: String
+    let color: Color
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(color == .secondary ? .secondary : color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                color == .secondary
+                    ? Color(.systemGray5)
+                    : color.opacity(0.12)
+            )
+            .clipShape(Capsule())
+            .lineLimit(1)
+    }
+}
+
+// MARK: - Roster Action Button
+
+private struct RosterActionButton: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let subtitle: String
+    var iconBackground: Color? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(iconBackground != nil ? iconBackground!.opacity(1) : Color(.systemGray5))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(iconBackground != nil ? .white : iconColor)
+                }
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Team Switcher Sheet
+
+private struct TeamSwitcherSheet: View {
+    @EnvironmentObject var store: LineupStore
+    @Environment(\.dismiss) var dismiss
+
+    let onAddTeam: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(store.teams) { team in
+                        Button {
+                            store.switchTeam(to: team.id)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 14) {
+                                Circle()
+                                    .fill(team.color)
+                                    .frame(width: 32, height: 32)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(team.name.isEmpty ? "Unnamed Team" : team.name)
+                                        .font(.body)
+                                        .foregroundColor(.primary)
+                                    Text("\(team.players.count) \(team.players.count == 1 ? "player" : "players")")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                if team.id == store.activeTeamID {
+                                    Image(systemName: "checkmark")
+                                        .font(.body.bold())
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Section {
+                    Button {
+                        onAddTeam()
+                    } label: {
+                        Label("Add Team", systemImage: "plus.circle.fill")
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
+            .navigationTitle("My Teams")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Team Form
 
 enum TeamFormMode {
@@ -479,6 +691,8 @@ struct TeamFormView: View {
                     }
                 } header: {
                     Text("Game Settings")
+                } footer: {
+                    Text("Past archived games keep their original inning count.")
                 }
 
                 // Delete option — only in edit mode, only if more than 1 team exists
@@ -890,43 +1104,50 @@ struct PlayerRosterRow: View {
                 Circle()
                     .fill(avatarColor)
                 Text(initials)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(avatarTextColor)
             }
-            .frame(width: 38, height: 38)
+            .frame(width: 32, height: 32)
 
             // Name + jersey + pills
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Text(player.displayName)
                         .font(.body)
                         .lineLimit(1)
                     if !player.number.isEmpty {
                         Text("#\(player.number)")
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundColor(.secondary)
-                            .padding(.horizontal, 5)
+                            .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Color(.systemGray5))
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
                     }
                 }
                 if pills.isEmpty {
                     Text("No preferences set")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundColor(.secondary)
                         .opacity(0.6)
                 } else {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(pills, id: \.0) { label, bg, fg in
-                            Text(label)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(fg)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(bg)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                                .lineLimit(1)
+                    // Two-column grid — equal width columns so column 2 always aligns
+                    let left  = stride(from: 0, to: pills.count, by: 2).map { pills[$0] }
+                    let right = stride(from: 1, to: pills.count, by: 2).map { pills[$0] }
+                    HStack(alignment: .top, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(left, id: \.0) { label, bg, fg in
+                                pillView(label: label, bg: bg, fg: fg)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if !right.isEmpty {
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(right, id: \.0) { label, bg, fg in
+                                    pillView(label: label, bg: bg, fg: fg)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
@@ -937,11 +1158,23 @@ struct PlayerRosterRow: View {
             // Edit button
             Button(action: onEdit) {
                 Image(systemName: "pencil")
+                    .font(.subheadline)
                     .foregroundColor(.blue)
             }
             .buttonStyle(.plain)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
+    }
+
+    private func pillView(label: String, bg: Color, fg: Color) -> some View {
+        Text(label)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(fg)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(bg)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .lineLimit(1)
     }
 }
 
