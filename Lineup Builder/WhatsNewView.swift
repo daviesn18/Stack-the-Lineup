@@ -22,6 +22,17 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "2.5",
+            features: [
+                WhatsNewFeature(
+                    icon: "figure.baseball.circle.fill",
+                    iconColor: .orange,
+                    title: "Pitch Count Tracking",
+                    description: "Set up pitching rules for your team under Edit Team; configure weekly pitch limits and rest days by age.\n\nPitch counts are captured when you archive a game and tracked against each player's eligibility window.\n\nSee pitching eligibility in the Positions tab when you create defensive assignments.\n\nYour Coach's Guide now includes a pitch count table so you have eligibility at a glance on game day."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "2.4",
             features: [
                 WhatsNewFeature(
@@ -69,7 +80,7 @@ extension WhatsNewContent {
                     icon: "square.and.arrow.up",
                     iconColor: .orange,
                     title: "Export and Share Your Roster",
-                    description: "Back up your roster or share it with other coaches. Exports everything — names, jersey numbers, league ages, and position preferences."
+                    description: "Back up your roster or share it with other coaches. Exports everything -- names, jersey numbers, league ages, and position preferences."
                 )
             ]
         ),
@@ -80,13 +91,13 @@ extension WhatsNewContent {
                     icon: "checkmark.seal.fill",
                     iconColor: .green,
                     title: "Draft & Finalized Lineups",
-                    description: "Lineups now have a status — Draft while you're building, Finalized when you're ready to go. Finalized lineups are locked against accidental edits and clearly marked on your Coach's Guide."
+                    description: "Lineups now have a status -- Draft while you're building, Finalized when you're ready to go. Finalized lineups are locked against accidental edits and clearly marked on your Coach's Guide."
                 ),
                 WhatsNewFeature(
                     icon: "graduationcap.fill",
                     iconColor: .blue,
                     title: "Refreshed Tutorial",
-                    description: "The in-app tutorial has been updated to cover position preferences, the redesigned History tab, and everything else added over the past few updates. Worth a quick re-read from Settings → Tutorial."
+                    description: "The in-app tutorial has been updated to cover position preferences, the redesigned History tab, and everything else added over the past few updates. Worth a quick re-read from Settings > Tutorial."
                 )
             ]
         ),
@@ -97,19 +108,19 @@ extension WhatsNewContent {
                     icon: "star.fill",
                     iconColor: .green,
                     title: "Position Preferences",
-                    description: "Tag each player's preferred positions as Primary, Secondary, Emergency, or Never. AutoFill respects these preferences — and Never positions are never assigned, great for safety-sensitive spots like Catcher."
+                    description: "Tag each player's preferred positions as Primary, Secondary, Emergency, or Never. AutoFill respects these preferences -- and Never positions are never assigned, great for safety-sensitive spots like Catcher."
                 ),
                 WhatsNewFeature(
                     icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
                     iconColor: .purple,
                     title: "Redesigned History Tab",
-                    description: "The History tab is rebuilt around your players. See each player's position breakdown across the season, spot gaps at a glance, and review team-wide bench distribution — all in one place."
+                    description: "The History tab is rebuilt around your players. See each player's position breakdown across the season, spot gaps at a glance, and review team-wide bench distribution -- all in one place."
                 ),
                 WhatsNewFeature(
                     icon: "tablecells",
                     iconColor: .blue,
                     title: "Smarter Position Summary",
-                    description: "The Positions tab now lets you view your lineup by Position as well as by Player — see who's pitching, catching, and playing each spot across every inning at a glance."
+                    description: "The Positions tab now lets you view your lineup by Position as well as by Player -- see who's pitching, catching, and playing each spot across every inning at a glance."
                 )
             ]
         ),
@@ -120,13 +131,13 @@ extension WhatsNewContent {
                     icon: "person.3.fill",
                     iconColor: .blue,
                     title: "Multiple Teams",
-                    description: "Manage two teams from one app. Add a second team from the Players tab — each team has its own roster, lineup, and game history."
+                    description: "Manage two teams from one app. Add a second team from the Players tab -- each team has its own roster, lineup, and game history."
                 ),
                 WhatsNewFeature(
                     icon: "bolt.fill",
                     iconColor: .blue,
                     title: "Auto-Fill Positions",
-                    description: "Tap the bolt icon on the Positions tab to automatically fill open slots. Choose to fill a single inning or select how many innings to fill — great for shorter games."
+                    description: "Tap the bolt icon on the Positions tab to automatically fill open slots. Choose to fill a single inning or select how many innings to fill -- great for shorter games."
                 ),
                 WhatsNewFeature(
                     icon: "clock.badge.xmark",
@@ -246,10 +257,10 @@ struct WhatsNewView: View {
 
 // MARK: - Previews
 
-#Preview("What's New v2.2") {
+#Preview("What's New v2.5") {
     WhatsNewView(content: WhatsNewContent.all[0])
 }
 
-#Preview("What's New v2.1") {
+#Preview("What's New v2.4") {
     WhatsNewView(content: WhatsNewContent.all[1])
 }

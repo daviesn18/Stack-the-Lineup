@@ -65,7 +65,7 @@ struct PlayersView: View {
                         onSwitch: { showingTeamSwitcher = true },
                         onAddTeam: { showingAddTeam = true }
                     )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
@@ -75,7 +75,7 @@ struct PlayersView: View {
                             icon: "plus.circle.fill",
                             iconColor: .blue,
                             title: "New Player",
-                            subtitle: "One at a time"
+                            subtitle: "Add Player"
                         ) { showingAddPlayer = true }
 
                         Divider().frame(height: 36)
@@ -466,7 +466,7 @@ private struct TeamCardView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 20)
+        .padding(.vertical, 12)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }

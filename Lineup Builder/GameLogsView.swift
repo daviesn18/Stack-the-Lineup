@@ -30,9 +30,15 @@ struct GameLogsView: View {
 
     enum HistoryTab { case players, games, team }
 
-    // Pre-compute season stats once so all sub-views share the same result
+    // Pre-compute season stats once so all sub-views share the same result.
+    // outfielderCount is forwarded so positionGaps and position bar rows only
+    // reflect positions that are actually configured for this team.
     private var seasonStats: SeasonStats {
-        SeasonStatsCalculator.compute(from: store.gameLogs, players: store.players)
+        SeasonStatsCalculator.compute(
+            from: store.gameLogs,
+            players: store.players,
+            outfielderCount: store.fairPlayConfig.outfielderCount
+        )
     }
 
     /// The current lineup is a past finalized game that hasn't been archived yet.
@@ -205,7 +211,8 @@ struct GameLogsView: View {
                     seasonStats: seasonStats,
                     insightsService: insightsService,
                     teamColor: store.teamColor,
-                    logs: store.gameLogs
+                    logs: store.gameLogs,
+                    outfielderCount: store.fairPlayConfig.outfielderCount
                 )
             case .games:
                 GamesTabView(
@@ -235,7 +242,7 @@ struct GameLogsView: View {
                     }
                 }
             case .team:
-                TeamTabView(seasonStats: seasonStats)
+                TeamTabView(seasonStats: seasonStats, outfielderCount: store.fairPlayConfig.outfielderCount)
             }
         }
         .background(Color(.systemGroupedBackground))
@@ -249,6 +256,7 @@ private struct PlayersTabView: View {
     @ObservedObject var insightsService: GameLogInsightsService
     let teamColor: Color
     let logs: [GameLog]
+    let outfielderCount: Int
 
     var body: some View {
         List {
@@ -267,7 +275,7 @@ private struct PlayersTabView: View {
             // One card per player
             Section {
                 ForEach(seasonStats.players, id: \.playerID) { stats in
-                    PlayerSeasonCard(stats: stats)
+                    PlayerSeasonCard(stats: stats, outfielderCount: outfielderCount)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -284,9 +292,16 @@ private struct PlayersTabView: View {
 
 private struct PlayerSeasonCard: View {
     let stats: PlayerSeasonStats
+    let outfielderCount: Int
 
-    private let infield: [FieldPosition] = FieldPosition.infieldPositions
-    private let outfield: [FieldPosition] = FieldPosition.outfieldPositions
+    // Only show positions configured for this team — mirrors activeFieldPositions(config:).
+    // 3-OF: LF/CF/RF; 4-OF: LF/LCF/RCF/RF (CF hidden).
+    private var infield: [FieldPosition] { FieldPosition.infieldPositions }
+    private var outfield: [FieldPosition] {
+        outfielderCount == 4
+            ? [.leftField, .leftCenterField, .rightCenterField, .rightField]
+            : [.leftField, .centerField, .rightField]
+    }
     private var allField: [FieldPosition] { infield + outfield }
 
     // Max innings across all field positions for bar scaling
@@ -621,9 +636,15 @@ private struct ReadyToArchiveRow: View {
 
 private struct TeamTabView: View {
     let seasonStats: SeasonStats
+    let outfielderCount: Int
 
-    private let infieldPositions = FieldPosition.infieldPositions
-    private let outfieldPositions = FieldPosition.outfieldPositions
+    // Only show positions configured for this team — mirrors activeFieldPositions(config:).
+    private var infieldPositions: [FieldPosition] { FieldPosition.infieldPositions }
+    private var outfieldPositions: [FieldPosition] {
+        outfielderCount == 4
+            ? [.leftField, .leftCenterField, .rightCenterField, .rightField]
+            : [.leftField, .centerField, .rightField]
+    }
     private var allField: [FieldPosition] { infieldPositions + outfieldPositions }
 
     var body: some View {

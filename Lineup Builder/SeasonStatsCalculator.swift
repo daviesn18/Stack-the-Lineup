@@ -22,7 +22,11 @@ enum SeasonStatsCalculator {
 
     // MARK: - Primary entry point (UI + AI)
 
-    nonisolated static func compute(from logs: [GameLog], players: [Player] = []) -> SeasonStats {
+    // outfielderCount mirrors FairPlayConfig.outfielderCount:
+    //   3 = standard (LF/CF/RF); 4 = four-outfield (LF/LCF/RCF/RF, no CF).
+    // Passed through to positionGap detection so unconfigured outfield positions
+    // (e.g. LCF/RCF on a 3-OF team) are never flagged as gaps.
+    nonisolated static func compute(from logs: [GameLog], players: [Player] = [], outfielderCount: Int = 3) -> SeasonStats {
         guard !logs.isEmpty else {
             return SeasonStats(players: [], gameCount: 0, dateRange: "")
         }
@@ -107,6 +111,8 @@ enum SeasonStatsCalculator {
 
             // positionGaps: positions never played AND not marked Never,
             // only surfaced after 3+ games to avoid early-season noise.
+            // Filtered to only the positions that are configured for this team
+            // (e.g. a 3-OF team never sees LCF/RCF flagged as gaps).
             let positionGaps: [String]
             if gamesPlayed >= 3, let player = livePlayer {
                 let neverPrefDisplayNames = Set(
@@ -114,7 +120,16 @@ enum SeasonStatsCalculator {
                         .filter { $0.value == .never }
                         .map { $0.key.displayName }
                 )
-                positionGaps = FieldPosition.fieldPositions
+                let configuredPositions = FieldPosition.fieldPositions.filter { pos in
+                    if pos == .leftCenterField || pos == .rightCenterField {
+                        return outfielderCount == 4
+                    }
+                    if pos == .centerField {
+                        return outfielderCount != 4
+                    }
+                    return true
+                }
+                positionGaps = configuredPositions
                     .filter { pos in
                         let notPlayed = (counts[pos.displayName] ?? 0) == 0
                         let notNever  = !neverPrefDisplayNames.contains(pos.displayName)
