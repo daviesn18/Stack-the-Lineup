@@ -501,6 +501,11 @@ struct Lineup: Codable, Sendable {
     /// lineup is locked in. Any mutation to positions, batting order, or game info
     /// silently reverts this to .draft via revertToDraftIfFinalized() in LineupStore.
     var status: LineupStatus = .draft
+    /// Display name of the coach who last finalized this lineup.
+    /// Nil for lineups finalized before v3.0 or when coachName is not set.
+    var lastFinalizedBy: String? = nil
+    /// Timestamp of the most recent finalization. Nil for pre-v3.0 lineups.
+    var lastFinalizedAt: Date? = nil
 
     // Explicit memberwise init so views can construct a Lineup() directly.
     init(
@@ -509,7 +514,9 @@ struct Lineup: Codable, Sendable {
         battingOrder: [UUID] = [],
         innings: [InningAssignment] = Array(repeating: InningAssignment(), count: Lineup.inningCount),
         absentPlayerIDs: Set<UUID> = [],
-        status: LineupStatus = .draft
+        status: LineupStatus = .draft,
+        lastFinalizedBy: String? = nil,
+        lastFinalizedAt: Date? = nil
     ) {
         self.gameDate        = gameDate
         self.opponent        = opponent
@@ -517,6 +524,8 @@ struct Lineup: Codable, Sendable {
         self.innings         = innings
         self.absentPlayerIDs = absentPlayerIDs
         self.status          = status
+        self.lastFinalizedBy = lastFinalizedBy
+        self.lastFinalizedAt = lastFinalizedAt
     }
 
     // Custom decode: every field uses decodeIfPresent with a safe default so
@@ -531,6 +540,9 @@ struct Lineup: Codable, Sendable {
         absentPlayerIDs = (try? c.decode(Set<UUID>.self,          forKey: .absentPlayerIDs)) ?? []
         // status is new in 2.2 — old data won't have this key, default to .draft
         status          = (try? c.decode(LineupStatus.self,       forKey: .status))          ?? .draft
+        // lastFinalizedBy and lastFinalizedAt are new in v3.0 — nil for older lineups
+        lastFinalizedBy = try? c.decode(String.self,              forKey: .lastFinalizedBy)
+        lastFinalizedAt = try? c.decode(Date.self,                forKey: .lastFinalizedAt)
     }
 
     mutating func toggleAbsent(player: Player) {
@@ -741,6 +753,9 @@ struct GameLog: Identifiable, Codable, Sendable {
     /// Pitch counts entered or imported at archive time. Keyed by player UUID string.
     /// Optional per log — games archived before v2.5 will have nil/empty here.
     var pitchCounts: [String: Int] = [:]
+    /// Display name of the coach who archived this game. Empty for logs created
+    /// before v3.0 or on single-coach teams.
+    var archivedBy: String = ""
 
     nonisolated var playedInnings: [InningAssignment] {
         Array(innings.prefix(inningsPlayed))
@@ -763,11 +778,12 @@ struct GameLog: Identifiable, Codable, Sendable {
         playerSnapshot = try c.decode([PlayerSnapshot].self,   forKey: .playerSnapshot)
         archivedAt     = (try? c.decode(Date.self,             forKey: .archivedAt))     ?? Date()
         pitchCounts    = (try? c.decodeIfPresent([String: Int].self, forKey: .pitchCounts)) ?? [:]
+        archivedBy     = (try? c.decode(String.self, forKey: .archivedBy)) ?? ""
     }
 
     init(id: UUID = UUID(), gameDate: Date, opponent: String, inningsPlayed: Int,
          battingOrder: [UUID], innings: [InningAssignment], playerSnapshot: [PlayerSnapshot],
-         archivedAt: Date = Date(), pitchCounts: [String: Int] = [:]) {
+         archivedAt: Date = Date(), pitchCounts: [String: Int] = [:], archivedBy: String = "") {
         self.id             = id
         self.gameDate       = gameDate
         self.opponent       = opponent
@@ -777,6 +793,7 @@ struct GameLog: Identifiable, Codable, Sendable {
         self.playerSnapshot = playerSnapshot
         self.archivedAt     = archivedAt
         self.pitchCounts    = pitchCounts
+        self.archivedBy     = archivedBy
     }
 }
 
@@ -853,6 +870,19 @@ struct Team: Identifiable, Codable {
     /// Per-team pitching rules configuration. Disabled by default — existing teams
     /// are unaffected until a coach explicitly enables pitching rules.
     var pitchingConfig: PitchingConfig = PitchingConfig()
+    /// The coach's display name, used to attribute lineup finalization in shared teams.
+    /// Defaults to the device name on creation. Editable in Edit Team.
+    var coachName: String = ""
+    /// The CKRecord.ID.recordName for this team's CloudKit record.
+    /// Nil until the team has been saved to CloudKit (post-v3.0 migration).
+    var ckRecordName: String? = nil
+    /// True when this team is a shared record owned by another coach.
+    /// All editing is locked for read-only participants.
+    var isReadOnly: Bool = false
+    /// True when this team was received via CKShare (participant copy, not the owner).
+    /// Used to route CloudKit saves to sharedDB instead of privateDB.
+    /// Never persisted to the server blob -- always re-derived from the fetch path.
+    var isSharedParticipant: Bool = false
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -873,7 +903,11 @@ struct Team: Identifiable, Codable {
         scheduledGames: [ScheduledGame] = [],
         calendarSubscriptionURL: String? = nil,
         fairPlayConfig: FairPlayConfig = FairPlayConfig(),
-        pitchingConfig: PitchingConfig = PitchingConfig()
+        pitchingConfig: PitchingConfig = PitchingConfig(),
+        coachName: String = "",
+        ckRecordName: String? = nil,
+        isReadOnly: Bool = false,
+        isSharedParticipant: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -887,6 +921,10 @@ struct Team: Identifiable, Codable {
         self.calendarSubscriptionURL = calendarSubscriptionURL
         self.fairPlayConfig = fairPlayConfig
         self.pitchingConfig = pitchingConfig
+        self.coachName = coachName
+        self.ckRecordName = ckRecordName
+        self.isReadOnly = isReadOnly
+        self.isSharedParticipant = isSharedParticipant
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -909,6 +947,14 @@ struct Team: Identifiable, Codable {
         // pitchingConfig is new in v2.5 — older Team blobs won't include it.
         // Default to disabled so existing teams are unaffected on upgrade.
         pitchingConfig           = (try? c.decode(PitchingConfig.self,  forKey: .pitchingConfig))           ?? PitchingConfig()
+        // coachName, ckRecordName, isReadOnly are new in v3.0.
+        // coachName defaults to empty string — LineupStore migration fills it from device name.
+        coachName                = (try? c.decode(String.self,           forKey: .coachName))               ?? ""
+        ckRecordName             = try? c.decode(String.self,            forKey: .ckRecordName)
+        isReadOnly               = (try? c.decode(Bool.self,             forKey: .isReadOnly))              ?? false
+        // isSharedParticipant is never stored in the JSON blob -- it is always
+        // re-derived from the fetch path (fetchSharedTeams sets it to true).
+        isSharedParticipant      = false
     }
 }
 
@@ -973,6 +1019,39 @@ class LineupStore: ObservableObject {
     // MARK: - Persistence
 
     func save() {
+        saveLocalOnly()
+
+        // CloudKit push — fire and forget, fully isolated from the local write path.
+        // Only the active team is pushed; it is always the one that was just mutated.
+        // If CloudKit returns a new ckRecordName (first-ever save for this team),
+        // stamp it back onto the in-memory team and persist locally.
+        guard let activeTeamID else { return }
+        let teamCopy = teams.first(where: { $0.id == activeTeamID })
+        // Read-only participants cannot write back to CloudKit.
+        // Read-write participants (isSharedParticipant && !isReadOnly) can and should.
+        guard let teamCopy, !teamCopy.isReadOnly else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let recordName = try await CloudKitManager.shared.saveTeam(teamCopy, useSharedDB: teamCopy.isSharedParticipant)
+                if teamCopy.ckRecordName == nil {
+                    await MainActor.run {
+                        if let idx = self.teams.firstIndex(where: { $0.id == teamCopy.id }) {
+                            self.teams[idx].ckRecordName = recordName
+                            self.saveLocalOnly()
+                        }
+                    }
+                }
+            } catch {
+                print("⚠️ CloudKit save failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Writes teams to UserDefaults and NSUbiquitousKeyValueStore without triggering
+    /// a CloudKit push. Use when persisting metadata-only changes (e.g. ckRecordName
+    /// stamps) that CloudKit already knows about, to avoid redundant round-trips.
+    private func saveLocalOnly() {
         let snapshot = teams
         let activeID = activeTeamID?.uuidString
 
@@ -990,6 +1069,7 @@ class LineupStore: ObservableObject {
 
             // Write to iCloud KV store off main thread — synchronize() must
             // not be called on the main thread per Apple documentation.
+            // KV store is kept as a fallback alongside CloudKit for v3.0.
             let icloud = NSUbiquitousKeyValueStore.default
             if data.count < 800_000 {
                 icloud.set(data, forKey: "stl_teams")
@@ -1025,6 +1105,31 @@ class LineupStore: ObservableObject {
         // will be called again automatically.
         Task.detached(priority: .utility) {
             NSUbiquitousKeyValueStore.default.synchronize()
+        }
+
+        // One-time CloudKit migration — runs exactly once per install, gated by
+        // hasCompletedCloudKitMigration in UserDefaults. Defers gracefully when
+        // iCloud is unavailable. Stamps ckRecordName onto each team after upload.
+        let currentTeams = teams
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updatedTeams = try await CloudKitManager.shared.migrateFromKVStoreIfNeeded(teams: currentTeams)
+                await MainActor.run {
+                    for serverTeam in updatedTeams {
+                        if let idx = self.teams.firstIndex(where: { $0.id == serverTeam.id }),
+                           self.teams[idx].ckRecordName == nil,
+                           let recordName = serverTeam.ckRecordName {
+                            self.teams[idx].ckRecordName = recordName
+                        }
+                    }
+                    self.saveLocalOnly()
+                }
+            } catch {
+                // Deferral (e.g. no iCloud account) is expected and non-fatal.
+                // The gate flag was not set, so migration retries on next launch.
+                print("⚠️ CloudKit migration deferred: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -1088,6 +1193,150 @@ class LineupStore: ObservableObject {
         DispatchQueue.main.async { self.applyStoredData() }
     }
 
+    // MARK: - CloudKit Foreground Sync
+
+    /// Fetches incremental CloudKit changes (private + shared databases) and merges
+    /// them into the local teams array. Call from ContentView when scenePhase == .active.
+    ///
+    /// Merge rules:
+    ///   Modified owned teams: replace local copy (CloudKit is authoritative post-migration).
+    ///   Modified shared teams: replace local copy if isReadOnly, skip if owner's copy.
+    ///   Deleted records: remove only read-only teams (owned deletions are explicit user actions).
+    ///   New shared teams: append if not already present by ckRecordName.
+    func fetchCloudKitChanges() async {
+        print("🔵 fetchCloudKitChanges called")
+        // Zone creation is idempotent and cheap after the first call.
+        do { try await CloudKitManager.shared.ensureZoneExists() } catch {
+            print("⚠️ CloudKit ensureZoneExists failed: \(error.localizedDescription)")
+        }
+
+        // Run private and shared fetches independently so a failure in one
+        // does not prevent the other from loading. This is critical on the
+        // recipient device where the private STLTeams zone is brand new and
+        // fetchChanges() may throw before a change token is established.
+        var privateChanges = CloudKitManager.FetchChangesResult(
+            modifiedTeams: [],
+            deletedRecordNames: []
+        )
+        var sharedTeams: [Team] = []
+
+        do {
+            privateChanges = try await CloudKitManager.shared.fetchChanges()
+        } catch {
+            print("⚠️ CloudKit private fetch failed: \(error.localizedDescription)")
+        }
+
+        do {
+            sharedTeams = try await CloudKitManager.shared.fetchSharedTeams()
+        } catch {
+            print("⚠️ CloudKit shared fetch failed: \(error.localizedDescription)")
+        }
+
+        await MainActor.run {
+            self.mergeCloudKitChanges(privateChanges, sharedTeams: sharedTeams)
+        }
+    }
+
+    @MainActor
+    private func mergeCloudKitChanges(
+        _ changes: CloudKitManager.FetchChangesResult,
+        sharedTeams: [Team]
+    ) {
+        var didChange = false
+
+        // Apply modified/new teams from the private database.
+        // coachName is a local-only field — it must never be overwritten by a
+        // server copy, because the server blob always carries the owner's name.
+        for serverTeam in changes.modifiedTeams {
+            if let idx = localIndex(for: serverTeam) {
+                var updated = serverTeam
+                updated.coachName = teams[idx].coachName
+                teams[idx] = updated
+            } else {
+                teams.append(serverTeam)
+            }
+            didChange = true
+        }
+
+        // Remove read-only teams whose CloudKit records were deleted.
+        // Owned team deletions are always explicit user actions — never auto-remove them.
+        for recordName in changes.deletedRecordNames {
+            let before = teams.count
+            teams.removeAll { $0.ckRecordName == recordName && $0.isReadOnly }
+            if teams.count != before { didChange = true }
+        }
+
+        // Merge shared teams from the shared database.
+        //
+        // Owned teams (isReadOnly == false) also arrive here when an assistant
+        // coach edits the shared record -- e.g. finalizing a lineup. We must
+        // update them too, not just read-only copies.
+        //
+        // coachName is local-only: always preserve the value already on disk
+        // so each coach sees their own name in "Finalized by", not the owner's.
+        //
+        // isSharedParticipant is always true for these teams -- it is never
+        // stored in the JSON blob so we must stamp it here every time.
+        for sharedTeam in sharedTeams {
+            if let idx = localIndex(for: sharedTeam) {
+                let localCoachName = teams[idx].coachName
+                var updated = sharedTeam
+                updated.coachName = localCoachName
+                updated.isSharedParticipant = true
+                teams[idx] = updated
+                didChange = true
+            } else {
+                var newTeam = sharedTeam
+                newTeam.coachName = UIDevice.current.name
+                newTeam.isSharedParticipant = true
+                teams.append(newTeam)
+                didChange = true
+            }
+        }
+
+        // Dedup sweep — removes any duplicate teams that snuck in before this fix
+        // shipped. Two teams are duplicates if they share the same ckRecordName or
+        // the same UUID. First occurrence wins (it has the most recent local edits).
+        let beforeDedup = teams.count
+        var seenRecordNames = Set<String>()
+        var seenUUIDs       = Set<UUID>()
+        teams = teams.filter { team in
+            if let rn = team.ckRecordName {
+                guard seenRecordNames.insert(rn).inserted else { return false }
+            }
+            return seenUUIDs.insert(team.id).inserted
+        }
+        if teams.count != beforeDedup { didChange = true }
+
+        // Keep activeTeamID pointing at a valid team.
+        if activeTeamID == nil || !teams.contains(where: { $0.id == activeTeamID }) {
+            activeTeamID = teams.first?.id
+            didChange = true
+        }
+
+        if didChange { saveLocalOnly() }
+    }
+
+    /// Finds the local index for a server-returned team.
+    ///
+    /// Primary match: ckRecordName (the normal post-migration path).
+    /// Fallback match: UUID embedded in the record name ("team-<UUID>") for
+    /// teams whose local copy hasn't been stamped with ckRecordName yet
+    /// (e.g. the window between migration upload and the ckRecordName stamp-back).
+    /// This prevents fetchCloudKitChanges from appending duplicates during that window.
+    @MainActor
+    private func localIndex(for serverTeam: Team) -> Int? {
+        // Primary: exact ckRecordName match.
+        if let idx = teams.firstIndex(where: { $0.ckRecordName == serverTeam.ckRecordName }) {
+            return idx
+        }
+        // Fallback: parse UUID out of "team-<UUID>" record name and match by team.id.
+        guard let recordName = serverTeam.ckRecordName,
+              recordName.hasPrefix("team-"),
+              let uuid = UUID(uuidString: String(recordName.dropFirst(5))) else { return nil }
+        return teams.firstIndex(where: { $0.id == uuid })
+    }
+
     // MARK: - Migration
 
     private func migrateOrCreateDefaultTeam() {
@@ -1143,6 +1392,8 @@ class LineupStore: ObservableObject {
     private func revertToDraftIfFinalized() {
         if activeTeam.lineup.status == .finalized {
             activeTeam.lineup.status = .draft
+            activeTeam.lineup.lastFinalizedBy = nil
+            activeTeam.lineup.lastFinalizedAt = nil
             Analytics.signal("lineup.reverted_to_draft", parameters: ["trigger": "edit"])
         }
     }
@@ -1151,8 +1402,25 @@ class LineupStore: ObservableObject {
     /// and will automatically revert back to draft.
     func finalizeLineup() {
         activeTeam.lineup.status = .finalized
+        let name = activeTeam.coachName.trimmingCharacters(in: .whitespaces)
+        activeTeam.lineup.lastFinalizedBy = name.isEmpty ? nil : name
+        activeTeam.lineup.lastFinalizedAt = Date()
         save()
         Analytics.signal("lineup.finalized")
+
+        // Notify other coaches via Cloudflare Worker -> APNs.
+        let opponent = activeTeam.lineup.opponent
+        let gameDate = activeTeam.lineup.gameDate.formatted(
+            Date.FormatStyle().month(.abbreviated).day()
+        )
+        NotificationManager.shared.postEvent(
+            eventType: NotificationManager.eventLineupFinalized,
+            team: activeTeam,
+            metadata: [
+                "opponent": opponent,
+                "gameDate": gameDate,
+            ]
+        )
     }
 
     /// Reopens a finalized lineup, setting status back to draft.
@@ -1168,13 +1436,15 @@ class LineupStore: ObservableObject {
     func archiveCurrentLineup(inningsPlayed: Int) -> UUID {
         let snapshot = activeTeam.players.map { PlayerSnapshot(from: $0) }
 
+        let coachName = activeTeam.coachName.trimmingCharacters(in: .whitespaces)
         let log = GameLog(
             gameDate: activeTeam.lineup.gameDate,
             opponent: activeTeam.lineup.opponent,
             inningsPlayed: max(1, min(activeTeam.gameInningCount, inningsPlayed)),
             battingOrder: activeTeam.lineup.battingOrder,
             innings: activeTeam.lineup.innings,
-            playerSnapshot: snapshot
+            playerSnapshot: snapshot,
+            archivedBy: coachName
         )
 
         activeTeam.gameLogs.append(log)
@@ -1493,6 +1763,7 @@ class LineupStore: ObservableObject {
         var newTeam = Team()
         newTeam.name = name
         newTeam.color = color
+        newTeam.coachName = UIDevice.current.name
         teams.append(newTeam)
         activeTeamID = newTeam.id
         Analytics.signal("team.created", parameters: ["teamCount": "\(teams.count)"])
@@ -1513,6 +1784,31 @@ class LineupStore: ObservableObject {
         guard teams.contains(where: { $0.id == id }) else { return }
         activeTeamID = id
         Analytics.signal("team.switched", parameters: ["teamCount": "\(teams.count)"])
+        save()
+    }
+
+    // MARK: - Team File Import
+
+    /// Replaces the active team's data with the imported snapshot.
+    /// Keeps the existing team UUID so iCloud KV store references stay stable.
+    /// Resets the active lineup to a fresh Lineup().
+    func replaceActiveTeam(with snapshot: Team) {
+        guard let idx = teams.firstIndex(where: { $0.id == activeTeamID }) else { return }
+        var updated = snapshot
+        updated.id = teams[idx].id
+        updated.lineup = Lineup()
+        teams[idx] = updated
+        save()
+    }
+
+    /// Adds an imported team as a new entry, assigns a fresh UUID, and switches to it.
+    /// Resets the active lineup to a fresh Lineup().
+    func addImportedTeam(_ snapshot: Team) {
+        var newTeam = snapshot
+        newTeam.id = UUID()
+        newTeam.lineup = Lineup()
+        teams.append(newTeam)
+        activeTeamID = newTeam.id
         save()
     }
 }

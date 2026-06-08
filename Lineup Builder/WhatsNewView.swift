@@ -22,6 +22,17 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "3.0",
+            features: [
+                WhatsNewFeature(
+                    icon: "person.2.circle.fill",
+                    iconColor: .purple,
+                    title: "Shared Teams",
+                    description: "Share your team with assistant coaches straight from the Players tab. Tap Team Settings, scroll down to Share Team, and send an invite link.\n\nAssistants can view the roster and build out positions. When the lineup is ready, the head coach finalizes and locks it -- assistants get a notification when it's done.\n\nShared Teams is a Pro feature."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "2.5",
             features: [
                 WhatsNewFeature(
@@ -257,10 +268,14 @@ struct WhatsNewView: View {
 
 // MARK: - Previews
 
-#Preview("What's New v2.5") {
+#Preview("What's New v3.0") {
     WhatsNewView(content: WhatsNewContent.all[0])
 }
 
-#Preview("What's New v2.4") {
+#Preview("What's New v2.5") {
     WhatsNewView(content: WhatsNewContent.all[1])
+}
+
+#Preview("What's New v2.4") {
+    WhatsNewView(content: WhatsNewContent.all[2])
 }

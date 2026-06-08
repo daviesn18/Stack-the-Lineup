@@ -3,10 +3,12 @@ import XCTest
 
 // MARK: - Fair Play Validation Tests
 //
-// Tests for all Lineup validation methods that power fair play warnings.
-// Each test targets a specific rule and verifies both the "rule fires" and
-// "rule is off / threshold not met" paths.
+// Covers the Lineup validation engine: activeFieldPositions, openPositions
+// (config-aware), playersWithoutInfield/Outfield, playersUnderFieldingMinimum,
+// playersWithBackToBackBench, and both battery restriction validators
+// (catcher-to-pitcher, pitcher-to-catcher).
 
+@MainActor
 final class FairPlayValidationTests: XCTestCase {
 
     // MARK: - Helpers
@@ -15,368 +17,412 @@ final class FairPlayValidationTests: XCTestCase {
         Player(firstName: name, lastName: "Test", number: "0")
     }
 
-    private func makeLineup(innings: Int = 6) -> Lineup {
+    private func makeLineup(innings: Int = 7) -> Lineup {
         Lineup(innings: Array(repeating: InningAssignment(), count: innings))
-    }
-
-    private func assign(_ position: FieldPosition, to player: Player, inning: Int, in lineup: inout Lineup) {
-        lineup.innings[inning].assign(player: player, position: position)
     }
 
     // MARK: - activeFieldPositions
 
-    func testDefaultConfigProducesStandard9Positions() {
-        let lineup = makeLineup()
-        let config = FairPlayConfig()
-        let positions = lineup.activeFieldPositions(config: config)
+    func testActiveFieldPositionsDefaultConfigHasNinePositions() {
+        let positions = makeLineup().activeFieldPositions(config: FairPlayConfig())
+
+        XCTAssertEqual(positions.count, 9)
         XCTAssertTrue(positions.contains(.pitcher))
         XCTAssertTrue(positions.contains(.catcher))
         XCTAssertTrue(positions.contains(.centerField))
         XCTAssertFalse(positions.contains(.leftCenterField))
         XCTAssertFalse(positions.contains(.rightCenterField))
-        XCTAssertEqual(positions.count, 9)
+        XCTAssertFalse(positions.contains(.bench))
+        XCTAssertFalse(positions.contains(.absent))
     }
 
-    func testNoPitcherRemovesPitcherFromPool() {
-        let lineup = makeLineup()
+    func testActiveFieldPositionsNoPitcherRemovesPitcherOnly() {
         var config = FairPlayConfig()
         config.noPitcher = true
-        let positions = lineup.activeFieldPositions(config: config)
+        let positions = makeLineup().activeFieldPositions(config: config)
+
         XCTAssertFalse(positions.contains(.pitcher))
+        XCTAssertTrue(positions.contains(.catcher))
         XCTAssertEqual(positions.count, 8)
     }
 
-    func testNoCatcherRemovesCatcherFromPool() {
-        let lineup = makeLineup()
+    func testActiveFieldPositionsNoCatcherRemovesCatcherOnly() {
         var config = FairPlayConfig()
         config.noCatcher = true
-        let positions = lineup.activeFieldPositions(config: config)
+        let positions = makeLineup().activeFieldPositions(config: config)
+
         XCTAssertFalse(positions.contains(.catcher))
+        XCTAssertTrue(positions.contains(.pitcher))
         XCTAssertEqual(positions.count, 8)
     }
 
-    func testNoPitcherAndNoCatcherRemovesBoth() {
-        let lineup = makeLineup()
-        var config = FairPlayConfig()
-        config.noPitcher = true
-        config.noCatcher = true
-        let positions = lineup.activeFieldPositions(config: config)
-        XCTAssertFalse(positions.contains(.pitcher))
-        XCTAssertFalse(positions.contains(.catcher))
-        XCTAssertEqual(positions.count, 7)
-    }
-
-    func testFourOutfieldersSwapsCFforLCFandRCF() {
-        let lineup = makeLineup()
+    func testActiveFieldPositionsFourOutfieldersSwapsCFForLCFAndRCF() {
         var config = FairPlayConfig()
         config.outfielderCount = 4
-        let positions = lineup.activeFieldPositions(config: config)
+        let positions = makeLineup().activeFieldPositions(config: config)
+
         XCTAssertTrue(positions.contains(.leftCenterField))
         XCTAssertTrue(positions.contains(.rightCenterField))
         XCTAssertFalse(positions.contains(.centerField))
-        XCTAssertEqual(positions.count, 10) // 6 IF + LF + LCF + RCF + RF
+        // 6 infield + 4 outfield = 10
+        XCTAssertEqual(positions.count, 10)
     }
 
-    func testThreeOutfieldersExcludesLCFandRCF() {
-        let lineup = makeLineup()
-        let config = FairPlayConfig()
-        let positions = lineup.activeFieldPositions(config: config)
-        XCTAssertFalse(positions.contains(.leftCenterField))
-        XCTAssertFalse(positions.contains(.rightCenterField))
-        XCTAssertTrue(positions.contains(.centerField))
+    func testActiveFieldPositionsNoPitcherNoCatcherFourOFCombined() {
+        var config = FairPlayConfig()
+        config.noPitcher = true
+        config.noCatcher = true
+        config.outfielderCount = 4
+        let positions = makeLineup().activeFieldPositions(config: config)
+
+        XCTAssertFalse(positions.contains(.pitcher))
+        XCTAssertFalse(positions.contains(.catcher))
+        XCTAssertFalse(positions.contains(.centerField))
+        XCTAssertTrue(positions.contains(.leftCenterField))
+        XCTAssertTrue(positions.contains(.rightCenterField))
+        // 4 infield + 4 outfield = 8
+        XCTAssertEqual(positions.count, 8)
     }
 
     // MARK: - openPositions (config-aware)
 
-    func testOpenPositionsExcludesRestrictedPositions() {
-        var lineup = makeLineup(innings: 1)
-        let player = makePlayer("Alex")
-        assign(.firstBase, to: player, inning: 0, in: &lineup)
-
+    func testOpenPositionsNoPitcherDoesNotReportPitcherAsOpen() {
         var config = FairPlayConfig()
         config.noPitcher = true
-        config.noCatcher = true
 
-        let open = lineup.openPositions(inning: 0, players: [player], config: config)
-        XCTAssertFalse(open.contains(.pitcher))
-        XCTAssertFalse(open.contains(.catcher))
-        XCTAssertFalse(open.contains(.firstBase))
+        let players = (1...9).map { makePlayer("P\($0)") }
+        let open = makeLineup(innings: 1).openPositions(inning: 0, players: players, config: config)
+
+        XCTAssertFalse(open.contains(.pitcher),
+                       "Pitcher should not appear as open when noPitcher is true")
     }
 
-    func testOpenPositionsWithFourOFExcludesCF() {
-        let lineup = makeLineup(innings: 1)
-        let player = makePlayer("Sam")
+    func testOpenPositionsExcludesAlreadyFilledPositions() {
+        let pitcher = makePlayer("Ace")
+        var lineup = makeLineup(innings: 1)
+        lineup.innings[0].assign(player: pitcher, position: .pitcher)
+
+        let players = [pitcher] + (1...8).map { makePlayer("P\($0)") }
+        let open = lineup.openPositions(inning: 0, players: players, config: FairPlayConfig())
+
+        XCTAssertFalse(open.contains(.pitcher),
+                       "Pitcher should not appear as open after being assigned")
+    }
+
+    func testOpenPositionsFourOFDoesNotReportCFAsOpen() {
         var config = FairPlayConfig()
         config.outfielderCount = 4
 
-        let open = lineup.openPositions(inning: 0, players: [player], config: config)
-        XCTAssertFalse(open.contains(.centerField))
+        let open = makeLineup(innings: 1).openPositions(
+            inning: 0, players: (1...10).map { makePlayer("P\($0)") }, config: config
+        )
+
+        XCTAssertFalse(open.contains(.centerField), "CF should not be open in a 4-OF config")
         XCTAssertTrue(open.contains(.leftCenterField))
         XCTAssertTrue(open.contains(.rightCenterField))
     }
 
-    // MARK: - playersWithoutInfield / playersWithoutOutfield
+    func testOpenPositionsEmptyWhenNoActivePlayers() {
+        let player = makePlayer("Alice")
+        var lineup = makeLineup(innings: 1)
+        lineup.absentPlayerIDs.insert(player.id)
 
-    func testPlayerWithNoInfieldIsDetected() {
-        var lineup = makeLineup(innings: 3)
-        let player = makePlayer("Jordan")
-        assign(.leftField, to: player, inning: 0, in: &lineup)
-        assign(.centerField, to: player, inning: 1, in: &lineup)
-        assign(.bench, to: player, inning: 2, in: &lineup)
-
-        let result = lineup.playersWithoutInfield(players: [player])
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].id, player.id)
+        let open = lineup.openPositions(inning: 0, players: [player], config: FairPlayConfig())
+        XCTAssertTrue(open.isEmpty, "No open positions when all players are absent")
     }
 
-    func testPlayerWithInfieldNotFlagged() {
-        var lineup = makeLineup(innings: 3)
-        let player = makePlayer("Casey")
-        assign(.shortstop, to: player, inning: 0, in: &lineup)
-        assign(.leftField, to: player, inning: 1, in: &lineup)
-        assign(.bench, to: player, inning: 2, in: &lineup)
+    // MARK: - playersWithoutInfield
 
-        let result = lineup.playersWithoutInfield(players: [player])
-        XCTAssertTrue(result.isEmpty)
+    func testPlayersWithoutInfieldIdentifiesMissingPlayers() {
+        let p1 = makePlayer("Alice")  // gets an infield inning
+        let p2 = makePlayer("Bob")    // only outfield innings
+        var lineup = makeLineup(innings: 3)
+        lineup.innings[0].assign(player: p1, position: .shortstop)
+        lineup.innings[1].assign(player: p1, position: .leftField)
+        lineup.innings[0].assign(player: p2, position: .leftField)
+        lineup.innings[1].assign(player: p2, position: .rightField)
+
+        let missing = lineup.playersWithoutInfield(players: [p1, p2])
+
+        XCTAssertFalse(missing.contains { $0.id == p1.id },
+                       "p1 has an infield inning and should not appear")
+        XCTAssertTrue(missing.contains { $0.id == p2.id },
+                      "p2 has no infield inning and should appear")
     }
 
-    func testPlayerWithNoOutfieldIsDetected() {
-        var lineup = makeLineup(innings: 3)
-        let player = makePlayer("Riley")
-        assign(.pitcher, to: player, inning: 0, in: &lineup)
-        assign(.firstBase, to: player, inning: 1, in: &lineup)
-        assign(.bench, to: player, inning: 2, in: &lineup)
+    func testPlayersWithoutInfieldExcludesAbsentPlayers() {
+        let p1 = makePlayer("Alice")
+        var lineup = makeLineup(innings: 1)
+        lineup.absentPlayerIDs.insert(p1.id)
 
-        let result = lineup.playersWithoutOutfield(players: [player])
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].id, player.id)
+        let missing = lineup.playersWithoutInfield(players: [p1])
+        XCTAssertTrue(missing.isEmpty, "Absent players should be excluded from playersWithoutInfield")
     }
 
-    func testLCFandRCFCountAsOutfieldForMinimum() {
+    func testPlayersWithoutInfieldCountsAllInfieldPositions() {
+        // Verify that pitcher and catcher count as infield
+        let p1 = makePlayer("Pitcher")
+        let p2 = makePlayer("Catcher")
+        var lineup = makeLineup(innings: 1)
+        lineup.innings[0].assign(player: p1, position: .pitcher)
+        lineup.innings[0].assign(player: p2, position: .catcher)
+
+        let missing = lineup.playersWithoutInfield(players: [p1, p2])
+        XCTAssertTrue(missing.isEmpty, "Pitcher and catcher should count as infield innings")
+    }
+
+    // MARK: - playersWithoutOutfield
+
+    func testPlayersWithoutOutfieldIdentifiesMissingPlayers() {
+        let p1 = makePlayer("Alice")  // gets an outfield inning
+        let p2 = makePlayer("Bob")    // only infield innings
         var lineup = makeLineup(innings: 2)
-        let player = makePlayer("Morgan")
-        assign(.leftCenterField, to: player, inning: 0, in: &lineup)
-        assign(.firstBase, to: player, inning: 1, in: &lineup)
+        lineup.innings[0].assign(player: p1, position: .leftField)
+        lineup.innings[0].assign(player: p2, position: .shortstop)
+        lineup.innings[1].assign(player: p2, position: .thirdBase)
 
-        let result = lineup.playersWithoutOutfield(players: [player])
-        XCTAssertTrue(result.isEmpty, "LCF should count as an outfield inning")
+        let missing = lineup.playersWithoutOutfield(players: [p1, p2])
+
+        XCTAssertFalse(missing.contains { $0.id == p1.id })
+        XCTAssertTrue(missing.contains { $0.id == p2.id })
+    }
+
+    func testPlayersWithoutOutfieldCountsAllOutfieldPositions() {
+        let p1 = makePlayer("LCF")
+        let p2 = makePlayer("RCF")
+        var lineup = makeLineup(innings: 1)
+        lineup.innings[0].assign(player: p1, position: .leftCenterField)
+        lineup.innings[0].assign(player: p2, position: .rightCenterField)
+
+        let missing = lineup.playersWithoutOutfield(players: [p1, p2])
+        XCTAssertTrue(missing.isEmpty, "LCF and RCF innings should count as outfield")
     }
 
     // MARK: - playersUnderFieldingMinimum
 
-    func testPlayerUnderConfiguredMinimumIsFlagged() {
-        var lineup = makeLineup(innings: 6)
-        let player = makePlayer("Drew")
-        // 2 fielding innings, 4 bench — under a minimum of 3
-        assign(.leftField, to: player, inning: 0, in: &lineup)
-        assign(.firstBase, to: player, inning: 1, in: &lineup)
-        assign(.bench, to: player, inning: 2, in: &lineup)
-        assign(.bench, to: player, inning: 3, in: &lineup)
-        assign(.bench, to: player, inning: 4, in: &lineup)
-        assign(.bench, to: player, inning: 5, in: &lineup)
+    func testPlayersUnderFieldingMinimumDefaultFourInningThreshold() {
+        let p1 = makePlayer("Alice")  // 4 fielding innings -- should NOT appear
+        let p2 = makePlayer("Bob")    // 3 fielding + 1 bench -- should appear
+        var lineup = makeLineup(innings: 4)
 
-        let result = lineup.playersUnderFieldingMinimum(players: [player], minimumInnings: 3)
-        XCTAssertEqual(result.count, 1)
+        for i in 0..<4 { lineup.innings[i].assign(player: p1, position: .leftField) }
+        for i in 0..<3 { lineup.innings[i].assign(player: p2, position: .leftField) }
+        lineup.innings[3].assign(player: p2, position: .bench)
+
+        let under = lineup.playersUnderFieldingMinimum(players: [p1, p2], minimumInnings: 4)
+
+        XCTAssertFalse(under.contains { $0.id == p1.id },
+                       "p1 has exactly 4 fielding innings and should meet the minimum")
+        XCTAssertTrue(under.contains { $0.id == p2.id },
+                      "p2 has only 3 fielding innings and should be flagged")
     }
 
-    func testPlayerMeetingConfiguredMinimumNotFlagged() {
-        var lineup = makeLineup(innings: 6)
-        let player = makePlayer("Taylor")
-        assign(.leftField, to: player, inning: 0, in: &lineup)
-        assign(.firstBase, to: player, inning: 1, in: &lineup)
-        assign(.shortstop, to: player, inning: 2, in: &lineup)
-        assign(.bench, to: player, inning: 3, in: &lineup)
-        assign(.bench, to: player, inning: 4, in: &lineup)
-        assign(.bench, to: player, inning: 5, in: &lineup)
+    func testPlayersUnderFieldingMinimumExemptsPlayersWithABSInning() {
+        let p1 = makePlayer("Alice")
+        var lineup = makeLineup(innings: 4)
+        lineup.innings[0].assign(player: p1, position: .leftField)
+        lineup.innings[1].assign(player: p1, position: .leftField)
+        lineup.innings[2].assign(player: p1, position: .absent)
+        lineup.innings[3].assign(player: p1, position: .bench)
 
-        let result = lineup.playersUnderFieldingMinimum(players: [player], minimumInnings: 3)
-        XCTAssertTrue(result.isEmpty)
+        let under = lineup.playersUnderFieldingMinimum(players: [p1], minimumInnings: 4)
+        XCTAssertTrue(under.isEmpty,
+                      "A player with an ABS inning should be exempt from the fielding minimum")
     }
 
-    func testMinimumZeroNeverFlags() {
-        var lineup = makeLineup(innings: 6)
-        let player = makePlayer("Avery")
-        // All bench — would be flagged at any positive minimum
-        for i in 0..<6 { assign(.bench, to: player, inning: i, in: &lineup) }
+    func testPlayersUnderFieldingMinimumCustomThreshold() {
+        let p1 = makePlayer("Alice")
+        var lineup = makeLineup(innings: 3)
+        for i in 0..<3 { lineup.innings[i].assign(player: p1, position: .leftField) }
 
-        let result = lineup.playersUnderFieldingMinimum(players: [player], minimumInnings: 0)
-        XCTAssertTrue(result.isEmpty, "minimumInnings of 0 should never flag anyone")
+        // 3 innings meets a threshold of 3 but not 4
+        let under3 = lineup.playersUnderFieldingMinimum(players: [p1], minimumInnings: 3)
+        let under4 = lineup.playersUnderFieldingMinimum(players: [p1], minimumInnings: 4)
+
+        XCTAssertTrue(under3.isEmpty, "3 fielding innings meets a threshold of 3")
+        XCTAssertFalse(under4.isEmpty, "3 fielding innings does not meet a threshold of 4")
     }
 
-    func testPlayerWithABSInningExemptFromMinimum() {
-        var lineup = makeLineup(innings: 6)
-        let player = makePlayer("Quinn")
-        assign(.absent, to: player, inning: 0, in: &lineup)
-        assign(.bench, to: player, inning: 1, in: &lineup)
-        assign(.bench, to: player, inning: 2, in: &lineup)
-        assign(.bench, to: player, inning: 3, in: &lineup)
-        assign(.bench, to: player, inning: 4, in: &lineup)
-        assign(.bench, to: player, inning: 5, in: &lineup)
+    func testPlayersUnderFieldingMinimumExcludesAbsentPlayers() {
+        let p1 = makePlayer("Alice")
+        var lineup = makeLineup(innings: 4)
+        lineup.absentPlayerIDs.insert(p1.id)
 
-        let result = lineup.playersUnderFieldingMinimum(players: [player], minimumInnings: 4)
-        XCTAssertTrue(result.isEmpty, "Player with ABS inning should be exempt from fielding minimum")
+        let under = lineup.playersUnderFieldingMinimum(players: [p1], minimumInnings: 4)
+        XCTAssertTrue(under.isEmpty, "Absent players should not appear in fielding minimum results")
     }
 
     // MARK: - playersWithBackToBackBench
 
-    func testBackToBackBenchDetected() {
+    func testPlayersWithBackToBackBenchDetectsAdjacentBenchInnings() {
+        let p1 = makePlayer("Alice")  // back-to-back bench in innings 0-1
+        let p2 = makePlayer("Bob")    // alternating bench -- no back-to-back
         var lineup = makeLineup(innings: 4)
-        let player = makePlayer("Blake")
-        assign(.leftField, to: player, inning: 0, in: &lineup)
-        assign(.bench, to: player, inning: 1, in: &lineup)
-        assign(.bench, to: player, inning: 2, in: &lineup)
-        assign(.firstBase, to: player, inning: 3, in: &lineup)
 
-        let result = lineup.playersWithBackToBackBench(from: [player])
-        XCTAssertEqual(result.count, 1)
+        lineup.innings[0].assign(player: p1, position: .bench)
+        lineup.innings[1].assign(player: p1, position: .bench)
+        lineup.innings[2].assign(player: p1, position: .leftField)
+        lineup.innings[3].assign(player: p1, position: .leftField)
+
+        lineup.innings[0].assign(player: p2, position: .leftField)
+        lineup.innings[1].assign(player: p2, position: .bench)
+        lineup.innings[2].assign(player: p2, position: .leftField)
+        lineup.innings[3].assign(player: p2, position: .bench)
+
+        let flagged = lineup.playersWithBackToBackBench(from: [p1, p2])
+
+        XCTAssertTrue(flagged.contains { $0.id == p1.id },
+                      "p1 should be flagged for back-to-back bench")
+        XCTAssertFalse(flagged.contains { $0.id == p2.id },
+                       "p2 alternates bench and should not be flagged")
     }
 
-    func testNonConsecutiveBenchNotFlagged() {
+    func testPlayersWithBackToBackBenchLastTwoInnings() {
+        // Back-to-back at the end of the lineup (innings 5-6) should also be caught
+        let p1 = makePlayer("Alice")
+        var lineup = makeLineup(innings: 7)
+        lineup.innings[5].assign(player: p1, position: .bench)
+        lineup.innings[6].assign(player: p1, position: .bench)
+
+        let flagged = lineup.playersWithBackToBackBench(from: [p1])
+        XCTAssertTrue(flagged.contains { $0.id == p1.id })
+    }
+
+    func testPlayersWithBackToBackBenchExcludesAbsentPlayers() {
+        let p1 = makePlayer("Alice")
+        var lineup = makeLineup(innings: 2)
+        lineup.innings[0].assign(player: p1, position: .bench)
+        lineup.innings[1].assign(player: p1, position: .bench)
+        lineup.absentPlayerIDs.insert(p1.id)
+
+        let flagged = lineup.playersWithBackToBackBench(from: [p1])
+        XCTAssertTrue(flagged.isEmpty, "Absent players should be excluded from back-to-back bench checks")
+    }
+
+    // MARK: - Battery restrictions: catcher to pitcher
+
+    func testCatcherToPitcherViolationDetectedAtThreshold() {
+        let player = makePlayer("Ace")
         var lineup = makeLineup(innings: 4)
-        let player = makePlayer("Reese")
-        assign(.bench, to: player, inning: 0, in: &lineup)
-        assign(.leftField, to: player, inning: 1, in: &lineup)
-        assign(.bench, to: player, inning: 2, in: &lineup)
-        assign(.firstBase, to: player, inning: 3, in: &lineup)
+        // 2 catching innings + 1 pitcher inning => violation at threshold 2
+        lineup.innings[0].assign(player: player, position: .catcher)
+        lineup.innings[1].assign(player: player, position: .catcher)
+        lineup.innings[2].assign(player: player, position: .pitcher)
+        lineup.innings[3].assign(player: player, position: .leftField)
 
-        let result = lineup.playersWithBackToBackBench(from: [player])
-        XCTAssertTrue(result.isEmpty)
+        let violations = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 2)
+        XCTAssertTrue(violations.contains { $0.id == player.id })
     }
 
-    // MARK: - playersViolatingCatcherToPitcher
-
-    func testCatcherToPitcherThresholdZeroNeverFlags() {
+    func testCatcherToPitcherNoViolationBelowThreshold() {
+        let player = makePlayer("Ace")
         var lineup = makeLineup(innings: 4)
-        let player = makePlayer("River")
-        assign(.catcher, to: player, inning: 0, in: &lineup)
-        assign(.catcher, to: player, inning: 1, in: &lineup)
-        assign(.catcher, to: player, inning: 2, in: &lineup)
-        assign(.pitcher, to: player, inning: 3, in: &lineup)
+        // Only 1 catching inning; threshold is 2 -- no violation
+        lineup.innings[0].assign(player: player, position: .catcher)
+        lineup.innings[1].assign(player: player, position: .pitcher)
+        lineup.innings[2].assign(player: player, position: .leftField)
+        lineup.innings[3].assign(player: player, position: .leftField)
 
-        let result = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 0)
-        XCTAssertTrue(result.isEmpty, "threshold 0 means rule is off")
+        let violations = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 2)
+        XCTAssertTrue(violations.isEmpty)
     }
 
-    func testCatcherToPitcherViolationDetected() {
-        var lineup = makeLineup(innings: 5)
-        let player = makePlayer("Sage")
-        assign(.catcher, to: player, inning: 0, in: &lineup)
-        assign(.catcher, to: player, inning: 1, in: &lineup)
-        assign(.catcher, to: player, inning: 2, in: &lineup)
-        assign(.catcher, to: player, inning: 3, in: &lineup)
-        assign(.pitcher, to: player, inning: 4, in: &lineup)
+    func testCatcherToPitcherNoViolationIfNeverPitched() {
+        let player = makePlayer("Ace")
+        var lineup = makeLineup(innings: 3)
+        // Caught 3 innings but never pitched -- no violation
+        for i in 0..<3 { lineup.innings[i].assign(player: player, position: .catcher) }
 
-        // threshold 4: caught 4 innings then pitched — violation
-        let result = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 4)
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].id, player.id)
+        let violations = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 2)
+        XCTAssertTrue(violations.isEmpty)
     }
 
-    func testCatcherToPitcherBelowThresholdNotFlagged() {
+    func testCatcherToPitcherThresholdZeroDisablesRule() {
+        let player = makePlayer("Ace")
+        var lineup = makeLineup(innings: 2)
+        lineup.innings[0].assign(player: player, position: .catcher)
+        lineup.innings[1].assign(player: player, position: .pitcher)
+
+        let violations = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 0)
+        XCTAssertTrue(violations.isEmpty, "Threshold 0 should disable the catcher-to-pitcher rule")
+    }
+
+    // MARK: - Battery restrictions: pitcher to catcher
+
+    func testPitcherToCatcherViolationDetectedAtThreshold() {
+        let player = makePlayer("Ace")
         var lineup = makeLineup(innings: 4)
-        let player = makePlayer("Rowan")
-        assign(.catcher, to: player, inning: 0, in: &lineup)
-        assign(.catcher, to: player, inning: 1, in: &lineup)
-        assign(.catcher, to: player, inning: 2, in: &lineup)
-        assign(.pitcher, to: player, inning: 3, in: &lineup)
+        lineup.innings[0].assign(player: player, position: .pitcher)
+        lineup.innings[1].assign(player: player, position: .pitcher)
+        lineup.innings[2].assign(player: player, position: .catcher)
+        lineup.innings[3].assign(player: player, position: .leftField)
 
-        // threshold 4: only caught 3 innings — no violation
-        let result = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 4)
-        XCTAssertTrue(result.isEmpty)
+        let violations = lineup.playersViolatingPitcherToCatcher(players: [player], threshold: 2)
+        XCTAssertTrue(violations.contains { $0.id == player.id })
     }
 
-    func testCatcherToPitcherWithNoPitcherInningNotFlagged() {
-        var lineup = makeLineup(innings: 4)
-        let player = makePlayer("Finley")
-        assign(.catcher, to: player, inning: 0, in: &lineup)
-        assign(.catcher, to: player, inning: 1, in: &lineup)
-        assign(.catcher, to: player, inning: 2, in: &lineup)
-        assign(.catcher, to: player, inning: 3, in: &lineup)
+    func testPitcherToCatcherNoViolationBelowThreshold() {
+        let player = makePlayer("Ace")
+        var lineup = makeLineup(innings: 3)
+        lineup.innings[0].assign(player: player, position: .pitcher)
+        lineup.innings[1].assign(player: player, position: .catcher)
+        lineup.innings[2].assign(player: player, position: .leftField)
 
-        // caught 4 innings but never pitched — no violation
-        let result = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 4)
-        XCTAssertTrue(result.isEmpty)
+        // Only pitched 1 inning; threshold is 2 -- no violation
+        let violations = lineup.playersViolatingPitcherToCatcher(players: [player], threshold: 2)
+        XCTAssertTrue(violations.isEmpty)
     }
 
-    // MARK: - playersViolatingPitcherToCatcher
+    func testPitcherToCatcherNoViolationIfNeverCaught() {
+        let player = makePlayer("Ace")
+        var lineup = makeLineup(innings: 3)
+        for i in 0..<3 { lineup.innings[i].assign(player: player, position: .pitcher) }
 
-    func testPitcherToCatcherThresholdZeroNeverFlags() {
-        var lineup = makeLineup(innings: 4)
-        let player = makePlayer("Emery")
-        assign(.pitcher, to: player, inning: 0, in: &lineup)
-        assign(.pitcher, to: player, inning: 1, in: &lineup)
-        assign(.pitcher, to: player, inning: 2, in: &lineup)
-        assign(.catcher, to: player, inning: 3, in: &lineup)
-
-        let result = lineup.playersViolatingPitcherToCatcher(players: [player], threshold: 0)
-        XCTAssertTrue(result.isEmpty, "threshold 0 means rule is off")
+        let violations = lineup.playersViolatingPitcherToCatcher(players: [player], threshold: 2)
+        XCTAssertTrue(violations.isEmpty)
     }
 
-    func testPitcherToCatcherViolationDetected() {
-        var lineup = makeLineup(innings: 5)
-        let player = makePlayer("Harlow")
-        assign(.pitcher, to: player, inning: 0, in: &lineup)
-        assign(.pitcher, to: player, inning: 1, in: &lineup)
-        assign(.pitcher, to: player, inning: 2, in: &lineup)
-        assign(.catcher, to: player, inning: 3, in: &lineup)
-        assign(.leftField, to: player, inning: 4, in: &lineup)
+    func testPitcherToCatcherThresholdZeroDisablesRule() {
+        let player = makePlayer("Ace")
+        var lineup = makeLineup(innings: 2)
+        lineup.innings[0].assign(player: player, position: .pitcher)
+        lineup.innings[1].assign(player: player, position: .catcher)
 
-        // threshold 3: pitched 3 innings then caught — violation
-        let result = lineup.playersViolatingPitcherToCatcher(players: [player], threshold: 3)
-        XCTAssertEqual(result.count, 1)
+        let violations = lineup.playersViolatingPitcherToCatcher(players: [player], threshold: 0)
+        XCTAssertTrue(violations.isEmpty, "Threshold 0 should disable the pitcher-to-catcher rule")
     }
 
-    func testPitcherToCatcherBelowThresholdNotFlagged() {
-        var lineup = makeLineup(innings: 4)
-        let player = makePlayer("Indigo")
-        assign(.pitcher, to: player, inning: 0, in: &lineup)
-        assign(.pitcher, to: player, inning: 1, in: &lineup)
-        assign(.catcher, to: player, inning: 2, in: &lineup)
-        assign(.leftField, to: player, inning: 3, in: &lineup)
+    // MARK: - isPastAndFinalized
 
-        // threshold 3: only pitched 2 innings — no violation
-        let result = lineup.playersViolatingPitcherToCatcher(players: [player], threshold: 3)
-        XCTAssertTrue(result.isEmpty)
+    func testIsPastAndFinalizedFalseForDraftLineup() {
+        var lineup = makeLineup()
+        lineup.status = .draft
+        lineup.gameDate = Calendar.current.date(byAdding: .day, value: -1, to: Date())!
+        XCTAssertFalse(lineup.isPastAndFinalized,
+                       "Draft lineup should never be considered past-and-finalized")
     }
 
-    // MARK: - Multi-player scenarios
-
-    func testOnlyViolatingPlayerFlagged() {
-        var lineup = makeLineup(innings: 5)
-        let violator = makePlayer("Wolf")
-        let clean = makePlayer("Hawk")
-
-        // violator: caught 4, pitched 1 — violates C-to-P at threshold 4
-        assign(.catcher, to: violator, inning: 0, in: &lineup)
-        assign(.catcher, to: violator, inning: 1, in: &lineup)
-        assign(.catcher, to: violator, inning: 2, in: &lineup)
-        assign(.catcher, to: violator, inning: 3, in: &lineup)
-        assign(.pitcher, to: violator, inning: 4, in: &lineup)
-
-        // clean: only played outfield
-        assign(.leftField, to: clean, inning: 0, in: &lineup)
-        assign(.rightField, to: clean, inning: 1, in: &lineup)
-        assign(.centerField, to: clean, inning: 2, in: &lineup)
-        assign(.leftField, to: clean, inning: 3, in: &lineup)
-        assign(.rightField, to: clean, inning: 4, in: &lineup)
-
-        let result = lineup.playersViolatingCatcherToPitcher(players: [violator, clean], threshold: 4)
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].id, violator.id)
+    func testIsPastAndFinalizedFalseForFutureGame() {
+        var lineup = makeLineup()
+        lineup.status = .finalized
+        lineup.gameDate = Calendar.current.date(byAdding: .day, value: 1, to: Date())!
+        XCTAssertFalse(lineup.isPastAndFinalized,
+                       "Future finalized game should not be considered past-and-finalized")
     }
 
-    func testAbsentPlayerExcludedFromValidation() {
-        var lineup = makeLineup(innings: 4)
-        var player = makePlayer("Ghost")
-        // Mark absent at the lineup level
-        lineup.absentPlayerIDs.insert(player.id)
+    func testIsPastAndFinalizedTrueForPastFinalizedGame() {
+        var lineup = makeLineup()
+        lineup.status = .finalized
+        lineup.gameDate = Calendar.current.date(byAdding: .day, value: -1, to: Date())!
+        XCTAssertTrue(lineup.isPastAndFinalized)
+    }
 
-        assign(.catcher, to: player, inning: 0, in: &lineup)
-        assign(.catcher, to: player, inning: 1, in: &lineup)
-        assign(.catcher, to: player, inning: 2, in: &lineup)
-        assign(.pitcher, to: player, inning: 3, in: &lineup)
-
-        let result = lineup.playersViolatingCatcherToPitcher(players: [player], threshold: 3)
-        XCTAssertTrue(result.isEmpty, "Absent players should be excluded from all validation")
+    func testIsPastAndFinalizedFalseForTodaysGame() {
+        var lineup = makeLineup()
+        lineup.status = .finalized
+        lineup.gameDate = Date()
+        // Today is NOT past (startOfDay(today) is not < startOfDay(today))
+        XCTAssertFalse(lineup.isPastAndFinalized,
+                       "A game scheduled for today should not yet be considered past")
     }
 }

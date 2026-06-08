@@ -1,5 +1,92 @@
 import Foundation
 
+// MARK: - AutoFill Result Types
+
+/// Why a specific field position could not be filled during auto-fill.
+enum AutoFillUnfilledReason {
+    /// The active roster has fewer players than field slots — all players
+    /// were assigned somewhere, but open positions remain.
+    case rosterTooSmall
+    /// Every remaining unassigned player has this position set to Never
+    /// in their preferences.
+    case neverPreferences
+    /// The pitcher slot could not be filled because all pitcher-eligible
+    /// players have already exited the mound (re-entry rule), and the
+    /// force-fill pass found no eligible candidates.
+    case pitcherReentry
+    /// The pitcher slot could not be filled because every pitcher-eligible
+    /// player has already been assigned the maximum number of pitcher innings
+    /// estimated from their available pitch count (pitches remaining / 20).
+    /// Only applies when pitching rules are enabled.
+    case pitchCapacityLimited
+}
+
+/// A field position that auto-fill could not assign in a given inning.
+struct AutoFillUnfilledSlot {
+    let inningIndex: Int
+    let position: FieldPosition
+    let reason: AutoFillUnfilledReason
+}
+
+/// The complete result returned by every AutoFillEngine public method.
+struct AutoFillResult {
+    let lineup: Lineup
+    let filledCount: Int
+    /// Positions that could not be filled, with a reason for each.
+    /// Empty when every open slot was successfully assigned.
+    let unfilledSlots: [AutoFillUnfilledSlot]
+
+    var hasUnfilledSlots: Bool { !unfilledSlots.isEmpty }
+
+    /// Returns a coach-readable explanation of why positions could not be filled,
+    /// or nil if every slot was assigned. Pass multiInning: true when the fill
+    /// covered more than one inning so the message includes inning numbers.
+    func incompleteMessage(multiInning: Bool) -> String? {
+        guard !unfilledSlots.isEmpty else { return nil }
+
+        func label(for group: [AutoFillUnfilledSlot]) -> String {
+            if multiInning {
+                var byPos: [FieldPosition: [Int]] = [:]
+                for slot in group { byPos[slot.position, default: []].append(slot.inningIndex + 1) }
+                return byPos
+                    .sorted { $0.key.rawValue < $1.key.rawValue }
+                    .map { pos, innings in
+                        let numbers = innings.sorted().map { "\($0)" }.joined(separator: ", ")
+                        let qualifier = innings.count == 1 ? "Inning \(numbers)" : "Innings \(numbers)"
+                        return "\(pos.rawValue) (\(qualifier))"
+                    }
+                    .joined(separator: ", ")
+            } else {
+                return group.map { $0.position.rawValue }.joined(separator: ", ")
+            }
+        }
+
+        var parts: [String] = []
+
+        let rosterSlots = unfilledSlots.filter { $0.reason == .rosterTooSmall }
+        if !rosterSlots.isEmpty {
+            parts.append("\(label(for: rosterSlots)) could not be filled. Not enough active players to cover every field position. Mark additional players as active on the Lineup tab, or assign these slots manually.")
+        }
+
+        let reentrySlots = unfilledSlots.filter { $0.reason == .pitcherReentry }
+        if !reentrySlots.isEmpty {
+            parts.append("\(label(for: reentrySlots)) could not be filled. All eligible pitchers have already left the mound this game and cannot re-enter. Assign pitcher manually.")
+        }
+
+        let capacitySlots = unfilledSlots.filter { $0.reason == .pitchCapacityLimited }
+        if !capacitySlots.isEmpty {
+            parts.append("\(label(for: capacitySlots)) could not be filled. All eligible pitchers have reached their estimated pitch count limit for today. Assign pitcher manually or adjust pitch counts on the Players tab.")
+        }
+
+        let neverSlots = unfilledSlots.filter { $0.reason == .neverPreferences }
+        if !neverSlots.isEmpty {
+            parts.append("\(label(for: neverSlots)) could not be filled. All remaining players have those positions set to Never in their preferences. Update preferences on the Players tab, or assign manually.")
+        }
+
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
+}
+
 // MARK: - AutoFillEngine
 // Pure, stateless algorithm for filling unassigned positions in a Lineup.
 // Never modifies any slot that already has a coach assignment — those are
@@ -29,22 +116,47 @@ import Foundation
 //     4. Emergency positions tried last
 //     5. Never positions are always excluded — player falls to bench if all
 //        remaining open positions are Never for them
+//
+// PITCH COUNT AWARENESS:
+//   When a PitchingConfig (with rulesEnabled=true) and gameLogs are supplied,
+//   the engine estimates how many pitcher innings each player can take based
+//   on their available pitch count. Uses a conservative 20 pitches/inning
+//   estimate (lower bound of the typical 20–25 range). A player who has
+//   already been assigned that many pitcher innings this game will not be
+//   auto-assigned pitcher again, even if they are otherwise eligible.
+//   The pitcher force-fill pass respects this constraint as well — if all
+//   eligible pitchers are at capacity, the slot is reported as unfilled with
+//   reason .pitchCapacityLimited.
 
 enum AutoFillEngine {
 
+    /// Conservative estimate of pitches thrown per inning. Used to derive
+    /// how many pitcher innings a player's remaining pitch count can support.
+    /// Lower bound of the typical 20–25 range — errs toward protecting pitchers.
+    private static let pitchesPerInning = 20
+
     // MARK: - Public API
 
-    /// Fills open slots in a single inning. Returns (updatedLineup, filledCount).
+    /// Fills open slots in a single inning. Returns an AutoFillResult.
     static func fillInning(
         _ inningIndex: Int,
         in lineup: Lineup,
         players: [Player],
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
-        config: FairPlayConfig = FairPlayConfig()
-    ) -> (lineup: Lineup, filledCount: Int) {
+        config: FairPlayConfig = FairPlayConfig(),
+        pitchingConfig: PitchingConfig? = nil,
+        gameLogs: [GameLog] = []
+    ) -> AutoFillResult {
         var result = lineup
-        let count = fillInning(inningIndex, in: &result, players: players, preferences: preferences, config: config)
-        return (result, count)
+        let (count, unfilled) = fillInning(
+            inningIndex, in: &result,
+            players: players,
+            preferences: preferences,
+            config: config,
+            pitchingConfig: pitchingConfig,
+            gameLogs: gameLogs
+        )
+        return AutoFillResult(lineup: result, filledCount: count, unfilledSlots: unfilled)
     }
 
     /// Fills open slots from inning 0 through `lastInning` (inclusive).
@@ -53,25 +165,47 @@ enum AutoFillEngine {
         in lineup: Lineup,
         players: [Player],
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
-        config: FairPlayConfig = FairPlayConfig()
-    ) -> (lineup: Lineup, filledCount: Int) {
+        config: FairPlayConfig = FairPlayConfig(),
+        pitchingConfig: PitchingConfig? = nil,
+        gameLogs: [GameLog] = []
+    ) -> AutoFillResult {
         var result = lineup
         var total = 0
+        var allUnfilled: [AutoFillUnfilledSlot] = []
         let clampedLast = max(0, min(lastInning, lineup.innings.count - 1))
         for inning in 0...clampedLast {
-            total += fillInning(inning, in: &result, players: players, preferences: preferences, config: config)
+            let (count, unfilled) = fillInning(
+                inning, in: &result,
+                players: players,
+                preferences: preferences,
+                config: config,
+                pitchingConfig: pitchingConfig,
+                gameLogs: gameLogs
+            )
+            total += count
+            allUnfilled.append(contentsOf: unfilled)
         }
-        return (result, total)
+        return AutoFillResult(lineup: result, filledCount: total, unfilledSlots: allUnfilled)
     }
 
-    /// Fills open slots across all innings. Returns (updatedLineup, filledCount).
+    /// Fills open slots across all innings. Returns an AutoFillResult.
     static func fillGame(
         in lineup: Lineup,
         players: [Player],
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
-        config: FairPlayConfig = FairPlayConfig()
-    ) -> (lineup: Lineup, filledCount: Int) {
-        return fillInnings(through: lineup.innings.count - 1, in: lineup, players: players, preferences: preferences, config: config)
+        config: FairPlayConfig = FairPlayConfig(),
+        pitchingConfig: PitchingConfig? = nil,
+        gameLogs: [GameLog] = []
+    ) -> AutoFillResult {
+        return fillInnings(
+            through: lineup.innings.count - 1,
+            in: lineup,
+            players: players,
+            preferences: preferences,
+            config: config,
+            pitchingConfig: pitchingConfig,
+            gameLogs: gameLogs
+        )
     }
 
     // MARK: - Private Core
@@ -82,15 +216,17 @@ enum AutoFillEngine {
         in lineup: inout Lineup,
         players: [Player],
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]],
-        config: FairPlayConfig
-    ) -> Int {
+        config: FairPlayConfig,
+        pitchingConfig: PitchingConfig?,
+        gameLogs: [GameLog]
+    ) -> (filled: Int, unfilled: [AutoFillUnfilledSlot]) {
         let active = lineup.activePlayers(from: players)
-        guard !active.isEmpty else { return 0 }
+        guard !active.isEmpty else { return (0, []) }
 
         var unassigned = active.filter {
             lineup.innings[inningIndex].position(for: $0) == nil
         }
-        guard !unassigned.isEmpty else { return 0 }
+        guard !unassigned.isEmpty else { return (0, []) }
 
         let occupiedPositions = Set(
             lineup.innings[inningIndex].assignments.values.filter { !$0.isBench }
@@ -153,19 +289,28 @@ enum AutoFillEngine {
 
         // MARK: - Pitcher Rule Helpers
         //
-        // These enforce two pitching rules:
-        //   1. Re-entry restriction (HARD) — once a player exits pitcher, they
-        //      can't pitch again. Scans ALL innings, not just earlier ones, so
-        //      manual assignments later in the game are respected.
-        //   2. Two-inning cap (SOFT) — try to keep any single player at 2 max
-        //      pitcher innings, but allow more if no other eligible pitcher
-        //      remains.
+        // These enforce pitching rules in two tiers:
+        //
+        //   HARD RULES (always enforced):
+        //     1. Re-entry restriction — once a player exits pitcher, they can't
+        //        pitch again. Scans ALL innings, not just earlier ones, so manual
+        //        assignments later in the game are respected.
+        //
+        //   SOFT RULES (enforced in the main pass, bypassed in force-fill):
+        //     2. Two-inning cap — try to keep any single player at 2 max pitcher
+        //        innings, but allow more if no other eligible pitcher remains.
+        //
+        //   PITCH COUNT RULES (enforced when pitchingConfig.rulesEnabled):
+        //     3. Capacity check — estimated innings available = pitches remaining
+        //        divided by pitchesPerInning (20). If the player has already been
+        //        assigned that many pitcher innings this game, they are skipped.
+        //        This is enforced in both the main pass AND the force-fill pass —
+        //        there is no bypass for capacity, unlike the 2-inning soft cap.
         //
         // When config.noPitcher is true the entire pitcher block is a no-op
         // because .pitcher was already removed from openPositions above.
 
-        /// Hard-coded soft cap for pitcher innings per player. Pulled into a
-        /// constant so v2.4 can swap in `team.fairPlayConfig.maxPitcherInnings`.
+        /// Hard-coded soft cap for pitcher innings per player.
         let maxPitcherInningsSoftCap = 2
 
         func pitcherInningsSoFar(_ player: Player) -> Int {
@@ -188,12 +333,42 @@ enum AutoFillEngine {
             return false
         }
 
-        /// True when the player can be assigned pitcher in this inning under
-        /// the hard rules: not locked out by re-entry, and not Never on pitcher.
-        func isPitcherEligible(_ player: Player) -> Bool {
+        /// Estimated maximum pitcher innings for this game based on remaining
+        /// pitch count. Returns nil when pitching rules are off or the player's
+        /// limits can't be determined (unknown age, Never preference).
+        /// Uses a conservative 20 pitches/inning floor so auto-fill doesn't
+        /// over-assign innings to pitchers with limited availability.
+        func estimatedPitcherInningsCapacity(_ player: Player) -> Int? {
+            guard let pc = pitchingConfig, pc.rulesEnabled else { return nil }
+            guard let remaining = pitchesRemaining(for: player, gameLogs: gameLogs, config: pc) else {
+                return nil
+            }
+            return remaining / pitchesPerInning
+        }
+
+        /// True when the player passes all hard pitcher rules (re-entry and
+        /// Never preference) without considering pitch count capacity.
+        /// Used by the unfilled classifier to distinguish capacity blocks from
+        /// re-entry blocks.
+        func isPitcherBaseEligible(_ player: Player) -> Bool {
             if hasExitedPitcher(player) { return false }
             let prefs = preferences[player.id] ?? [:]
             if prefs[.pitcher] == .never { return false }
+            return true
+        }
+
+        /// True when the player can be assigned pitcher in this inning.
+        /// Enforces hard rules (re-entry, Never) and, when pitching rules are
+        /// enabled, the pitch count capacity check.
+        func isPitcherEligible(_ player: Player) -> Bool {
+            guard isPitcherBaseEligible(player) else { return false }
+            // Capacity check: don't assign more pitcher innings than the player's
+            // estimated pitch budget supports.
+            if let capacity = estimatedPitcherInningsCapacity(player) {
+                if pitcherInningsSoFar(player) >= capacity {
+                    return false
+                }
+            }
             return true
         }
 
@@ -201,8 +376,9 @@ enum AutoFillEngine {
         /// can't take it. Two modes:
         ///   - allowSoftCapBypass=false (default) — exclude pitcher for any
         ///     ineligible player, AND for anyone already at the soft cap.
-        ///   - allowSoftCapBypass=true — only the hard rules apply (used when
-        ///     pitcher would otherwise go unfilled).
+        ///   - allowSoftCapBypass=true — only the hard rules + capacity apply
+        ///     (used when pitcher would otherwise go unfilled). Note: capacity
+        ///     is never bypassed even in this mode.
         func filteringPitcher(for player: Player, candidates: [FieldPosition], allowSoftCapBypass: Bool = false) -> [FieldPosition] {
             guard candidates.contains(.pitcher) else { return candidates }
             if !isPitcherEligible(player) {
@@ -316,16 +492,10 @@ enum AutoFillEngine {
         // pitcher in their preferences was already assigned elsewhere, or
         // every unassigned player was at the soft cap).
         //
-        // Force-fill it now using only the hard rules: any unassigned player
-        // who isn't locked out by re-entry and doesn't have Never on pitcher.
-        // This bypasses the 2-inning soft cap deliberately — better to have a
-        // 3rd-inning pitcher than an empty pitcher slot.
-        //
-        // Edge case not handled: if every eligible pitcher is already assigned
-        // elsewhere this inning, pitcher stays open and the coach resolves it
-        // manually. We don't bump someone from another position — that would
-        // create a new gap and surprise the coach. The Fair Play warning system
-        // surfaces the open slot.
+        // Force-fill it now bypassing only the 2-inning soft cap. The hard
+        // re-entry rule and pitch count capacity check are still enforced —
+        // better to leave pitcher open and alert the coach than to assign a
+        // player who is over their pitch budget.
 
         if openPositions.contains(.pitcher) {
             let pitcherFallback = active.filter {
@@ -380,6 +550,50 @@ enum AutoFillEngine {
             filled += 1
         }
 
-        return filled
+        // MARK: - Unfilled Slot Classification
+        //
+        // Any positions remaining in openPositions could not be filled.
+        // Classify each with the most specific reason available so the caller
+        // can surface a useful explanation to the coach.
+
+        var unfilledSlots: [AutoFillUnfilledSlot] = []
+        for pos in openPositions {
+            let reason: AutoFillUnfilledReason
+            if pos == .pitcher {
+                let allNeverPitcher = active.allSatisfy {
+                    (preferences[$0.id] ?? [:])[.pitcher] == .never
+                }
+                // Check who passes the hard rules (re-entry + Never) vs full
+                // eligibility (hard rules + capacity) to isolate the cause.
+                let anyBaseEligible = active.contains { isPitcherBaseEligible($0) }
+                let anyFullyEligible = active.contains { isPitcherEligible($0) }
+
+                if allNeverPitcher {
+                    reason = .neverPreferences
+                } else if anyBaseEligible && !anyFullyEligible {
+                    // Players exist who could pitch (pass hard rules) but have
+                    // reached their estimated pitch count capacity for today.
+                    reason = .pitchCapacityLimited
+                } else if !anyBaseEligible {
+                    // Everyone either triggered re-entry or has no pitcher eligibility.
+                    reason = .pitcherReentry
+                } else {
+                    // Eligible pitchers exist but were all assigned elsewhere.
+                    reason = .rosterTooSmall
+                }
+            } else {
+                let anyCanPlay = active.contains {
+                    (preferences[$0.id] ?? [:])[pos] != .never
+                }
+                reason = anyCanPlay ? .rosterTooSmall : .neverPreferences
+            }
+            unfilledSlots.append(AutoFillUnfilledSlot(
+                inningIndex: inningIndex,
+                position: pos,
+                reason: reason
+            ))
+        }
+
+        return (filled, unfilledSlots)
     }
 }

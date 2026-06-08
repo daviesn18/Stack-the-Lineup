@@ -33,6 +33,8 @@ struct LineupView: View {
         store.players.filter { store.lineup.isAbsent($0) }
     }
 
+    private var isReadOnly: Bool { store.activeTeam.isReadOnly }
+
     var body: some View {
         if horizontalSizeClass == .regular {
             formContent
@@ -43,11 +45,21 @@ struct LineupView: View {
 
     private var formContent: some View {
         Form {
+            // MARK: - Read-Only Banner
+            if isReadOnly {
+                Section {
+                    ReadOnlyBanner()
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
             // MARK: - First Game Checklist
             // Shown until the coach completes all 4 steps or manually dismisses.
             // Rendered as a card inside a clear-background section so it sits
             // flush at the top without cell chrome.
-            if !hasCompletedChecklist {
+            if !hasCompletedChecklist && !isReadOnly {
                 Section {
                     FirstGameChecklist()
                         .listRowInsets(EdgeInsets())
@@ -59,7 +71,7 @@ struct LineupView: View {
             // MARK: - Game Info
             Section {
                 // Pick from schedule — shown only when a schedule has been imported
-                if !store.scheduledGames.isEmpty {
+                if !store.scheduledGames.isEmpty && !isReadOnly {
                     Button {
                         showingSchedulePicker = true
                     } label: {
@@ -86,6 +98,7 @@ struct LineupView: View {
                     get: { store.lineup.gameDate },
                     set: { store.updateGameDate($0) }
                 ), displayedComponents: .date)
+                .disabled(isReadOnly)
                 HStack {
                     Text("Opponent")
                     Spacer()
@@ -95,6 +108,7 @@ struct LineupView: View {
                     ))
                     .multilineTextAlignment(.trailing)
                     .autocorrectionDisabled()
+                    .disabled(isReadOnly)
                 }
 
                 // Read-only status indicator — changes are made on the Positions tab
@@ -148,20 +162,18 @@ struct LineupView: View {
             // MARK: - Batting Order & Availability
             Section {
                 ForEach(Array(orderedPlayers.enumerated()), id: \.element.id) { index, player in
-                    RosterRow(player: player, index: index + 1)
+                    RosterRow(player: player, index: index + 1, isReadOnly: isReadOnly)
                 }
-                .onMove { from, to in
-                    store.moveBattingOrder(from: from, to: to)
-                }
+                .onMove(perform: isReadOnly ? nil : { store.moveBattingOrder(from: $0, to: $1) })
 
                 ForEach(unorderedPlayers) { player in
-                    RosterRow(player: player, index: nil, onAdd: {
+                    RosterRow(player: player, index: nil, isReadOnly: isReadOnly, onAdd: {
                         store.addToBattingOrder(player: player)
                     })
                 }
 
                 ForEach(absentPlayers) { player in
-                    RosterRow(player: player, index: nil, isAbsent: true)
+                    RosterRow(player: player, index: nil, isAbsent: true, isReadOnly: isReadOnly)
                 }
 
                 // Empty state — no players at all
@@ -188,7 +200,7 @@ struct LineupView: View {
                 HStack {
                     Text("Batting Order & Availability")
                     Spacer()
-                    if !orderedPlayers.isEmpty {
+                    if !orderedPlayers.isEmpty && !isReadOnly {
                         EditButton()
                             .font(.caption)
                     }
@@ -328,14 +340,16 @@ struct LineupView: View {
                     Button { showingTips = true } label: {
                         Image(systemName: "info.circle")
                     }
-                    Button {
-                        showingScheduleImport = true
-                        Analytics.signal("schedule.import.tapped")
-                    } label: {
-                        Image(systemName: "calendar.badge.plus")
-                    }
-                    Button { showingArchive = true } label: {
-                        Label("Archive Game", systemImage: "archivebox")
+                    if !isReadOnly {
+                        Button {
+                            showingScheduleImport = true
+                            Analytics.signal("schedule.import.tapped")
+                        } label: {
+                            Image(systemName: "calendar.badge.plus")
+                        }
+                        Button { showingArchive = true } label: {
+                            Label("Archive Game", systemImage: "archivebox")
+                        }
                     }
                 }
             }
@@ -507,6 +521,7 @@ struct RosterRow: View {
     let player: Player
     let index: Int?
     var isAbsent: Bool = false
+    var isReadOnly: Bool = false
     var onAdd: (() -> Void)? = nil
 
     var body: some View {
@@ -516,11 +531,16 @@ struct RosterRow: View {
                     Text("\(i).")
                         .font(.headline)
                         .foregroundColor(isAbsent ? .secondary : .primary)
-                } else if !isAbsent {
+                } else if !isAbsent && !isReadOnly {
                     Image(systemName: "plus.circle.fill")
                         .foregroundColor(.green)
                         .font(.title3)
                         .onTapGesture { onAdd?() }
+                } else if !isAbsent {
+                    // Read-only placeholder — keeps row alignment consistent
+                    Image(systemName: "minus.circle")
+                        .foregroundColor(Color(.systemGray4))
+                        .font(.title3)
                 } else {
                     Image(systemName: "minus.circle")
                         .foregroundColor(.secondary)
@@ -547,6 +567,7 @@ struct RosterRow: View {
             ))
             .labelsHidden()
             .tint(.green)
+            .disabled(isReadOnly)
         }
         .opacity(isAbsent ? 0.5 : 1.0)
     }

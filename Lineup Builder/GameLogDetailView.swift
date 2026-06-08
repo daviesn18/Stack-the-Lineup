@@ -55,6 +55,10 @@ struct GameLogDetailView: View {
                         infoRow(label: "Innings Played", value: "\(log.inningsPlayed) of \(log.innings.count)")
                         Divider().padding(.vertical, 6)
                         infoRow(label: "Archived", value: archivedAtString, valueFont: .caption)
+                        if !log.archivedBy.isEmpty {
+                            Divider().padding(.vertical, 6)
+                            infoRow(label: "Archived by", value: log.archivedBy, valueFont: .caption)
+                        }
                     }
                 }
                 .padding(.horizontal)

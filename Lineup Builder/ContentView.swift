@@ -11,6 +11,16 @@ struct ContentView: View {
     @State private var showingWhatsNew = false
     @State private var whatsNewContent: WhatsNewContent? = nil
 
+    // Share-sheet team file import flow (.stlteam)
+    @State private var pendingTeamImport: TeamImporter.ImportedTeam? = nil
+    @State private var teamImportError: TeamImportErrorWrapper? = nil
+    @State private var teamImportToast: String? = nil
+
+    private struct TeamImportErrorWrapper: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+
     // Share-sheet roster import flow
     @State private var showingImportTeamPicker = false
     @State private var showingImportTeamForm = false
@@ -140,6 +150,10 @@ struct ContentView: View {
                 }
             }
 
+            // v3.0: Request push notification permission once and set up
+            // CloudKit subscriptions for lineup-finalized alerts.
+            NotificationManager.shared.requestPermissionIfNeeded()
+
             if !showingWelcome, WhatsNewManager.shouldShow(), let content = WhatsNewContent.current {
                 whatsNewContent = content
                 showingWhatsNew = true
@@ -178,6 +192,7 @@ struct ContentView: View {
         .sheet(isPresented: $showingImportTeamForm, onDismiss: handleNewTeamSheetDismissed) {
             TeamFormView(mode: .add)
                 .environmentObject(store)
+                .environmentObject(purchaseManager)
         }
         .sheet(isPresented: $showingImportPreview) {
             if let filename = importFilename, let players = importPlayers {
@@ -208,8 +223,26 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK")) { cancelPendingImport() }
             )
         }
+        .sheet(item: $pendingTeamImport) { imported in
+            TeamImportView(imported: imported) { toastMessage in
+                teamImportToast = toastMessage
+            }
+            .environmentObject(store)
+            .environmentObject(purchaseManager)
+        }
+        .alert(item: $teamImportError) { wrapper in
+            Alert(
+                title: Text("Couldn't Import Team"),
+                message: Text(wrapper.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
         .onOpenURL { url in
-            handleIncomingRosterURL(url)
+            if url.pathExtension.lowercased() == "stlteam" {
+                handleIncomingTeamURL(url)
+            } else {
+                handleIncomingRosterURL(url)
+            }
         }
         .onChange(of: store.pendingRosterImport.isActive) { _, isActive in
             if isActive { selectedTab = 0 }
@@ -221,13 +254,35 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                // Re-apply iCloud data when app returns to foreground so changes
-                // made on another device are reflected immediately.
+                // Re-apply iCloud KV data immediately so changes from another device
+                // appear before the CloudKit incremental fetch completes.
                 store.load()
+                // Pull CloudKit changes (owned + shared teams) concurrently.
+                Task { await store.fetchCloudKitChanges() }
                 // Check whether to show the archive nudge, after a short delay
                 // so the store has settled from load().
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     checkArchiveNudge()
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .apnsTokenReceived)) { notification in
+            guard let tokenData = notification.object as? Data else { return }
+            DeviceTokenManager.shared.didRegister(deviceToken: tokenData, store: store)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { _ in
+            // Capture current team IDs so we can detect the newly added shared
+            // team after the fetch completes and switch to it automatically.
+            let teamIDsBefore = Set(store.teams.map { $0.id })
+            Task {
+                // Give CloudKit a moment to finish processing the acceptance
+                // server-side before fetching.
+                try? await Task.sleep(for: .seconds(2))
+                await store.fetchCloudKitChanges()
+                // Switch to the newly added shared team so the coach sees it
+                // immediately rather than having to notice the team switcher changed.
+                if let newTeam = store.teams.first(where: { !teamIDsBefore.contains($0.id) }) {
+                    store.switchTeam(to: newTeam.id)
                 }
             }
         }
@@ -316,6 +371,27 @@ struct ContentView: View {
 
     private func cancelPendingImport() {
         store.pendingRosterImport = .none
+    }
+
+    // MARK: - Share-Sheet Team File Import
+
+    private func handleIncomingTeamURL(_ url: URL) {
+        let needsScope = url.startAccessingSecurityScopedResource()
+        defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
+        Analytics.signal("team.import.shared")
+        do {
+            let data = try Data(contentsOf: url)
+            switch TeamImporter.parse(data: data) {
+            case .success(let imported):
+                pendingTeamImport = imported
+            case .failure(let err):
+                Analytics.signal("team.import.failed", parameters: ["reason": "\(err)"])
+                teamImportError = TeamImportErrorWrapper(message: err.errorDescription ?? "Unknown error.")
+            }
+        } catch {
+            Analytics.signal("team.import.failed", parameters: ["reason": "read_error"])
+            teamImportError = TeamImportErrorWrapper(message: "Couldn't read the file. Try again.")
+        }
     }
 
     // MARK: - Archive Nudge

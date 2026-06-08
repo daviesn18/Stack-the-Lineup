@@ -911,6 +911,8 @@ enum AppPage {
                         text: "Tap the Team Name row to open Edit Team, where you can update your team name, color, and game length. Your name and color appear on all exported PDFs."),
                 PageTip(icon: "shield.checkered", iconColor: .blue,
                         text: "Tap the Team Name row, then Fair Play Rules to configure your league's rules per team. Set fielding minimums, toggle no back-to-back bench, restrict pitcher and catcher positions, and more."),
+                PageTip(icon: "square.and.arrow.up", iconColor: .green,
+                        text: "Back up your team or share it with an assistant coach. In Edit Team, tap Export Team File under Backup & Transfer to save a .stlteam file with your full roster, history, and settings."),
                 PageTip(icon: "arrow.left.arrow.right", iconColor: .orange,
                         text: "Managing multiple teams? Tap Add Team in the Team section header to create a new team. Once you have more than one, a Switch Team option appears to move between them."),
                 PageTip(icon: "gearshape.fill", iconColor: .gray,
@@ -1064,6 +1066,7 @@ struct QuickTipsView: View {
                     Label("Swipe left on a player to delete them", systemImage: "trash")
                     Label("Tap the Team Name row to edit your team name, color, and game length", systemImage: "paintpalette.fill")
                     Label("Tap Fair Play Rules inside Edit Team to configure your league's rules per team — fielding minimums, bench rules, position restrictions, and battery restrictions", systemImage: "shield.checkered")
+                    Label("Tap Export Team File under Backup & Transfer in Edit Team to back up your team or share it with an assistant coach", systemImage: "square.and.arrow.up")
                     Label("Tap Add Team to manage multiple teams — each has its own roster and history", systemImage: "person.3.fill")
                 }
 

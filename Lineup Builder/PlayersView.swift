@@ -1,3 +1,4 @@
+import CloudKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -5,6 +6,7 @@ import UniformTypeIdentifiers
 
 struct PlayersView: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @State private var showingAddPlayer = false
@@ -32,6 +34,8 @@ struct PlayersView: View {
     // Roster export flow
     @State private var exportShareItem: ExportShareItem?
 
+    private var isReadOnly: Bool { store.activeTeam.isReadOnly }
+
     private struct ExportShareItem: Identifiable {
         let id = UUID()
         let data: Data
@@ -57,125 +61,10 @@ struct PlayersView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                // MARK: - Team Card Section
-                Section {
-                    TeamCardView(
-                        onSettings: { showingEditTeam = true },
-                        onSwitch: { showingTeamSwitcher = true },
-                        onAddTeam: { showingAddTeam = true }
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-
-                    // MARK: - Roster Actions
-                    HStack(spacing: 0) {
-                        RosterActionButton(
-                            icon: "plus.circle.fill",
-                            iconColor: .blue,
-                            title: "New Player",
-                            subtitle: "Add Player"
-                        ) { showingAddPlayer = true }
-
-                        Divider().frame(height: 36)
-
-                        RosterActionButton(
-                            icon: "text.alignleft",
-                            iconColor: .gray,
-                            title: "Paste List",
-                            subtitle: "Bulk add"
-                        ) { showingBulkAdd = true }
-
-                        Divider().frame(height: 36)
-
-                        RosterActionButton(
-                            icon: "square.and.arrow.down",
-                            iconColor: .blue,
-                            title: "GameChanger",
-                            subtitle: "Import",
-                            iconBackground: .blue
-                        ) {
-                            Analytics.signal("roster.import.started")
-                            showingImportInstructions = true
-                        }
-                    }
-                    .padding(.vertical, 10)
-                    .background(Color(.secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                }
-
-                ForEach(store.players) { player in
-                    PlayerRosterRow(player: player) {
-                        playerToEdit = player
-                    }
-                }
-                .onDelete(perform: store.deletePlayer)
-
-                if store.players.isEmpty {
-                    ContentUnavailableView(
-                        "No Players Yet",
-                        systemImage: "person.badge.plus",
-                        description: Text("Add players one at a time, paste your whole roster at once, or import from GameChanger.")
-                    )
-                    .listRowBackground(Color.clear)
-                }
-
-                if !store.players.isEmpty {
-                    Section {
-                        Button(role: .destructive) {
-                            showingClearConfirmation = true
-                        } label: {
-                            HStack {
-                                Spacer()
-                                Label("Clear All Players", systemImage: "person.slash")
-                                Spacer()
-                            }
-                        }
-                        .confirmationDialog("Clear All Players", isPresented: $showingClearConfirmation, titleVisibility: .visible) {
-                            Button("Clear All Players", role: .destructive) {
-                                store.clearAllPlayers()
-                            }
-                            Button("Cancel", role: .cancel) {}
-                        } message: {
-                            Text("This will remove all players and clear the entire lineup. This cannot be undone.")
-                        }
-                    }
-                }
-            }
+            playerList
             .navigationTitle("Players")
             .navigationBarTitleDisplayMode(verticalSizeClass == .compact ? .inline : .large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 16) {
-                        if !store.players.isEmpty {
-                            Button {
-                                exportRoster()
-                            } label: {
-                                Image(systemName: "square.and.arrow.up")
-                            }
-                        }
-                        if horizontalSizeClass != .regular {
-                            Button {
-                                showingSettings = true
-                            } label: {
-                                Image(systemName: "gearshape.fill")
-                            }
-                        }
-                        Button {
-                            showingTips = true
-                        } label: {
-                            Image(systemName: "info.circle")
-                        }
-                    }
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    EditButton()
-                }
-            }
+            .toolbar { toolbarContent }
             .sheet(isPresented: $showingBulkAdd) {
                 BulkAddPlayersView()
                     .environmentObject(store)
@@ -194,9 +83,11 @@ struct PlayersView: View {
             }
             .sheet(isPresented: $showingAddTeam) {
                 TeamFormView(mode: .add)
+                    .environmentObject(purchaseManager)
             }
             .sheet(isPresented: $showingEditTeam) {
                 TeamFormView(mode: .edit(store.activeTeamID ?? UUID()))
+                    .environmentObject(purchaseManager)
             }
             .sheet(isPresented: $showingTeamSwitcher) {
                 TeamSwitcherSheet(
@@ -274,6 +165,158 @@ struct PlayersView: View {
                     .ignoresSafeArea()
                     .zIndex(100)
                     .transition(.opacity)
+                }
+            }
+        }
+    }
+
+    private var playerList: some View {
+        List {
+            teamCardSection
+            playerRowsSection
+            emptyStateSection
+            clearAllSection
+        }
+    }
+
+    @ViewBuilder
+    private var teamCardSection: some View {
+        Section {
+            TeamCardView(
+                onSettings: { showingEditTeam = true },
+                onSwitch: { showingTeamSwitcher = true },
+                onAddTeam: { showingAddTeam = true }
+            )
+            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
+            if isReadOnly {
+                ReadOnlyBanner()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            } else {
+                rosterActionsRow
+            }
+        }
+    }
+
+    private var playerRowsSection: some View {
+        let deleteAction: ((IndexSet) -> Void)? = isReadOnly ? nil : { offsets in
+            store.deletePlayer(at: offsets)
+        }
+        return ForEach(store.players) { player in
+            PlayerRosterRow(player: player, isReadOnly: isReadOnly) {
+                playerToEdit = player
+            }
+        }
+        .onDelete(perform: deleteAction)
+    }
+
+    @ViewBuilder
+    private var emptyStateSection: some View {
+        if store.players.isEmpty {
+            ContentUnavailableView(
+                "No Players Yet",
+                systemImage: "person.badge.plus",
+                description: Text("Add players one at a time, paste your whole roster at once, or import from GameChanger.")
+            )
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    @ViewBuilder
+    private var clearAllSection: some View {
+        if !store.players.isEmpty && !isReadOnly {
+            Section {
+                Button(role: .destructive) {
+                    showingClearConfirmation = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Label("Clear All Players", systemImage: "person.slash")
+                        Spacer()
+                    }
+                }
+                .confirmationDialog("Clear All Players", isPresented: $showingClearConfirmation, titleVisibility: .visible) {
+                    Button("Clear All Players", role: .destructive) {
+                        store.clearAllPlayers()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This will remove all players and clear the entire lineup. This cannot be undone.")
+                }
+            }
+        }
+    }
+
+    private var rosterActionsRow: some View {
+        HStack(spacing: 0) {
+            RosterActionButton(
+                icon: "plus.circle.fill",
+                iconColor: .blue,
+                title: "New Player",
+                subtitle: "Add Player"
+            ) { showingAddPlayer = true }
+
+            Divider().frame(height: 36)
+
+            RosterActionButton(
+                icon: "text.alignleft",
+                iconColor: .gray,
+                title: "Paste List",
+                subtitle: "Bulk add"
+            ) { showingBulkAdd = true }
+
+            Divider().frame(height: 36)
+
+            RosterActionButton(
+                icon: "square.and.arrow.down",
+                iconColor: .blue,
+                title: "GameChanger",
+                subtitle: "Import",
+                iconBackground: .blue
+            ) {
+                Analytics.signal("roster.import.started")
+                showingImportInstructions = true
+            }
+        }
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            EditButton()
+                .opacity(isReadOnly ? 0 : 1)
+                .disabled(isReadOnly)
+        }
+        ToolbarItem(placement: .navigationBarTrailing) {
+            HStack(spacing: 16) {
+                if !store.players.isEmpty {
+                    Button {
+                        exportRoster()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                if horizontalSizeClass != .regular {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
+                Button {
+                    showingTips = true
+                } label: {
+                    Image(systemName: "info.circle")
                 }
             }
         }
@@ -603,6 +646,7 @@ enum TeamFormMode {
 
 struct TeamFormView: View {
     @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
 
     let mode: TeamFormMode
@@ -610,11 +654,36 @@ struct TeamFormView: View {
     @State private var teamName: String = ""
     @State private var teamColor: Color = .blue
     @State private var gameInningCount: Int = 7
+    @State private var coachName: String = ""
     @State private var showingDeleteConfirmation = false
     @State private var showingShortenConfirmation = false
     @State private var showingFairPlayRules = false
     @State private var showingPitchingRules = false
     @State private var pendingInningCount: Int = 7
+    @State private var teamExportShareItem: TeamExportShareItem?
+    @State private var showingTeamFilePicker = false
+    @State private var pendingTeamImport: TeamImporter.ImportedTeam? = nil
+    @State private var teamImportError: String? = nil
+    @State private var showingPaywallForTransfer = false
+    @State private var cloudKitShareItem: CloudKitShareItem? = nil
+    @State private var isPreparingShare = false
+    @State private var sharePreparationError: String? = nil
+    @State private var cloudKitManageItem: CloudKitShareItem? = nil
+    @State private var isPreparingManage = false
+
+    private struct TeamExportShareItem: Identifiable {
+        let id = UUID()
+        let data: Data
+        let filename: String
+    }
+
+    /// Identifiable wrapper so the CKShare sheet can use .sheet(item:).
+    private struct CloudKitShareItem: Identifiable {
+        let id = UUID()
+        let share: CKShare
+        let container: CKContainer
+        let teamName: String
+    }
 
     private var assignedInningsInLineup: Int {
         guard isEditing, case .edit(let id) = mode,
@@ -646,6 +715,18 @@ struct TeamFormView: View {
                     }
 
                     ColorPicker("Team Color", selection: $teamColor, supportsOpacity: false)
+
+                    // Coach Name — used to attribute lineup finalization in shared teams.
+                    // Pre-filled from the device name on first launch; editable here.
+                    if isEditing {
+                        HStack {
+                            Text("Your Name")
+                            Spacer()
+                            TextField("Coach name", text: $coachName)
+                                .multilineTextAlignment(.trailing)
+                                .autocorrectionDisabled()
+                        }
+                    }
                 }
 
                 Section {
@@ -693,6 +774,129 @@ struct TeamFormView: View {
                     Text("Game Settings")
                 } footer: {
                     Text("Past archived games keep their original inning count.")
+                }
+
+                // Backup & Transfer — only in edit mode
+                if isEditing, case .edit(let id) = mode {
+                    Section {
+                        Button {
+                            if purchaseManager.isPro {
+                                exportTeamFile(id: id)
+                            } else {
+                                showingPaywallForTransfer = true
+                            }
+                        } label: {
+                            HStack {
+                                Label("Export Team File", systemImage: "square.and.arrow.up")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                            }
+                        }
+
+                        Button {
+                            if purchaseManager.isPro {
+                                showingTeamFilePicker = true
+                            } else {
+                                showingPaywallForTransfer = true
+                            }
+                        } label: {
+                            HStack {
+                                Label("Import Team File", systemImage: "square.and.arrow.down")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                            }
+                        }
+
+                        // Share Team — creates or retrieves the CKShare and
+                        // presents UIActivityViewController so the owner can send
+                        // the invite link via Messages, Mail, AirDrop, etc.
+                        Button {
+                            if purchaseManager.isPro {
+                                guard let team = store.teams.first(where: { $0.id == id }) else { return }
+                                isPreparingShare = true
+                                Task {
+                                    do {
+                                        var teamToShare = team
+                                        if teamToShare.ckRecordName == nil {
+                                            try await CloudKitManager.shared.ensureZoneExists()
+                                            let recordName = try await CloudKitManager.shared.saveTeam(teamToShare)
+                                            teamToShare.ckRecordName = recordName
+                                            if let idx = store.teams.firstIndex(where: { $0.id == id }) {
+                                                store.teams[idx].ckRecordName = recordName
+                                            }
+                                        }
+                                        let (share, container) = try await CloudKitManager.shared.createShare(for: teamToShare)
+                                        cloudKitShareItem = CloudKitShareItem(
+                                            share: share,
+                                            container: container,
+                                            teamName: teamToShare.name
+                                        )
+                                    } catch {
+                                        sharePreparationError = error.localizedDescription
+                                    }
+                                    isPreparingShare = false
+                                }
+                            } else {
+                                showingPaywallForTransfer = true
+                            }
+                        } label: {
+                            HStack {
+                                Label("Share Team", systemImage: "person.2.wave.2")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if isPreparingShare {
+                                    ProgressView().scaleEffect(0.8)
+                                } else if store.teams.first(where: { $0.id == id })?.ckRecordName != nil {
+                                    Text("Shared")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .disabled(isPreparingShare)
+
+                        // Manage Access — only shown when the team is already shared.
+                        // Opens UICloudSharingController so the owner can change
+                        // per-participant permissions (read-only vs read-write) or
+                        // stop sharing entirely.
+                        if store.teams.first(where: { $0.id == id })?.ckRecordName != nil {
+                            Button {
+                                if purchaseManager.isPro {
+                                    guard let team = store.teams.first(where: { $0.id == id }) else { return }
+                                    isPreparingManage = true
+                                    Task {
+                                        do {
+                                            let (share, container) = try await CloudKitManager.shared.createShare(for: team)
+                                            cloudKitManageItem = CloudKitShareItem(
+                                                share: share,
+                                                container: container,
+                                                teamName: team.name
+                                            )
+                                        } catch {
+                                            sharePreparationError = error.localizedDescription
+                                        }
+                                        isPreparingManage = false
+                                    }
+                                } else {
+                                    showingPaywallForTransfer = true
+                                }
+                            } label: {
+                                HStack {
+                                    Label("Manage Access", systemImage: "person.badge.key")
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    if isPreparingManage {
+                                        ProgressView().scaleEffect(0.8)
+                                    }
+                                }
+                            }
+                            .disabled(isPreparingManage)
+                        }
+                    } header: {
+                        Text("Backup & Transfer")
+                    } footer: {
+                        Text("Share your team with an assistant coach so you can both manage the lineup in real time. Or export a .stlteam file to back up your team manually.")
+                    }
                 }
 
                 // Delete option — only in edit mode, only if more than 1 team exists
@@ -745,12 +949,51 @@ struct TeamFormView: View {
             } message: {
                 Text("Your current lineup has positions assigned through inning \(assignedInningsInLineup). Shortening to \(pendingInningCount) innings will remove those assignments. Past archived games are not affected.")
             }
+            .fileImporter(
+                isPresented: $showingTeamFilePicker,
+                allowedContentTypes: [.init(filenameExtension: "stlteam") ?? .data],
+                allowsMultipleSelection: false
+            ) { result in
+                handleTeamFileImport(result)
+            }
+            .sheet(item: $teamExportShareItem) { item in
+                ShareSheet(items: [item.data], filename: item.filename)
+            }
+            .sheet(item: $cloudKitShareItem) { item in
+                CloudKitSharingView(share: item.share, container: item.container, teamName: item.teamName)
+                    .ignoresSafeArea()
+            }
+            .sheet(item: $cloudKitManageItem) { item in
+                CloudKitManageView(share: item.share, container: item.container)
+                    .ignoresSafeArea()
+            }
+            .sheet(item: $pendingTeamImport) { imported in
+                TeamImportView(imported: imported) { _ in
+                    dismiss()
+                }
+                .environmentObject(store)
+                .environmentObject(purchaseManager)
+            }
+            .alert("Couldn't Import Team", isPresented: .constant(teamImportError != nil)) {
+                Button("OK") { teamImportError = nil }
+            } message: {
+                Text(teamImportError ?? "")
+            }
+            .sheet(isPresented: $showingPaywallForTransfer) {
+                PaywallView(source: "team_export")
+            }
+            .alert("Couldn't Prepare Share", isPresented: .constant(sharePreparationError != nil)) {
+                Button("OK") { sharePreparationError = nil }
+            } message: {
+                Text(sharePreparationError ?? "")
+            }
             .onAppear {
                 if case .edit(let id) = mode,
                    let team = store.teams.first(where: { $0.id == id }) {
                     teamName = team.name
                     teamColor = team.color
                     gameInningCount = team.gameInningCount
+                    coachName = team.coachName
                 }
             }
         }
@@ -780,11 +1023,51 @@ struct TeamFormView: View {
             if let idx = store.teams.firstIndex(where: { $0.id == id }) {
                 store.teams[idx].name = trimmed
                 store.teams[idx].color = teamColor
+                store.teams[idx].coachName = coachName.trimmingCharacters(in: .whitespaces)
             }
             store.updateGameInningCount(gameInningCount, for: id)
             store.save()
         }
         dismiss()
+    }
+
+    // MARK: - Backup & Transfer
+
+    private func exportTeamFile(id: UUID) {
+        guard let team = store.teams.first(where: { $0.id == id }),
+              let data = TeamExporter.export(team: team) else { return }
+        let filename = TeamExporter.filename(teamName: team.name)
+        teamExportShareItem = TeamExportShareItem(data: data, filename: filename)
+        Analytics.signal("team.exported", parameters: [
+            "player_count": "\(team.players.count)",
+            "game_count": "\(team.gameLogs.count)"
+        ])
+    }
+
+    private func handleTeamFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let needsScope = url.startAccessingSecurityScopedResource()
+            defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                switch TeamImporter.parse(data: data) {
+                case .success(let imported):
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        pendingTeamImport = imported
+                    }
+                case .failure(let err):
+                    Analytics.signal("team.import.failed", parameters: ["reason": "\(err)"])
+                    teamImportError = err.errorDescription ?? "Unknown error."
+                }
+            } catch {
+                Analytics.signal("team.import.failed", parameters: ["reason": "read_error"])
+                teamImportError = "Couldn't read the file. Try again."
+            }
+        case .failure:
+            break
+        }
     }
 }
 
@@ -1043,6 +1326,7 @@ struct PlayerFormView: View {
 
 struct PlayerRosterRow: View {
     let player: Player
+    var isReadOnly: Bool = false
     let onEdit: () -> Void
 
     // Avatar background color — red if any Never, green if any Strength,
@@ -1155,13 +1439,15 @@ struct PlayerRosterRow: View {
 
             Spacer(minLength: 4)
 
-            // Edit button
-            Button(action: onEdit) {
-                Image(systemName: "pencil")
-                    .font(.subheadline)
-                    .foregroundColor(.blue)
+            // Edit button — hidden for read-only shared teams
+            if !isReadOnly {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.vertical, 3)
     }

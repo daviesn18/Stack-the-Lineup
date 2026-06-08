@@ -19,6 +19,8 @@ struct DefensiveGridView: View {
     @State private var undoSnapshot: [InningAssignment]? = nil
     @State private var undoMessage: String = ""
     @State private var showingUndo = false
+    @State private var showingAutoFillIncomplete = false
+    @State private var autoFillIncompleteMessage: String = ""
 
     // Clear positions state
     @State private var showingClearPopover = false     // inning view: anchored popover
@@ -31,6 +33,8 @@ struct DefensiveGridView: View {
 
     // Tip overlay driven by parent iPhoneTabView
     @Binding var showingTabTip: Bool
+
+    private var isReadOnly: Bool { store.activeTeam.isReadOnly }
 
     enum FillScope {
         case thisInning
@@ -51,9 +55,14 @@ struct DefensiveGridView: View {
         NavigationStack {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
+                    if isReadOnly { ReadOnlyBanner() }
+
                     if showingSummary {
                         LineupStatusStrip(
                             status: store.lineup.status,
+                            isReadOnly: isReadOnly,
+                            lastFinalizedBy: store.lineup.lastFinalizedBy,
+                            lastFinalizedAt: store.lineup.lastFinalizedAt,
                             onFinalize: { store.finalizeLineup() },
                             onReopen: { store.reopenLineup() }
                         )
@@ -75,13 +84,16 @@ struct DefensiveGridView: View {
                         )
 
                         // Summary view — clear all only, straight to confirm alert
-                        clearPositionsButton(isSummary: true)
+                        if !isReadOnly { clearPositionsButton(isSummary: true) }
 
                     } else {
                         if verticalSizeClass == .compact {
                             // ── Landscape layout ──────────────────────────────
                             LineupStatusStrip(
                                 status: store.lineup.status,
+                                isReadOnly: isReadOnly,
+                                lastFinalizedBy: store.lineup.lastFinalizedBy,
+                                lastFinalizedAt: store.lineup.lastFinalizedAt,
                                 onFinalize: { store.finalizeLineup() },
                                 onReopen: { store.reopenLineup() }
                             )
@@ -89,7 +101,7 @@ struct DefensiveGridView: View {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text("Inning \(selectedInning + 1)")
                                     .font(.title2.bold())
-                                boltButton
+                                if !isReadOnly { boltButton }
                                 Spacer()
                             }
                             .padding(.horizontal, 16)
@@ -137,7 +149,7 @@ struct DefensiveGridView: View {
                                                 PlayerInningRow(
                                                     player: player,
                                                     inning: selectedInning,
-                                                    onTap: {
+                                                    onTap: isReadOnly ? {} : {
                                                         selectedPlayer = player
                                                         showingUndo = false
                                                     }
@@ -147,7 +159,7 @@ struct DefensiveGridView: View {
                                         .listStyle(.plain)
 
                                         // Inning view — popover with two scope options
-                                        clearPositionsButton(isSummary: false)
+                                        if !isReadOnly { clearPositionsButton(isSummary: false) }
                                     }
                                 }
                             }
@@ -156,6 +168,9 @@ struct DefensiveGridView: View {
                             // ── Portrait layout ───────────────────────────────
                             LineupStatusStrip(
                                 status: store.lineup.status,
+                                isReadOnly: isReadOnly,
+                                lastFinalizedBy: store.lineup.lastFinalizedBy,
+                                lastFinalizedAt: store.lineup.lastFinalizedAt,
                                 onFinalize: { store.finalizeLineup() },
                                 onReopen: { store.reopenLineup() }
                             )
@@ -163,7 +178,7 @@ struct DefensiveGridView: View {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text("Inning \(selectedInning + 1) Positions")
                                     .font(.largeTitle.bold())
-                                boltButton
+                                if !isReadOnly { boltButton }
                                 Spacer()
                             }
                             .padding(.horizontal, 16)
@@ -207,7 +222,7 @@ struct DefensiveGridView: View {
                                         PlayerInningRow(
                                             player: player,
                                             inning: selectedInning,
-                                            onTap: {
+                                            onTap: isReadOnly ? {} : {
                                                 selectedPlayer = player
                                                 showingUndo = false
                                             }
@@ -217,7 +232,7 @@ struct DefensiveGridView: View {
                                 .listStyle(.plain)
 
                                 // Inning view — popover with two scope options
-                                clearPositionsButton(isSummary: false)
+                                if !isReadOnly { clearPositionsButton(isSummary: false) }
                             }
                         }
                     }
@@ -274,10 +289,12 @@ struct DefensiveGridView: View {
                         } label: {
                             warningsToolbarLabel
                         }
-                        Button {
-                            showingArchive = true
-                        } label: {
-                            Label("Archive Game", systemImage: "archivebox")
+                        if !isReadOnly {
+                            Button {
+                                showingArchive = true
+                            } label: {
+                                Label("Archive Game", systemImage: "archivebox")
+                            }
                         }
                         Button {
                             showingTips = true
@@ -310,6 +327,12 @@ struct DefensiveGridView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("All inning assignments will be removed. This can't be undone.")
+            }
+            // Shown when auto-fill completes but could not fill one or more positions.
+            .alert("Some Positions Not Filled", isPresented: $showingAutoFillIncomplete) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(autoFillIncompleteMessage)
             }
             .onAppear {
                 // Show the Auto-Fill context tip once — only to Pro users who
@@ -446,30 +469,54 @@ struct DefensiveGridView: View {
             uniqueKeysWithValues: store.players.map { ($0.id, $0.positionPreferences) }
         )
 
-        let result: (lineup: Lineup, filledCount: Int)
+        let result: AutoFillResult
         switch scope {
         case .thisInning:
-            result = AutoFillEngine.fillInning(selectedInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences, config: store.fairPlayConfig)
+            result = AutoFillEngine.fillInning(
+                selectedInning,
+                in: store.activeTeam.lineup,
+                players: store.players,
+                preferences: preferences,
+                config: store.fairPlayConfig,
+                pitchingConfig: store.pitchingConfig,
+                gameLogs: store.gameLogs
+            )
         case .through(let lastInning):
-            result = AutoFillEngine.fillInnings(through: lastInning, in: store.activeTeam.lineup, players: store.players, preferences: preferences, config: store.fairPlayConfig)
+            result = AutoFillEngine.fillInnings(
+                through: lastInning,
+                in: store.activeTeam.lineup,
+                players: store.players,
+                preferences: preferences,
+                config: store.fairPlayConfig,
+                pitchingConfig: store.pitchingConfig,
+                gameLogs: store.gameLogs
+            )
         }
 
-        guard result.filledCount > 0 else { return }
+        if result.filledCount > 0 {
+            store.activeTeam.lineup = result.lineup
+            store.save()
 
-        store.activeTeam.lineup = result.lineup
-        store.save()
+            undoSnapshot = snapshot
+            let scopeLabel: String
+            switch scope {
+            case .thisInning: scopeLabel = "inning \(selectedInning + 1)"
+            case .through(let last): scopeLabel = "innings 1–\(last + 1)"
+            }
+            undoMessage = "Auto-filled \(result.filledCount) position\(result.filledCount == 1 ? "" : "s") (\(scopeLabel))"
+            withAnimation { showingUndo = true }
 
-        undoSnapshot = snapshot
-        let scopeLabel: String
-        switch scope {
-        case .thisInning: scopeLabel = "inning \(selectedInning + 1)"
-        case .through(let last): scopeLabel = "innings 1–\(last + 1)"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                withAnimation { showingUndo = false }
+            }
         }
-        undoMessage = "Auto-filled \(result.filledCount) position\(result.filledCount == 1 ? "" : "s") (\(scopeLabel))"
-        withAnimation { showingUndo = true }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-            withAnimation { showingUndo = false }
+        if result.hasUnfilledSlots {
+            autoFillIncompleteMessage = buildAutoFillIncompleteMessage(from: result.unfilledSlots, scope: scope)
+            // Small delay so the undo toast settles before the alert fires.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                showingAutoFillIncomplete = true
+            }
         }
 
         Analytics.signal("autofill.used", parameters: [
@@ -477,8 +524,74 @@ struct DefensiveGridView: View {
                 if case .thisInning = scope { return "inning" }
                 return "range"
             }(),
-            "filledCount": "\(result.filledCount)"
+            "filledCount": "\(result.filledCount)",
+            "unfilledCount": "\(result.unfilledSlots.count)"
         ])
+    }
+
+    /// Builds a coach-readable explanation of why specific positions could not
+    /// be auto-filled. Groups slots by reason so related issues read together.
+    private func buildAutoFillIncompleteMessage(
+        from slots: [AutoFillUnfilledSlot],
+        scope: FillScope
+    ) -> String {
+        let isMultiInning: Bool = {
+            if case .through = scope { return true }
+            return false
+        }()
+
+        // Format a list of positions (with inning numbers when multi-inning).
+        func label(for group: [AutoFillUnfilledSlot]) -> String {
+            if isMultiInning {
+                // Group by position: "P (Innings 3, 4), CF (Inning 5)"
+                var byPos: [FieldPosition: [Int]] = [:]
+                for slot in group {
+                    byPos[slot.position, default: []].append(slot.inningIndex + 1)
+                }
+                return byPos
+                    .sorted { $0.key.rawValue < $1.key.rawValue }
+                    .map { pos, innings in
+                        let numbers = innings.map { "\($0)" }.joined(separator: ", ")
+                        let qualifier = innings.count == 1 ? "Inning \(numbers)" : "Innings \(numbers)"
+                        return "\(pos.rawValue) (\(qualifier))"
+                    }
+                    .joined(separator: ", ")
+            } else {
+                return group.map { $0.position.rawValue }.joined(separator: ", ")
+            }
+        }
+
+        var parts: [String] = []
+
+        let rosterSlots = slots.filter { $0.reason == .rosterTooSmall }
+        if !rosterSlots.isEmpty {
+            parts.append("""
+\(label(for: rosterSlots)) could not be filled. Not enough active players to cover every field position. Mark additional players as active on the Lineup tab, or assign these slots manually.
+""")
+        }
+
+        let reentrySlots = slots.filter { $0.reason == .pitcherReentry }
+        if !reentrySlots.isEmpty {
+            parts.append("""
+\(label(for: reentrySlots)) could not be filled. All eligible pitchers have already left the mound this game and cannot re-enter. Assign pitcher manually.
+""")
+        }
+
+        let capacitySlots = slots.filter { $0.reason == .pitchCapacityLimited }
+        if !capacitySlots.isEmpty {
+            parts.append("""
+\(label(for: capacitySlots)) could not be filled. All eligible pitchers have reached their estimated pitch count limit for today. Assign pitcher manually or adjust pitch counts on the Players tab.
+""")
+        }
+
+        let neverSlots = slots.filter { $0.reason == .neverPreferences }
+        if !neverSlots.isEmpty {
+            parts.append("""
+\(label(for: neverSlots)) could not be filled. All remaining players have those positions set to Never in their preferences. Update preferences on the Players tab, or assign manually.
+""")
+        }
+
+        return parts.joined(separator: "\n")
     }
 
     // MARK: - Warnings Button
@@ -620,32 +733,53 @@ struct DefensiveGridView: View {
 
 struct LineupStatusStrip: View {
     let status: LineupStatus
+    var isReadOnly: Bool = false
+    var lastFinalizedBy: String? = nil
+    var lastFinalizedAt: Date? = nil
     let onFinalize: () -> Void
     let onReopen: () -> Void
 
     var body: some View {
-        HStack {
-            HStack(spacing: 5) {
-                if status == .finalized {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption.bold())
-                        .foregroundColor(.green)
-                    Text("Finalized")
-                        .font(.caption.bold())
-                        .foregroundColor(.green)
-                } else {
-                    Circle()
-                        .fill(Color.secondary)
-                        .frame(width: 7, height: 7)
-                    Text("Draft")
-                        .font(.caption.bold())
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    if status == .finalized {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption.bold())
+                            .foregroundColor(.green)
+                        Text("Finalized")
+                            .font(.caption.bold())
+                            .foregroundColor(.green)
+                    } else {
+                        Circle()
+                            .fill(Color.secondary)
+                            .frame(width: 7, height: 7)
+                        Text("Draft")
+                            .font(.caption.bold())
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Attribution line — shown when finalized and a coach name is available
+                if status == .finalized, let name = lastFinalizedBy, !name.isEmpty {
+                    Text("by \(name)\(formattedDate)")
+                        .font(.caption2)
                         .foregroundColor(.secondary)
                 }
             }
 
             Spacer()
 
-            if status == .finalized {
+            if isReadOnly {
+                HStack(spacing: 4) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("View only")
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                }
+            } else if status == .finalized {
                 Button("Reopen", action: onReopen)
                     .font(.caption.bold())
                     .foregroundColor(.blue)
@@ -665,6 +799,12 @@ struct LineupStatusStrip: View {
                 : Color(.systemGray6)
         )
         .animation(.easeInOut(duration: 0.2), value: status)
+    }
+
+    private var formattedDate: String {
+        guard let date = lastFinalizedAt else { return "" }
+        let formatted = date.formatted(date: .abbreviated, time: .omitted)
+        return " · \(formatted)"
     }
 }
 
@@ -1620,5 +1760,32 @@ struct PitcherAvailabilityStrip: View {
             .padding(.bottom, 4)
             .background(Color(.systemGroupedBackground))
         }
+    }
+}
+
+// MARK: - Read-Only Banner
+// Shown at the top of each tab when the active team is a shared read-only team.
+// Explains the lock state so coaches aren't confused by disabled controls.
+
+struct ReadOnlyBanner: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "person.2.fill")
+                .font(.caption.bold())
+                .foregroundColor(.orange)
+            Text("Shared team. You can view but not make changes.")
+                .font(.caption)
+                .foregroundColor(.primary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.08))
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(Color.orange.opacity(0.25)),
+            alignment: .bottom
+        )
     }
 }

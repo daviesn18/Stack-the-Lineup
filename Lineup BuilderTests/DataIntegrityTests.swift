@@ -7,6 +7,7 @@ import XCTest
 // Every test here represents a real migration risk — old data must never crash
 // or silently corrupt when decoded by a newer build.
 
+@MainActor
 final class DataIntegrityTests: XCTestCase {
 
     // MARK: - Lineup Decode
@@ -39,6 +40,47 @@ final class DataIntegrityTests: XCTestCase {
 
         XCTAssertEqual(decoded.opponent, "Giants")
         XCTAssertEqual(decoded.status, .finalized)
+    }
+
+    // MARK: - Lineup v3.0 Fields
+
+    /// Old lineup without lastFinalizedBy or lastFinalizedAt should decode with both nil
+    func testLineupDecodesWithoutV30FinalizeFields() throws {
+        let json = """
+        {
+            "gameDate": 0,
+            "opponent": "Giants",
+            "battingOrder": [],
+            "innings": [],
+            "absentPlayerIDs": [],
+            "status": "finalized"
+        }
+        """.data(using: .utf8)!
+
+        let lineup = try JSONDecoder().decode(Lineup.self, from: json)
+        XCTAssertNil(lineup.lastFinalizedBy,
+                     "lastFinalizedBy should be nil for pre-v3.0 lineups")
+        XCTAssertNil(lineup.lastFinalizedAt,
+                     "lastFinalizedAt should be nil for pre-v3.0 lineups")
+    }
+
+    /// A lineup with both v3.0 finalization fields should round-trip cleanly
+    func testLineupV30FinalizeFieldsRoundTrip() throws {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        var lineup = Lineup()
+        lineup.status = .finalized
+        lineup.lastFinalizedBy = "Coach Nick"
+        lineup.lastFinalizedAt = date
+
+        let data = try JSONEncoder().encode(lineup)
+        let decoded = try JSONDecoder().decode(Lineup.self, from: data)
+
+        XCTAssertEqual(decoded.lastFinalizedBy, "Coach Nick")
+        XCTAssertEqual(
+            decoded.lastFinalizedAt?.timeIntervalSince1970 ?? 0,
+            date.timeIntervalSince1970,
+            accuracy: 1.0
+        )
     }
 
     // MARK: - Team Decode
@@ -150,6 +192,83 @@ final class DataIntegrityTests: XCTestCase {
         XCTAssertTrue(config.noConsecutiveBench)
     }
 
+    // MARK: - Team v3.0 CloudKit Fields
+
+    /// Old team JSON without v3.0 fields should decode with safe defaults
+    func testTeamDecodesWithoutV30CloudKitFields() throws {
+        let json = """
+        [{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Reds",
+            "colorHex": "FF0000",
+            "createdAt": 0,
+            "players": [],
+            "gameLogs": [],
+            "lineup": {
+                "gameDate": 0,
+                "opponent": "",
+                "battingOrder": [],
+                "innings": [],
+                "absentPlayerIDs": []
+            }
+        }]
+        """.data(using: .utf8)!
+
+        let teams = try JSONDecoder().decode([Team].self, from: json)
+        XCTAssertEqual(teams[0].coachName, "",
+                       "coachName should default to empty string for pre-v3.0 teams")
+        XCTAssertNil(teams[0].ckRecordName,
+                     "ckRecordName should default to nil for teams not yet in CloudKit")
+        XCTAssertFalse(teams[0].isReadOnly,
+                       "isReadOnly should default to false")
+        XCTAssertFalse(teams[0].isSharedParticipant,
+                       "isSharedParticipant should always be false after decode")
+    }
+
+    /// v3.0 CloudKit fields should round-trip cleanly
+    func testTeamV30CloudKitFieldsRoundTrip() throws {
+        var team = Team()
+        team.coachName = "Coach Nick"
+        team.ckRecordName = "abc123def456"
+        team.isReadOnly = false
+
+        let data = try JSONEncoder().encode([team])
+        let decoded = try JSONDecoder().decode([Team].self, from: data)
+
+        XCTAssertEqual(decoded[0].coachName, "Coach Nick")
+        XCTAssertEqual(decoded[0].ckRecordName, "abc123def456")
+        XCTAssertFalse(decoded[0].isReadOnly)
+    }
+
+    /// isSharedParticipant is runtime-only. Encoding a team with it true and
+    /// decoding must always produce false — it is re-derived from the CloudKit
+    /// fetch path, never stored in the JSON blob.
+    func testIsSharedParticipantNeverPersistedAcrossRoundTrip() throws {
+        var team = Team()
+        team.isSharedParticipant = true
+
+        let data = try JSONEncoder().encode([team])
+        let decoded = try JSONDecoder().decode([Team].self, from: data)
+
+        XCTAssertFalse(decoded[0].isSharedParticipant,
+                       "isSharedParticipant must always be false after decode — it is re-derived at runtime")
+    }
+
+    /// A read-only shared team should round-trip isReadOnly = true correctly
+    func testReadOnlyTeamRoundTrip() throws {
+        var team = Team()
+        team.coachName = "Other Coach"
+        team.ckRecordName = "shared-record-123"
+        team.isReadOnly = true
+
+        let data = try JSONEncoder().encode([team])
+        let decoded = try JSONDecoder().decode([Team].self, from: data)
+
+        XCTAssertTrue(decoded[0].isReadOnly)
+        XCTAssertEqual(decoded[0].coachName, "Other Coach")
+        XCTAssertEqual(decoded[0].ckRecordName, "shared-record-123")
+    }
+
     // MARK: - FieldPosition Decode
 
     /// New FieldPosition cases LCF and RCF round-trip cleanly
@@ -231,6 +350,80 @@ final class DataIntegrityTests: XCTestCase {
 
         let player = try JSONDecoder().decode(Player.self, from: json)
         XCTAssertTrue(player.positionPreferences.isEmpty)
+    }
+
+    // MARK: - GameLog v3.0 Fields
+
+    /// Old game logs without archivedBy should decode with empty string default
+    func testGameLogArchivedByDefaultsToEmptyForOldLogs() throws {
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "gameDate": 0,
+            "opponent": "Yankees",
+            "inningsPlayed": 6,
+            "battingOrder": [],
+            "innings": [],
+            "playerSnapshot": [],
+            "archivedAt": 0
+        }
+        """.data(using: .utf8)!
+
+        let log = try JSONDecoder().decode(GameLog.self, from: json)
+        XCTAssertEqual(log.archivedBy, "",
+                       "archivedBy should default to empty string for pre-v3.0 game logs")
+    }
+
+    /// archivedBy should round-trip cleanly for logs archived by a named coach
+    func testGameLogArchivedByRoundTrip() throws {
+        let log = GameLog(
+            gameDate: Date(),
+            opponent: "Cubs",
+            inningsPlayed: 6,
+            battingOrder: [],
+            innings: Array(repeating: InningAssignment(), count: 7),
+            playerSnapshot: [],
+            archivedBy: "Coach Nick"
+        )
+
+        let data = try JSONEncoder().encode(log)
+        let decoded = try JSONDecoder().decode(GameLog.self, from: data)
+        XCTAssertEqual(decoded.archivedBy, "Coach Nick")
+    }
+
+    /// A game log archived before v3.0 (no archivedBy key) inside a Team decode
+    /// should not prevent the team from loading
+    func testTeamDecodesWithLegacyGameLogsMissingArchivedBy() throws {
+        let json = """
+        [{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Sox",
+            "colorHex": "FF0000",
+            "createdAt": 0,
+            "players": [],
+            "gameLogs": [{
+                "id": "00000000-0000-0000-0000-000000000002",
+                "gameDate": 0,
+                "opponent": "Cubs",
+                "inningsPlayed": 6,
+                "battingOrder": [],
+                "innings": [],
+                "playerSnapshot": [],
+                "archivedAt": 0
+            }],
+            "lineup": {
+                "gameDate": 0,
+                "opponent": "",
+                "battingOrder": [],
+                "innings": [],
+                "absentPlayerIDs": []
+            }
+        }]
+        """.data(using: .utf8)!
+
+        let teams = try JSONDecoder().decode([Team].self, from: json)
+        XCTAssertEqual(teams[0].gameLogs.count, 1)
+        XCTAssertEqual(teams[0].gameLogs[0].archivedBy, "")
     }
 
     // MARK: - Corrupt Data

@@ -8,6 +8,7 @@ import XCTest
 // and multi-team isolation. These tests instantiate a real LineupStore in
 // memory (no persistence) and exercise it through its public API.
 
+@MainActor
 final class LineupStoreTests: XCTestCase {
 
     // MARK: - Setup
