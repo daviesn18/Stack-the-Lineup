@@ -22,6 +22,29 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "3.1",
+            features: [
+                WhatsNewFeature(
+                    icon: "square.stack",
+                    iconColor: .blue,
+                    title: "Home Screen Widget",
+                    description: "Add the Stack the Lineup widget to your Home Screen to see today's game at a glance. Tap it to jump straight to the Lineup tab."
+                ),
+                WhatsNewFeature(
+                    icon: "note.text",
+                    iconColor: .teal,
+                    title: "Game Notes",
+                    description: "Add notes to any game log -- final score, field conditions, coaching reminders, or anything worth remembering. Notes can be added at archive time or from the game detail view later.\n\nNotes are visible to assistant coaches on shared teams."
+                ),
+                WhatsNewFeature(
+                    icon: "bolt.fill",
+                    iconColor: .orange,
+                    title: "Auto-Fill Enhancements",
+                    description: "Auto-Fill now alerts you when a position could not be filled.\n\nA new No Repeat Positions option in Fair Play Rules tells Auto-Fill to give each player a different position every inning when possible."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "3.0",
             features: [
                 WhatsNewFeature(

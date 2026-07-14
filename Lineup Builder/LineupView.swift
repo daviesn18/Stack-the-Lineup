@@ -19,6 +19,7 @@ struct LineupView: View {
     @State private var showingScheduleImport = false
     @State private var showingSchedulePicker = false
     @State private var scheduleImportToast: String? = nil
+    @State private var showingTemplatePicker = false
 
     var orderedPlayers: [Player] {
         store.lineup.orderedPlayers(from: store.players)
@@ -86,6 +87,23 @@ struct LineupView: View {
                                 && !ICalParser.isPractice(game.rawSummary)
                             }.count
                             Text("\(upcoming) game\(upcoming == 1 ? "" : "s")")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.bold())
+                                .foregroundColor(Color(.tertiaryLabel))
+                        }
+                    }
+                }
+                if !isReadOnly {
+                    Button {
+                        showingTemplatePicker = true
+                    } label: {
+                        HStack {
+                            Label("Apply Template", systemImage: "square.grid.2x2")
+                                .foregroundColor(.blue)
+                            Spacer()
+                            Text(store.lineupTemplates.isEmpty ? "None yet" : "\(store.lineupTemplates.count) saved")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                             Image(systemName: "chevron.right")
@@ -196,6 +214,7 @@ struct LineupView: View {
                         Spacer()
                     }
                 }
+
             } header: {
                 HStack {
                     Text("Batting Order & Availability")
@@ -318,6 +337,10 @@ struct LineupView: View {
                 store.applyScheduledGame(game)
             }
             .environmentObject(store)
+        }
+        .sheet(isPresented: $showingTemplatePicker) {
+            TemplatePickerView()
+                .environmentObject(store)
         }
         .safeAreaInset(edge: .bottom) {
             if let toast = scheduleImportToast {

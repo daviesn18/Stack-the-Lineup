@@ -168,7 +168,7 @@ private struct STLSmallView: View {
     @ViewBuilder
     private func gameContent(_ snap: WidgetSnapshot) -> some View {
         if snap.isToday {
-            Text(snap.gameDate, format: .dateTime.hour().minute())
+            Text(snap.gameDate, format: .dateTime.month(.abbreviated).day())
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .minimumScaleFactor(0.75)
                 .lineLimit(1)
@@ -221,17 +221,11 @@ private struct STLMediumView: View {
                             Text(snap.opponent.isEmpty ? "Game today" : "vs. \(snap.opponent)")
                                 .font(.system(size: 17, weight: .bold))
                                 .lineLimit(1)
-                            Text(snap.gameDate, format: .dateTime.weekday(.abbreviated).month().day())
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
 
-                        } else if let nextDate = snap.nextGameDate {
+                        } else if snap.nextGameDate != nil {
                             Text(snap.nextGameOpponent.map { "vs. \($0)" } ?? "Next game")
                                 .font(.system(size: 17, weight: .bold))
                                 .lineLimit(1)
-                            Text(nextDate, format: .dateTime.weekday(.abbreviated).month().day())
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
 
                         } else {
                             Text("No game scheduled")
@@ -246,8 +240,8 @@ private struct STLMediumView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         let displayDate: Date? = snap.isToday ? snap.gameDate : snap.nextGameDate
                         if let d = displayDate {
-                            Text(d, format: .dateTime.hour().minute())
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                            Text(d, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
+                                .font(.system(size: 15, weight: .bold))
                         }
                         StatusPillView(status: snap.displayStatus)
                     }

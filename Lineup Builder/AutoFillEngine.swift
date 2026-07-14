@@ -35,8 +35,31 @@ struct AutoFillResult {
     /// Positions that could not be filled, with a reason for each.
     /// Empty when every open slot was successfully assigned.
     let unfilledSlots: [AutoFillUnfilledSlot]
+    /// NL constraints that were honored but bypassed a Fair Play soft
+    /// constraint to do so (e.g. exceeded the pitcher 2-inning soft cap).
+    /// Always empty when no constraints were supplied.
+    let constraintOverrides: [AutoFillConstraintOverride]
+    /// NL constraints that could not be honored at all (no open target, or
+    /// honoring it would have violated a hard pitcher rule).
+    /// Always empty when no constraints were supplied.
+    let constraintRejections: [AutoFillConstraintRejection]
+
+    init(
+        lineup: Lineup,
+        filledCount: Int,
+        unfilledSlots: [AutoFillUnfilledSlot],
+        constraintOverrides: [AutoFillConstraintOverride] = [],
+        constraintRejections: [AutoFillConstraintRejection] = []
+    ) {
+        self.lineup = lineup
+        self.filledCount = filledCount
+        self.unfilledSlots = unfilledSlots
+        self.constraintOverrides = constraintOverrides
+        self.constraintRejections = constraintRejections
+    }
 
     var hasUnfilledSlots: Bool { !unfilledSlots.isEmpty }
+    var hasConstraintNotices: Bool { !constraintOverrides.isEmpty || !constraintRejections.isEmpty }
 
     /// Returns a coach-readable explanation of why positions could not be filled,
     /// or nil if every slot was assigned. Pass multiInning: true when the fill
@@ -84,6 +107,88 @@ struct AutoFillResult {
         }
 
         return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
+
+    /// Returns a coach-readable explanation of any NL constraint overrides
+    /// or rejections, or nil if there are none. Needs the roster to resolve
+    /// player names, since the engine only tracks player IDs internally.
+    /// Groups by player so multiple affected innings read as one line
+    /// rather than one line per inning, and uses bullets once there's more
+    /// than one line total.
+    func constraintNoticeMessage(players: [Player]) -> String? {
+        guard hasConstraintNotices else { return nil }
+
+        func name(for id: UUID) -> String {
+            players.first(where: { $0.id == id })?.shortName ?? "A player"
+        }
+
+        func targetLabel(_ target: AutoFillConstraintTarget) -> String {
+            switch target {
+            case .position(let pos): return pos.rawValue
+            case .infield: return "an infield position"
+            case .outfield: return "an outfield position"
+            case .bench: return "Bench"
+            }
+        }
+
+        func inningList(_ innings: [Int]) -> String {
+            let numbers = innings.sorted().map { "\($0 + 1)" }
+            switch numbers.count {
+            case 1: return "inning \(numbers[0])"
+            case 2: return "innings \(numbers[0]) and \(numbers[1])"
+            default:
+                let allButLast = numbers.dropLast().joined(separator: ", ")
+                return "innings \(allButLast), and \(numbers.last!)"
+            }
+        }
+
+        var lines: [String] = []
+
+        // Pitcher soft-cap overrides — grouped by player so 2 affected
+        // innings read as one line instead of two.
+        for reason in [AutoFillConstraintOverrideReason.pitcherSoftCapBypassed, .pitcherSoftCapBypassedByFallback] {
+            let matches = constraintOverrides.filter { $0.reason == reason }
+            let byPlayer = Dictionary(grouping: matches, by: { $0.playerID })
+            for (playerID, items) in byPlayer.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+                let list = inningList(items.map { $0.inningIndex })
+                switch reason {
+                case .pitcherSoftCapBypassed:
+                    lines.append("\(name(for: playerID)) also pitched \(list) — past the usual 2-inning guideline.")
+                case .pitcherSoftCapBypassedByFallback:
+                    lines.append("\(name(for: playerID)) ended up pitching \(list) since no one else was eligible — past the usual 2-inning guideline.")
+                default:
+                    break
+                }
+            }
+        }
+
+        // Bench-out-of-turn overrides.
+        let benchMatches = constraintOverrides.filter { $0.reason == .benchedOutOfTurn }
+        let benchByPlayer = Dictionary(grouping: benchMatches, by: { $0.playerID })
+        for (playerID, items) in benchByPlayer.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            let list = inningList(items.map { $0.inningIndex })
+            lines.append("\(name(for: playerID)) sat out \(list) ahead of the normal rotation turn.")
+        }
+
+        // Fair-play zone gaps — the engine already dedupes these to one
+        // entry per player per missing zone, and they're a whole-game
+        // concept rather than tied to one inning, so no inning is named.
+        for o in constraintOverrides {
+            if case .fairPlayZoneSkipped(let missing) = o.reason {
+                let zone = missing == .infield ? "infield" : "outfield"
+                lines.append("\(name(for: o.playerID)) still hasn't played \(zone) this game.")
+            }
+        }
+
+        for r in constraintRejections {
+            lines.append("Couldn't put \(name(for: r.playerID)) at \(targetLabel(r.target)) in \(inningList([r.inningIndex])) — \(r.reason)")
+        }
+
+        guard !lines.isEmpty else { return nil }
+        if lines.count > 1 {
+            return lines.map { "• \($0)" }.joined(separator: "\n")
+        }
+        return lines[0]
     }
 }
 
@@ -145,18 +250,24 @@ enum AutoFillEngine {
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
         config: FairPlayConfig = FairPlayConfig(),
         pitchingConfig: PitchingConfig? = nil,
-        gameLogs: [GameLog] = []
+        gameLogs: [GameLog] = [],
+        constraints: AutoFillConstraintSet = .empty
     ) -> AutoFillResult {
         var result = lineup
-        let (count, unfilled) = fillInning(
+        let (count, unfilled, overrides, rejections, pendingZoneChecks) = fillInning(
             inningIndex, in: &result,
             players: players,
             preferences: preferences,
             config: config,
             pitchingConfig: pitchingConfig,
-            gameLogs: gameLogs
+            gameLogs: gameLogs,
+            constraints: constraints
         )
-        return AutoFillResult(lineup: result, filledCount: count, unfilledSlots: unfilled)
+        let confirmedZoneOverrides = reconcileZoneChecks(pendingZoneChecks, players: players, finalLineup: result)
+        return AutoFillResult(
+            lineup: result, filledCount: count, unfilledSlots: unfilled,
+            constraintOverrides: overrides + confirmedZoneOverrides, constraintRejections: rejections
+        )
     }
 
     /// Fills open slots from inning 0 through `lastInning` (inclusive).
@@ -167,25 +278,40 @@ enum AutoFillEngine {
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
         config: FairPlayConfig = FairPlayConfig(),
         pitchingConfig: PitchingConfig? = nil,
-        gameLogs: [GameLog] = []
+        gameLogs: [GameLog] = [],
+        constraints: AutoFillConstraintSet = .empty
     ) -> AutoFillResult {
         var result = lineup
         var total = 0
         var allUnfilled: [AutoFillUnfilledSlot] = []
+        var allOverrides: [AutoFillConstraintOverride] = []
+        var allRejections: [AutoFillConstraintRejection] = []
+        var allPendingZoneChecks: [AutoFillPendingZoneCheck] = []
         let clampedLast = max(0, min(lastInning, lineup.innings.count - 1))
         for inning in 0...clampedLast {
-            let (count, unfilled) = fillInning(
+            let (count, unfilled, overrides, rejections, pendingZoneChecks) = fillInning(
                 inning, in: &result,
                 players: players,
                 preferences: preferences,
                 config: config,
                 pitchingConfig: pitchingConfig,
-                gameLogs: gameLogs
+                gameLogs: gameLogs,
+                constraints: constraints
             )
             total += count
             allUnfilled.append(contentsOf: unfilled)
+            allOverrides.append(contentsOf: overrides)
+            allRejections.append(contentsOf: rejections)
+            allPendingZoneChecks.append(contentsOf: pendingZoneChecks)
         }
-        return AutoFillResult(lineup: result, filledCount: total, unfilledSlots: allUnfilled)
+        // Zone-requirement gaps are only confirmed now, against the fully
+        // filled lineup — a gap flagged after inning 2 may have resolved
+        // itself by inning 6 within this same fill operation.
+        let confirmedZoneOverrides = reconcileZoneChecks(allPendingZoneChecks, players: players, finalLineup: result)
+        return AutoFillResult(
+            lineup: result, filledCount: total, unfilledSlots: allUnfilled,
+            constraintOverrides: allOverrides + confirmedZoneOverrides, constraintRejections: allRejections
+        )
     }
 
     /// Fills open slots across all innings. Returns an AutoFillResult.
@@ -195,7 +321,8 @@ enum AutoFillEngine {
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]] = [:],
         config: FairPlayConfig = FairPlayConfig(),
         pitchingConfig: PitchingConfig? = nil,
-        gameLogs: [GameLog] = []
+        gameLogs: [GameLog] = [],
+        constraints: AutoFillConstraintSet = .empty
     ) -> AutoFillResult {
         return fillInnings(
             through: lineup.innings.count - 1,
@@ -204,11 +331,50 @@ enum AutoFillEngine {
             preferences: preferences,
             config: config,
             pitchingConfig: pitchingConfig,
-            gameLogs: gameLogs
+            gameLogs: gameLogs,
+            constraints: constraints
         )
     }
 
     // MARK: - Private Core
+
+    /// Confirms which pending zone-requirement concerns are still real
+    /// once the entire requested fill range has been processed, using the
+    /// FINAL lineup state rather than the in-progress one. Deduped to at
+    /// most one override per (player, missing zone) — the underlying
+    /// concern is "hasn't played this zone at all," a whole-game fact, not
+    /// something worth repeating per inning.
+    private static func reconcileZoneChecks(
+        _ pending: [AutoFillPendingZoneCheck],
+        players: [Player],
+        finalLineup: Lineup
+    ) -> [AutoFillConstraintOverride] {
+        var seenInfield: Set<UUID> = []
+        var seenOutfield: Set<UUID> = []
+        var result: [AutoFillConstraintOverride] = []
+
+        for p in pending {
+            guard let player = players.first(where: { $0.id == p.playerID }) else { continue }
+            let stillMissing: Bool
+            switch p.missing {
+            case .infield:
+                guard !seenInfield.contains(p.playerID) else { continue }
+                stillMissing = !finalLineup.innings.contains(where: { $0.position(for: player)?.isInfield == true })
+                if stillMissing { seenInfield.insert(p.playerID) }
+            case .outfield:
+                guard !seenOutfield.contains(p.playerID) else { continue }
+                stillMissing = !finalLineup.innings.contains(where: { $0.position(for: player)?.isOutfield == true })
+                if stillMissing { seenOutfield.insert(p.playerID) }
+            }
+            guard stillMissing else { continue }
+            result.append(AutoFillConstraintOverride(
+                inningIndex: p.inningIndex, playerID: p.playerID, target: p.target,
+                reason: .fairPlayZoneSkipped(missing: p.missing)
+            ))
+        }
+
+        return result
+    }
 
     @discardableResult
     private static func fillInning(
@@ -218,15 +384,22 @@ enum AutoFillEngine {
         preferences: [UUID: [FieldPosition: PositionPreferenceTier]],
         config: FairPlayConfig,
         pitchingConfig: PitchingConfig?,
-        gameLogs: [GameLog]
-    ) -> (filled: Int, unfilled: [AutoFillUnfilledSlot]) {
+        gameLogs: [GameLog],
+        constraints: AutoFillConstraintSet
+    ) -> (
+        filled: Int,
+        unfilled: [AutoFillUnfilledSlot],
+        overrides: [AutoFillConstraintOverride],
+        rejections: [AutoFillConstraintRejection],
+        pendingZoneChecks: [AutoFillPendingZoneCheck]
+    ) {
         let active = lineup.activePlayers(from: players)
-        guard !active.isEmpty else { return (0, []) }
+        guard !active.isEmpty else { return (0, [], [], [], []) }
 
         var unassigned = active.filter {
             lineup.innings[inningIndex].position(for: $0) == nil
         }
-        guard !unassigned.isEmpty else { return (0, []) }
+        guard !unassigned.isEmpty else { return (0, [], [], [], []) }
 
         let occupiedPositions = Set(
             lineup.innings[inningIndex].assignments.values.filter { !$0.isBench }
@@ -414,12 +587,188 @@ enum AutoFillEngine {
             return allowed.first(where: { prefs[$0] == .emergency })
         }
 
+        // MARK: - NL Constraint-Aware Position Resolution
+        //
+        // Wraps preferredPosition to honor .avoid (excludes positions/zones
+        // for this player, this inning) and .prioritize (tries the
+        // requested position ahead of the normal preference-tier order,
+        // falling back to normal behavior if it isn't available).
+
+        let inningConstraints = constraints.constraints(for: inningIndex)
+
+        func avoidedPositions(for player: Player) -> Set<FieldPosition> {
+            var result: Set<FieldPosition> = []
+            for c in inningConstraints where c.playerID == player.id && c.intent == .avoid {
+                switch c.target {
+                case .position(let pos): result.insert(pos)
+                case .infield: result.formUnion(FieldPosition.fieldPositions.filter { $0.isInfield })
+                case .outfield: result.formUnion(FieldPosition.fieldPositions.filter { $0.isOutfield })
+                case .bench: break // avoiding the bench isn't a position-candidate filter
+                }
+            }
+            return result
+        }
+
+        func prioritizedPosition(for player: Player) -> FieldPosition? {
+            for c in inningConstraints where c.playerID == player.id && c.intent == .prioritize {
+                if case .position(let pos) = c.target { return pos }
+            }
+            return nil
+        }
+
+        func resolvePosition(for player: Player, from candidates: [FieldPosition]) -> FieldPosition? {
+            let avoided = avoidedPositions(for: player)
+            let filtered = avoided.isEmpty ? candidates : candidates.filter { !avoided.contains($0) }
+            guard !filtered.isEmpty else { return nil }
+            if let prioritized = prioritizedPosition(for: player), filtered.contains(prioritized) {
+                let prefs = preferences[player.id] ?? [:]
+                if prefs[prioritized] != .never { return prioritized }
+            }
+            return preferredPosition(for: player, from: filtered)
+        }
+
+        // MARK: - No-Repeat Position Helpers
+        //
+        // When config.noRepeatPositions is true, auto-fill tries to assign each
+        // player a position they haven't played earlier this game.  This is a
+        // SOFT constraint: if every available position has already been played,
+        // the full candidate list is returned unchanged so the engine never
+        // leaves a slot unfilled just to avoid a repeat.
+
+        /// Non-bench positions this player has already been assigned in innings
+        /// 0..<inningIndex (earlier innings only, not the current one).
+        func positionsAlreadyPlayedThisGame(_ player: Player) -> Set<FieldPosition> {
+            Set(lineup.innings.prefix(inningIndex)
+                .compactMap { $0.position(for: player) }
+                .filter { !$0.isNonFielding })
+        }
+
+        /// Returns `candidates` with already-played positions filtered out.
+        /// Falls back to the full `candidates` list when the filtered result
+        /// would be empty, so zone requirements are never violated.
+        func freshCandidates(_ candidates: [FieldPosition], for player: Player) -> [FieldPosition] {
+            guard config.noRepeatPositions else { return candidates }
+            let played = positionsAlreadyPlayedThisGame(player)
+            let fresh = candidates.filter { !played.contains($0) }
+            return fresh.isEmpty ? candidates : fresh
+        }
+
+        // MARK: - NL Constraint Pre-Assignment Pass
+        //
+        // .assign constraints are honored before the normal algorithm runs —
+        // exactly like a coach's manual assignment, so everything below
+        // treats the slot as already locked. Zone targets (.infield/
+        // .outfield) resolve to the best open position in that zone using
+        // the same preference-tier logic as the main loop. .bench targets
+        // are handled separately below by excluding the player from the
+        // field queue, since "bench" isn't a member of openPositions.
+        //
+        // Hard pitcher rules (re-entry, Never) are never bypassed — an
+        // assign that would violate one is rejected and reported via
+        // constraintRejections rather than silently dropped.
+
+        var forcedBenchPlayerIDs: Set<UUID> = []
+        var constraintOverrides: [AutoFillConstraintOverride] = []
+        var constraintRejections: [AutoFillConstraintRejection] = []
+        // Zone-requirement concerns spotted here aren't confirmed yet — a
+        // player who "still needs infield" after this assignment may well
+        // get an infield inning later in the same fill operation, which
+        // would make this a false alarm. Resolved for real by the caller
+        // once the whole requested range has been filled (see
+        // fillInning/fillInnings/fillGame below).
+        var pendingZoneChecks: [AutoFillPendingZoneCheck] = []
+
+        for constraint in inningConstraints where constraint.intent == .assign {
+            guard let player = active.first(where: { $0.id == constraint.playerID }) else { continue }
+            // Respect any assignment already present (manual, or an earlier
+            // constraint this same pass) — first one wins.
+            guard lineup.innings[inningIndex].position(for: player) == nil else { continue }
+
+            if case .bench = constraint.target {
+                forcedBenchPlayerIDs.insert(player.id)
+                continue
+            }
+
+            let candidatePositions: [FieldPosition]
+            switch constraint.target {
+            case .position(let pos):
+                candidatePositions = [pos]
+            case .infield:
+                candidatePositions = openPositions.filter { $0.isInfield }
+            case .outfield:
+                candidatePositions = openPositions.filter { $0.isOutfield }
+            case .bench:
+                candidatePositions = [] // handled above
+            }
+
+            guard let target = candidatePositions.first(where: { openPositions.contains($0) }) else {
+                constraintRejections.append(AutoFillConstraintRejection(
+                    inningIndex: inningIndex, playerID: player.id, target: constraint.target,
+                    reason: "No open position was available to honor this instruction."
+                ))
+                continue
+            }
+
+            // Hard pitcher rules are never bypassed, even for an explicit assign.
+            if target == .pitcher && !isPitcherBaseEligible(player) {
+                constraintRejections.append(AutoFillConstraintRejection(
+                    inningIndex: inningIndex, playerID: player.id, target: constraint.target,
+                    reason: "Already exited the mound this game (re-entry rule), or marked Never for Pitcher."
+                ))
+                continue
+            }
+
+            lineup.innings[inningIndex].assign(player: player, position: target)
+            openPositions.removeAll { $0 == target }
+            unassigned.removeAll { $0.id == player.id }
+            filled += 1
+
+            // Pitcher soft-cap is a real-time fact (already happened, not
+            // future-dependent), so it's confirmed immediately. Zone
+            // requirements are queued for later verification instead.
+            if target == .pitcher && pitcherInningsSoFar(player) > maxPitcherInningsSoftCap {
+                constraintOverrides.append(AutoFillConstraintOverride(
+                    inningIndex: inningIndex, playerID: player.id, target: constraint.target,
+                    reason: .pitcherSoftCapBypassed
+                ))
+            }
+            if !target.isInfield && needsInfield(player) {
+                pendingZoneChecks.append(AutoFillPendingZoneCheck(
+                    inningIndex: inningIndex, playerID: player.id, target: constraint.target, missing: .infield
+                ))
+            }
+            if !target.isOutfield && needsOutfield(player) {
+                pendingZoneChecks.append(AutoFillPendingZoneCheck(
+                    inningIndex: inningIndex, playerID: player.id, target: constraint.target, missing: .outfield
+                ))
+            }
+        }
+
+        // Forced-bench players: flag when it puts them ahead of their normal
+        // rotation turn (some other still-active, non-forced player has
+        // fewer bench innings so far and is about to play the field).
+        for playerID in forcedBenchPlayerIDs {
+            guard let player = active.first(where: { $0.id == playerID }) else { continue }
+            let thisBenchCount = benchInningsSoFar(player)
+            let othersWithFewerBench = active.contains { other in
+                other.id != playerID &&
+                !forcedBenchPlayerIDs.contains(other.id) &&
+                benchInningsSoFar(other) < thisBenchCount
+            }
+            if othersWithFewerBench {
+                constraintOverrides.append(AutoFillConstraintOverride(
+                    inningIndex: inningIndex, playerID: playerID, target: .bench,
+                    reason: .benchedOutOfTurn
+                ))
+            }
+        }
+
         // MARK: - Field Assignment Queue
 
-        let benchedLast = unassigned.filter { benchedLastInning($0) }.shuffled()
-        let needsIF = unassigned.filter { !benchedLastInning($0) && needsInfield($0) }.shuffled()
-        let needsOF = unassigned.filter { !benchedLastInning($0) && !needsInfield($0) && needsOutfield($0) }.shuffled()
-        let rest    = unassigned.filter { !benchedLastInning($0) && !needsInfield($0) && !needsOutfield($0) }.shuffled()
+        let benchedLast = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && benchedLastInning($0) }.shuffled()
+        let needsIF = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && !benchedLastInning($0) && needsInfield($0) }.shuffled()
+        let needsOF = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && !benchedLastInning($0) && !needsInfield($0) && needsOutfield($0) }.shuffled()
+        let rest    = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && !benchedLastInning($0) && !needsInfield($0) && !needsOutfield($0) }.shuffled()
 
         let fieldQueue: [Player] = benchedLast + needsIF + needsOF + rest
 
@@ -434,10 +783,11 @@ enum AutoFillEngine {
 
             // Try to satisfy the infield fair-play requirement first.
             if needsInfield(player) {
-                let infieldCandidates = filteringPitcher(for: player, candidates: openPositions.filter { $0.isInfield })
+                let rawInfield = openPositions.filter { $0.isInfield }
+                let infieldCandidates = filteringPitcher(for: player, candidates: freshCandidates(rawInfield, for: player))
                 if infieldCandidates.isEmpty {
                     // No open infield slots left at all — not a Never issue
-                } else if let pos = preferredPosition(for: player, from: infieldCandidates) {
+                } else if let pos = resolvePosition(for: player, from: infieldCandidates) {
                     lineup.innings[inningIndex].assign(player: player, position: pos)
                     openPositions.removeAll { $0 == pos }
                     unassigned.removeAll { $0.id == player.id }
@@ -451,10 +801,10 @@ enum AutoFillEngine {
 
             // Try outfield fair-play requirement, preference-aware.
             if !assigned && needsOutfield(player) {
-                let outfieldCandidates = openPositions.filter { $0.isOutfield }
+                let outfieldCandidates = freshCandidates(openPositions.filter { $0.isOutfield }, for: player)
                 if outfieldCandidates.isEmpty {
                     // No open outfield slots left at all
-                } else if let pos = preferredPosition(for: player, from: outfieldCandidates) {
+                } else if let pos = resolvePosition(for: player, from: outfieldCandidates) {
                     lineup.innings[inningIndex].assign(player: player, position: pos)
                     openPositions.removeAll { $0 == pos }
                     unassigned.removeAll { $0.id == player.id }
@@ -472,9 +822,10 @@ enum AutoFillEngine {
                 var fallbackCandidates = openPositions
                 if neverBlockedInfield  { fallbackCandidates = fallbackCandidates.filter { !$0.isInfield } }
                 if neverBlockedOutfield { fallbackCandidates = fallbackCandidates.filter { !$0.isOutfield } }
+                fallbackCandidates = freshCandidates(fallbackCandidates, for: player)
                 fallbackCandidates = filteringPitcher(for: player, candidates: fallbackCandidates)
 
-                if let pos = preferredPosition(for: player, from: fallbackCandidates) {
+                if let pos = resolvePosition(for: player, from: fallbackCandidates) {
                     lineup.innings[inningIndex].assign(player: player, position: pos)
                     openPositions.removeAll { $0 == pos }
                     unassigned.removeAll { $0.id == player.id }
@@ -498,9 +849,22 @@ enum AutoFillEngine {
         // player who is over their pitch budget.
 
         if openPositions.contains(.pitcher) {
+            // Players the coach explicitly asked to keep off Pitcher this
+            // inning are excluded from the fallback too — this is what
+            // actually stops "Connor pitches the first 2 innings" from
+            // having Connor reappear at Pitcher in inning 4 just because
+            // no one else was left. (An .assign for Pitcher outside its
+            // own range is turned into an implicit .avoid for the rest of
+            // the game by AutoFillNLConstraintService — see there.)
+            let avoidPitcherPlayerIDs = Set(
+                inningConstraints
+                    .filter { $0.intent == .avoid && $0.target == .position(.pitcher) }
+                    .map { $0.playerID }
+            )
             let pitcherFallback = active.filter {
                 lineup.innings[inningIndex].position(for: $0) == nil &&
-                isPitcherEligible($0)
+                isPitcherEligible($0) &&
+                !avoidPitcherPlayerIDs.contains($0.id)
             }
             // Prefer players who haven't pitched yet, then by fewest innings.
             let sorted = pitcherFallback.sorted { a, b in
@@ -512,6 +876,19 @@ enum AutoFillEngine {
                 lineup.innings[inningIndex].assign(player: pick, position: .pitcher)
                 openPositions.removeAll { $0 == .pitcher }
                 filled += 1
+
+                // This fallback has always been allowed to bypass the
+                // 2-inning soft cap (better to fill the slot than leave it
+                // open), but it was previously silent about doing so. Now
+                // that NL constraints exist, surface it — but only when
+                // constraints were actually supplied this fill, so plain
+                // unconstrained Auto-Fill behavior stays unchanged.
+                if !constraints.isEmpty && pitcherInningsSoFar(pick) > maxPitcherInningsSoftCap {
+                    constraintOverrides.append(AutoFillConstraintOverride(
+                        inningIndex: inningIndex, playerID: pick.id, target: .position(.pitcher),
+                        reason: .pitcherSoftCapBypassedByFallback
+                    ))
+                }
             }
         }
 
@@ -594,6 +971,6 @@ enum AutoFillEngine {
             ))
         }
 
-        return (filled, unfilledSlots)
+        return (filled, unfilledSlots, constraintOverrides, constraintRejections, pendingZoneChecks)
     }
 }

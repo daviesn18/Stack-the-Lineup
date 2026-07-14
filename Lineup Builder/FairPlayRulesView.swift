@@ -29,6 +29,7 @@ struct FairPlayRulesView: View {
         && config.outfielderCount == 3
         && !config.noConsecutiveBench
         && !config.equalBenchTime
+        && !config.noRepeatPositions
         && config.minimumFieldingInnings == 0
         && config.minimumInfieldInnings == 0
         && config.minimumOutfieldInnings == 0
@@ -46,6 +47,7 @@ struct FairPlayRulesView: View {
                 benchRulesSection
                 fieldingMinimumsSection
                 batteryRestrictionsSection
+                autoFillSection
                 resetSection
             }
             .navigationTitle("Fair Play Rules")
@@ -83,6 +85,7 @@ struct FairPlayRulesView: View {
                             noConsecutiveBench: false,
                             noConsecutivePosition: false,
                             equalBenchTime: false,
+                            noRepeatPositions: false,
                             minimumFieldingInnings: 0,
                             minimumInfieldInnings: 0,
                             minimumOutfieldInnings: 0,
@@ -178,6 +181,16 @@ struct FairPlayRulesView: View {
             Text("Battery Restrictions")
         } footer: {
             Text("Catcher to Pitcher: a player who caught this many innings cannot pitch. Pitcher to Catcher: a player who pitched this many innings cannot catch. Set to Off to disable.")
+        }
+    }
+
+    private var autoFillSection: some View {
+        Section {
+            Toggle("No Repeat Positions", isOn: $config.noRepeatPositions)
+        } header: {
+            Text("Auto-Fill")
+        } footer: {
+            Text("When on, Auto-Fill tries to give each player a different field position every inning. If no fresh positions are available for a player, a repeat is allowed rather than leaving a slot unfilled.")
         }
     }
 

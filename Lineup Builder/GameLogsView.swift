@@ -862,6 +862,12 @@ struct GameLogRow: View {
             Text(log.opponent.isEmpty ? "No Opponent" : "vs. \(log.opponent)")
                 .font(.callout)
                 .foregroundColor(log.opponent.isEmpty ? .secondary : .primary)
+            if !log.notes.isEmpty {
+                Text(log.notes)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
             if !log.archivedBy.isEmpty {
                 Text("Archived by \(log.archivedBy)")
                     .font(.caption)

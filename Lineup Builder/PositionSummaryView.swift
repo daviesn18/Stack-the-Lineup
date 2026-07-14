@@ -19,17 +19,20 @@ struct PositionSummaryView: View {
     @Binding var showingAutoFillPopover: Bool
     var onFillThrough: (Int) -> Void
     var smartDefaultLastInning: Int
+    @Binding var autoFillPrompt: String
+    var isParsingAutoFillPrompt: Bool
 
     @State private var viewMode: SummaryViewMode = .byPlayer
 
-    // Pitch eligibility alert — fired when coach assigns an ineligible pitcher
-    // from the grid menu. Same pattern as PositionPickerView in DefensiveGridView.
-    @State private var pendingPitchAssignment: PendingAssignment? = nil
+    // Drives the Quick-Set Sheet — replaces the old per-cell dropdown Menu on
+    // both By Player and By Position. Pitch eligibility warnings are now
+    // handled inside the sheet itself (see QuickSetSheet).
+    @State private var quickSetTarget: QuickSetTarget? = nil
 
-    struct PendingAssignment {
-        let player: Player
+    struct QuickSetTarget: Identifiable {
+        let id = UUID()
+        let origin: QuickSetSheet.Origin
         let inning: Int
-        let status: PitchEligibilityStatus
     }
 
     // MARK: - Layout Constants
@@ -44,12 +47,22 @@ struct PositionSummaryView: View {
         return min(max(maxWidth + 20, 60), 160)
     }
 
-    let positionLabelWidth: CGFloat = 88
+    let positionLabelWidth: CGFloat = 52
     let minInningColumnWidth: CGFloat = 80
 
+    /// By Position scrolls horizontally when 7 innings won't fit, but expands to
+    // fill available width when they do (72pt is the minimum that renders
+    // "Drew S." style names without clipping).
+    let minByPositionColumnWidth: CGFloat = 72
+
+    func byPositionColumnWidth(availableWidth: CGFloat) -> CGFloat {
+        let remaining = availableWidth - positionLabelWidth
+        let ideal = remaining / CGFloat(inningCount)
+        return max(minByPositionColumnWidth, ideal)
+    }
+
     func inningColumnWidth(availableWidth: CGFloat) -> CGFloat {
-        let frozenWidth = viewMode == .byPlayer ? playerColumnWidth : positionLabelWidth
-        let remaining = availableWidth - frozenWidth
+        let remaining = availableWidth - playerColumnWidth
         let ideal = remaining / CGFloat(inningCount)
         return max(minInningColumnWidth, ideal)
     }
@@ -106,29 +119,15 @@ struct PositionSummaryView: View {
                     if viewMode == .byPlayer {
                         byPlayerTable(colWidth: colWidth, containerWidth: containerWidth)
                     } else if viewMode == .byPosition {
-                        byPositionTable(colWidth: colWidth, containerWidth: containerWidth)
+                        byPositionTable(colWidth: byPositionColumnWidth(availableWidth: containerWidth), containerWidth: containerWidth)
                     } else {
                         pitchingTable
                     }
                 }
             }
-            .alert("Pitch Eligibility Warning", isPresented: Binding(
-                get: { pendingPitchAssignment != nil },
-                set: { if !$0 { pendingPitchAssignment = nil } }
-            )) {
-                Button("Assign Pitcher Anyway", role: .destructive) {
-                    if let pending = pendingPitchAssignment {
-                        store.assignPosition(player: pending.player, inning: pending.inning, position: .pitcher)
-                    }
-                    pendingPitchAssignment = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingPitchAssignment = nil
-                }
-            } message: {
-                if let pending = pendingPitchAssignment {
-                    Text("\(pending.player.firstName) may not be eligible to pitch. \(pending.status.displayLabel). You can still assign this position if needed.")
-                }
+            .sheet(item: $quickSetTarget) { target in
+                QuickSetSheet(origin: target.origin, initialInning: target.inning)
+                    .environmentObject(store)
             }
         }
     }
@@ -136,57 +135,66 @@ struct PositionSummaryView: View {
     // MARK: - Title Bar
 
     private var titleBar: some View {
-        Group {
+        VStack(spacing: 10) {
             if verticalSizeClass == .compact {
                 HStack(spacing: 12) {
                     Text("Position Summary")
                         .font(.title2.bold())
                         .layoutPriority(1)
-                    boltMenuButton
-                    Picker("View", selection: $viewMode) {
-                        ForEach(SummaryViewMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 360)
+                    Spacer()
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                .padding(.top, 6)
             } else {
-                VStack(spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("Position Summary")
-                            .font(.largeTitle.bold())
-                        boltMenuButton
-                        Spacer()
-                    }
-                    Picker("View", selection: $viewMode) {
-                        ForEach(SummaryViewMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Position Summary")
+                        .font(.largeTitle.bold())
+                    Spacer()
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 8)
+            }
+
+            Picker("View", selection: $viewMode) {
+                ForEach(SummaryViewMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            // Auto-Fill is now a primary, always-visible action on the two
+            // assignment tabs -- replaces the old small bolt icon next to the
+            // title. Not shown on Pitching, which has its own assignment flow.
+            if viewMode != .pitching {
+                autoFillButton
+                    .padding(.horizontal, 16)
             }
         }
+        .padding(.bottom, 8)
     }
 
-    private var boltMenuButton: some View {
+    private var autoFillButton: some View {
         Button { onAutoFill() } label: {
-            Image(systemName: "bolt.fill")
-                .font(.title3)
-                .foregroundColor(purchaseManager.isPro ? .blue : Color(.systemGray3))
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                Text("Auto-Fill Open Positions")
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(purchaseManager.isPro ? Color.blue : Color(.systemGray3))
+            .cornerRadius(10)
         }
         .accessibilityLabel("Auto-Fill All Positions")
         .popover(isPresented: $showingAutoFillPopover, arrowEdge: .top) {
             AutoFillPopover(
                 isSummary: true,
                 smartDefaultLastInning: smartDefaultLastInning,
-                inningCount: store.lineup.innings.count
+                inningCount: store.lineup.innings.count,
+                prompt: $autoFillPrompt,
+                isParsingPrompt: isParsingAutoFillPrompt
             ) { scope in
                 if case .through(let last) = scope { onFillThrough(last) }
             }
@@ -196,16 +204,40 @@ struct PositionSummaryView: View {
 
     // MARK: - Cell Color
 
+    /// Category tint used for a filled cell's background (15% opacity per design tokens).
     private func cellColor(for position: FieldPosition?) -> Color {
         guard let position else { return .clear }
         if position.isAbsent   { return Color(.systemGray4).opacity(0.4) }
-        if position.isBench    { return Color.red.opacity(0.15) }
-        if position.isInfield  { return Color.blue.opacity(0.12) }
-        if position.isOutfield { return Color.green.opacity(0.12) }
+        if position.isBench    { return Color(red: 0.557, green: 0.557, blue: 0.576).opacity(0.15) }
+        if position.isInfield  { return Color(red: 0.0, green: 0.478, blue: 1.0).opacity(0.15) }
+        if position.isOutfield { return Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.15) }
         return .clear
     }
 
-    private func preferenceBorderColor(player: Player?, position: FieldPosition?) -> Color? {
+    /// Solid category color used for a filled cell's text (design tokens).
+    private func cellTextColor(for position: FieldPosition?) -> Color {
+        guard let position else { return .primary }
+        if position.isAbsent   { return Color(.systemGray) }
+        if position.isBench    { return Color(red: 0.557, green: 0.557, blue: 0.576) }
+        if position.isInfield  { return Color(red: 0.0, green: 0.478, blue: 1.0) }
+        if position.isOutfield { return Color(red: 0.204, green: 0.780, blue: 0.349) }
+        return .primary
+    }
+
+    /// True when this player's bench assignment in this inning is back-to-back
+    /// with another bench inning (immediately before or after). Derived per-cell,
+    /// not stored -- recomputed from the grid whenever it changes.
+    private func isBackToBackBench(player: Player, inning: Int) -> Bool {
+        guard store.lineup.innings[inning].position(for: player) == .bench else { return false }
+        let innings = store.lineup.innings
+        let prevIsBench = inning > 0 && innings[inning - 1].position(for: player) == .bench
+        let nextIsBench = inning < innings.count - 1 && innings[inning + 1].position(for: player) == .bench
+        return prevIsBench || nextIsBench
+    }
+
+    /// Small badge dot for Emergency/Never position-preference tiers (Pro only).
+    /// Replaces the old colored border overlay.
+    private func preferenceBadgeColor(player: Player?, position: FieldPosition?) -> Color? {
         guard purchaseManager.isPro,
               let player = player,
               let position = position,
@@ -306,16 +338,16 @@ struct PositionSummaryView: View {
                             .background(Color(.systemGray5))
                         Divider()
                         ForEach(Array(activeInfieldPositions.enumerated()), id: \.element) { idx, pos in
-                            positionLabelCell(pos.displayName, isEven: idx.isMultiple(of: 2))
+                            positionLabelCell(pos.rawValue, isEven: idx.isMultiple(of: 2))
                             Divider()
                         }
                         ForEach(Array(activeOutfieldPositions.enumerated()), id: \.element) { idx, pos in
-                            positionLabelCell(pos.displayName, isEven: idx.isMultiple(of: 2))
+                            positionLabelCell(pos.rawValue, isEven: idx.isMultiple(of: 2))
                             Divider()
                         }
                         positionSectionHeader("BENCH")
                         ForEach(0..<benchRowCount, id: \.self) { i in
-                            positionLabelCell(benchRowCount == 1 ? "Bench" : "Bench \(i + 1)", isEven: i.isMultiple(of: 2))
+                            positionLabelCell(benchRowCount == 1 ? "BN" : "BN \(i + 1)", isEven: i.isMultiple(of: 2))
                             Divider()
                         }
                     }
@@ -407,58 +439,43 @@ struct PositionSummaryView: View {
             return status.blocksAssignment ? status : nil
         }()
 
-        return Menu {
-            Section("Infield") {
-                ForEach(activeInfieldPositions, id: \.self) { pos in
-                    positionMenuButton(player: player, inning: inning, position: pos, current: position)
-                }
-            }
-            Section("Outfield") {
-                ForEach(activeOutfieldPositions, id: \.self) { pos in
-                    positionMenuButton(player: player, inning: inning, position: pos, current: position)
-                }
-            }
-            Section {
-                positionMenuButton(player: player, inning: inning, position: .bench, current: position)
-                positionMenuButton(player: player, inning: inning, position: .absent, current: position)
-            }
-            if position != nil {
-                Section {
-                    Button(role: .destructive) {
-                        store.removeAssignment(player: player, inning: inning)
-                    } label: {
-                        Label("Remove", systemImage: "xmark.circle")
-                    }
-                }
-            }
+        let backToBackBench = isBackToBackBench(player: player, inning: inning)
+
+        return Button {
+            quickSetTarget = QuickSetTarget(origin: .player(player), inning: inning)
         } label: {
             ZStack(alignment: .topTrailing) {
-                VStack(spacing: 1) {
+                Group {
                     if let pos = position {
                         Text(pos.rawValue)
-                            .font(.caption2.bold())
-                            .foregroundColor(pos.isAbsent ? Color(.systemGray) : .primary)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(cellTextColor(for: pos))
                     } else {
-                        Text("—")
-                            .font(.caption2)
-                            .foregroundStyle(.quaternary)
+                        Text("+")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color(red: 0.780, green: 0.780, blue: 0.800))
                     }
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 6, weight: .bold))
-                        .foregroundColor(.secondary)
                 }
                 .frame(width: colWidth, height: 40)
-                .background(pitchWarning != nil ? Color.red.opacity(0.12) : cellColor(for: position))
+                .background(pitchWarning != nil ? Color.red.opacity(0.12) : (position != nil ? cellColor(for: position) : Color(.systemBackground)))
+                .cornerRadius(8)
                 .overlay {
-                    if let borderColor = preferenceBorderColor(player: player, position: position) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .strokeBorder(borderColor, lineWidth: 2)
+                    if backToBackBench {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color.red, lineWidth: 1.5)
                     }
                 }
                 .contentShape(Rectangle())
 
-                // Red dot in top-right corner when pitcher is ineligible
-                if pitchWarning != nil {
+                // Preference badge (Emergency/Never tier, Pro only)
+                if let badgeColor = preferenceBadgeColor(player: player, position: position) {
+                    Circle()
+                        .fill(badgeColor)
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 4)
+                        .padding(.trailing, 4)
+                } else if pitchWarning != nil {
+                    // Red dot in top-right corner when pitcher is ineligible
                     Circle()
                         .fill(Color.red)
                         .frame(width: 6, height: 6)
@@ -467,6 +484,7 @@ struct PositionSummaryView: View {
                 }
             }
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: - By Position Slot Cell
@@ -482,121 +500,44 @@ struct PositionSummaryView: View {
             assignedPlayer = inningAssignment.player(at: position, in: store.players)
         }
 
-        return Menu {
-            Section("Assign Player") {
-                ForEach(displayPlayers) { player in
-                    let currentPos = inningAssignment.position(for: player)
-                    let isHere = (benchIndex == nil && currentPos == position)
-                               || (benchIndex != nil && currentPos == .bench
-                                   && assignedPlayer?.id == player.id)
-                    Button {
-                        store.assignPosition(player: player, inning: inning, position: position)
-                    } label: {
-                        HStack {
-                            if isHere {
-                                Text(styledStrikethrough(player.displayName))
-                            } else if let cp = currentPos {
-                                Text("\(player.shortName)  (\(cp.rawValue))")
-                            } else {
-                                Text(player.shortName)
-                            }
-                            Spacer()
-                            if isHere { Image(systemName: "checkmark") }
-                        }
+        return Button {
+            quickSetTarget = QuickSetTarget(origin: .position(position, benchIndex: benchIndex), inning: inning)
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if let player = assignedPlayer {
+                        Text("\(player.firstName) \(player.lastName.prefix(1)).")
+                            .font(.system(size: 13, weight: .bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .foregroundColor(cellTextColor(for: position))
+                    } else {
+                        Text("+")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color(red: 0.780, green: 0.780, blue: 0.800))
                     }
                 }
-            }
-            if let player = assignedPlayer {
-                Section {
-                    Button(role: .destructive) {
-                        store.removeAssignment(player: player, inning: inning)
-                    } label: {
-                        Label("Remove \(player.shortName)", systemImage: "xmark.circle")
+                .frame(width: colWidth, height: 40)
+                .background(assignedPlayer != nil ? cellColor(for: position) : Color(.systemBackground))
+                .cornerRadius(8)
+                .overlay {
+                    if let player = assignedPlayer, isBackToBackBench(player: player, inning: inning), position.isBench {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color.red, lineWidth: 1.5)
                     }
                 }
-            }
-        } label: {
-            VStack(spacing: 1) {
-                if let player = assignedPlayer {
-                    Text(player.shortName)
-                        .font(.caption2.bold())
-                        .lineLimit(1)
-                        .foregroundColor(.primary)
-                } else {
-                    Text("—")
-                        .font(.caption2)
-                        .foregroundStyle(.quaternary)
-                }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 6, weight: .bold))
-                    .foregroundColor(.secondary)
-            }
-            .frame(width: colWidth, height: 40)
-            .background(assignedPlayer != nil ? cellColor(for: position) : Color.clear)
-            .overlay {
-                if let borderColor = preferenceBorderColor(player: assignedPlayer, position: position) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(borderColor, lineWidth: 2)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-    }
+                .contentShape(Rectangle())
 
-    // MARK: - Menu Button Helpers
-
-    @ViewBuilder
-    private func positionMenuButton(player: Player, inning: Int, position: FieldPosition, current: FieldPosition?) -> some View {
-        let occupant = store.lineup.innings[inning].player(at: position, in: store.players)
-        let occupiedByOther = occupant != nil && occupant?.id != player.id && !position.isBench
-        let isCurrentPlayerPosition = current == position
-
-        Button {
-            // Check pitch eligibility before assigning the pitcher slot
-            if position == .pitcher, store.pitchingConfig.rulesEnabled {
-                let status = PitchEligibilityEngine.status(
-                    for: player,
-                    gameLogs: store.gameLogs,
-                    config: store.pitchingConfig,
-                    referenceDate: store.lineup.gameDate
-                )
-                if status.blocksAssignment {
-                    pendingPitchAssignment = PendingAssignment(
-                        player: player, inning: inning, status: status
-                    )
-                } else {
-                    store.assignPosition(player: player, inning: inning, position: position)
-                }
-            } else {
-                store.assignPosition(player: player, inning: inning, position: position)
-            }
-        } label: {
-            HStack {
-                if occupiedByOther, let other = occupant {
-                    Text("\(position.displayName) — \(other.firstName)")
-                        .strikethrough()
-                } else if isCurrentPlayerPosition {
-                    Text(styledStrikethrough(position.displayName))
-                } else {
-                    Text(position.displayName)
-                }
-                Spacer()
-                if isCurrentPlayerPosition {
-                    Image(systemName: "checkmark")
+                if let badgeColor = preferenceBadgeColor(player: assignedPlayer, position: position) {
+                    Circle()
+                        .fill(badgeColor)
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 4)
+                        .padding(.trailing, 4)
                 }
             }
         }
-    }
-
-    /// Strikethrough/italic/secondary attributed string used to indicate a stale
-    /// current value during a position swap (the player or position currently
-    /// occupying the slot before the new selection commits).
-    private func styledStrikethrough(_ name: String) -> AttributedString {
-        var str = AttributedString(name)
-        str.strikethroughStyle = .single
-        str.font = .callout.italic()
-        str.foregroundColor = .secondary
-        return str
+        .buttonStyle(.plain)
     }
 
     // MARK: - Pitching Table

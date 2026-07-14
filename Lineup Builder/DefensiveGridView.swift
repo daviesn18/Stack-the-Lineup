@@ -13,6 +13,8 @@ struct DefensiveGridView: View {
     @Binding var selectedTab: Int          // passed in from ContentView to navigate to Players tab
     @State private var showingTips = false
     @State private var showingPaywall = false
+    @State private var showingSaveTemplate = false
+    @State private var showingTemplatePaywall = false
 
     // Auto-Fill state
     @State private var showingAutoFillPopover = false
@@ -21,6 +23,20 @@ struct DefensiveGridView: View {
     @State private var showingUndo = false
     @State private var showingAutoFillIncomplete = false
     @State private var autoFillIncompleteMessage: String = ""
+
+    // NL Auto-Fill constraint prompt — resets after every fill (one-shot,
+    // not persisted between games). Parsing runs on-device via
+    // AutoFillNLConstraintService before AutoFillEngine is called.
+    @State private var autoFillPrompt: String = ""
+    @State private var isParsingAutoFillPrompt = false
+    @State private var showingAutoFillConstraintNotice = false
+    @State private var autoFillConstraintNoticeMessage: String = ""
+
+    // Owns the on-device LanguageModelSession. Rebuilt whenever the Auto-Fill
+    // popover opens so the roster and inning count baked into the session are
+    // always current, and prewarmed on open so the model-load and prefill cost
+    // is paid while the coach types rather than after they tap Fill.
+    @State private var nlService: AutoFillNLConstraintService? = nil
 
     // Clear positions state
     @State private var showingClearPopover = false     // inning view: anchored popover
@@ -77,11 +93,15 @@ struct DefensiveGridView: View {
                             },
                             showingAutoFillPopover: $showingAutoFillPopover,
                             onFillThrough: { lastInning in
-                                showingAutoFillPopover = false
                                 runAutoFill(scope: .through(lastInning))
                             },
-                            smartDefaultLastInning: smartDefaultLastInning
+                            smartDefaultLastInning: smartDefaultLastInning,
+                            autoFillPrompt: $autoFillPrompt,
+                            isParsingAutoFillPrompt: isParsingAutoFillPrompt
                         )
+                        .onChange(of: showingAutoFillPopover) { _, isShowing in
+                            if isShowing { prepareNLService() } else { teardownNLService() }
+                        }
 
                         // Summary view — clear all only, straight to confirm alert
                         if !isReadOnly { clearPositionsButton(isSummary: true) }
@@ -304,6 +324,11 @@ struct DefensiveGridView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                if !isReadOnly {
+                    saveAsTemplateBanner
+                }
+            }
             .sheet(item: $selectedPlayer) { player in
                 PositionPickerView(player: player, inning: selectedInning)
             }
@@ -315,6 +340,15 @@ struct DefensiveGridView: View {
             }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView(source: "autofill")
+                    .environmentObject(purchaseManager)
+            }
+            .sheet(isPresented: $showingSaveTemplate) {
+                TemplateLockEditorView()
+                    .environmentObject(store)
+                    .environmentObject(purchaseManager)
+            }
+            .sheet(isPresented: $showingTemplatePaywall) {
+                PaywallView(source: "lineup_template")
                     .environmentObject(purchaseManager)
             }
             // Confirmation alert for clearing all innings — used by both
@@ -333,6 +367,13 @@ struct DefensiveGridView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(autoFillIncompleteMessage)
+            }
+            // Shown when the NL prompt was honored but bypassed a Fair Play
+            // soft constraint, or couldn't be honored at all.
+            .alert("About Your Instructions", isPresented: $showingAutoFillConstraintNotice) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(autoFillConstraintNoticeMessage)
             }
             .onAppear {
                 // Show the Auto-Fill context tip once — only to Pro users who
@@ -460,10 +501,112 @@ struct DefensiveGridView: View {
         }
     }
 
+    // MARK: - Save as Template Banner
+    // Persistent bottom banner, visible in both Summary and by-inning modes
+    // since it lives in a safeAreaInset outside the showingSummary branch.
+
+    @ViewBuilder
+    var saveAsTemplateBanner: some View {
+        Button {
+            if store.lineupTemplates.isEmpty || purchaseManager.isPro {
+                showingSaveTemplate = true
+            } else {
+                showingTemplatePaywall = true
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.subheadline.bold())
+                Text("Save as Template")
+                    .font(.subheadline.bold())
+                Spacer()
+                if !store.lineupTemplates.isEmpty && !purchaseManager.isPro {
+                    ProBadge()
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundColor(Color(.tertiaryLabel))
+            }
+            .foregroundColor(.blue)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+        .background(Color(.systemBackground))
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(Color(.separator)),
+            alignment: .top
+        )
+    }
+
     // MARK: - Auto-Fill Logic
 
+    /// Builds a fresh NL service for the current roster and inning count and
+    /// warms the on-device model. Called when the Auto-Fill popover opens.
+    ///
+    /// This is the single biggest speed lever in the feature. The previous
+    /// version created a LanguageModelSession inside parse(), meaning every
+    /// Fill tap paid full model load plus instruction prefill before a single
+    /// token could be generated. Doing it here spends that cost during the
+    /// seconds the coach is already typing.
+    @MainActor
+    private func prepareNLService() {
+        let service = AutoFillNLConstraintService(
+            activePlayers: store.activeTeam.lineup.activePlayers(from: store.players),
+            inningCount: store.lineup.innings.count
+        )
+        service.prewarm()
+        nlService = service
+    }
+
+    /// Popover closed without a fill. Drop the session so we aren't holding
+    /// a warm model open indefinitely.
+    @MainActor
+    private func teardownNLService() {
+        nlService = nil
+    }
+
     func runAutoFill(scope: FillScope) {
+        Task { await performAutoFill(scope: scope) }
+    }
+
+    /// Parses the NL constraint prompt (if any), then runs AutoFillEngine.
+    /// A blank prompt, or an on-device parse failure, falls back to today's
+    /// unconstrained behavior rather than blocking the fill — a coach who
+    /// just wants the normal Auto-Fill shouldn't be interrupted by an
+    /// Apple Intelligence availability check they never asked to trigger.
+    ///
+    /// The popover is intentionally kept open (not dismissed) until this
+    /// whole operation finishes, so the "Reading your instructions..."
+    /// spinner is actually visible while parsing runs — dismissing the
+    /// popover immediately on tap (the previous behavior) closed it before
+    /// the spinner ever got a chance to render.
+    @MainActor
+    private func performAutoFill(scope: FillScope) async {
         let snapshot = store.activeTeam.lineup.innings
+        let prompt = autoFillPrompt
+
+        var constraints = AutoFillConstraintSet.empty
+        var parseDiagnosticMessage: String? = nil
+
+        if !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            isParsingAutoFillPrompt = true
+            let parseResult = await parseAutoFillPromptWithTimeout(prompt: prompt)
+            constraints = parseResult.constraints
+            parseDiagnosticMessage = parseResult.diagnosticMessage
+            Analytics.signal("autofill.nl_prompt_used", parameters: [
+                "constraintCount": "\(constraints.playerConstraints.count)",
+                "diagnosticCount": "\(parseResult.diagnostics.count)"
+            ])
+            isParsingAutoFillPrompt = false
+        }
+
+        // Now that parsing has settled (success, fallback, or timeout),
+        // dismiss the popover — everything from here is fast, synchronous
+        // engine work.
+        showingAutoFillPopover = false
 
         let preferences = Dictionary(
             uniqueKeysWithValues: store.players.map { ($0.id, $0.positionPreferences) }
@@ -479,7 +622,8 @@ struct DefensiveGridView: View {
                 preferences: preferences,
                 config: store.fairPlayConfig,
                 pitchingConfig: store.pitchingConfig,
-                gameLogs: store.gameLogs
+                gameLogs: store.gameLogs,
+                constraints: constraints
             )
         case .through(let lastInning):
             result = AutoFillEngine.fillInnings(
@@ -489,7 +633,8 @@ struct DefensiveGridView: View {
                 preferences: preferences,
                 config: store.fairPlayConfig,
                 pitchingConfig: store.pitchingConfig,
-                gameLogs: store.gameLogs
+                gameLogs: store.gameLogs,
+                constraints: constraints
             )
         }
 
@@ -511,11 +656,35 @@ struct DefensiveGridView: View {
             }
         }
 
+        // Prompt is one-shot — clear it now that this fill has run, whether
+        // or not it produced any usable constraints.
+        autoFillPrompt = ""
+
         if result.hasUnfilledSlots {
             autoFillIncompleteMessage = buildAutoFillIncompleteMessage(from: result.unfilledSlots, scope: scope)
             // Small delay so the undo toast settles before the alert fires.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 showingAutoFillIncomplete = true
+            }
+        }
+
+        // Parse-side diagnostics (an instruction we couldn't resolve at all)
+        // and engine-side notices (an instruction we honored by bending a
+        // fair-play guideline) both belong in the same alert — from the
+        // coach's point of view they're all "here's what happened to what you
+        // asked for." Parse misses lead, since a skipped instruction is the
+        // more surprising outcome.
+        let engineNotice = result.constraintNoticeMessage(players: store.players)
+        let combinedNotice = [parseDiagnosticMessage, engineNotice]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+
+        if !combinedNotice.isEmpty {
+            autoFillConstraintNoticeMessage = combinedNotice
+            // Stack after the incomplete-fill alert if both fire.
+            let delay = result.hasUnfilledSlots ? 0.7 : 0.35
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                showingAutoFillConstraintNotice = true
             }
         }
 
@@ -527,6 +696,55 @@ struct DefensiveGridView: View {
             "filledCount": "\(result.filledCount)",
             "unfilledCount": "\(result.unfilledSlots.count)"
         ])
+    }
+
+    /// Races the NL parse against a timeout so a slow or stuck on-device model
+    /// call can never leave the coach staring at a spinner indefinitely. Falls
+    /// back to unconstrained after `timeout` elapses.
+    ///
+    /// With prewarming in place the session is already warm and the
+    /// instructions already prefilled by the time this runs, so a normal parse
+    /// should land well inside the timeout. The old 12s ceiling was sized for
+    /// a cold start on every call; 8s is a more honest bound now, and if the
+    /// model hasn't answered in 8 seconds with a warm session, waiting longer
+    /// is unlikely to help.
+    ///
+    /// Note: if the underlying model call ignores cancellation it may keep
+    /// running in the background after the timeout wins. That's harmless (the
+    /// result is discarded), just not free.
+    private func parseAutoFillPromptWithTimeout(
+        prompt: String,
+        timeout: Duration = .seconds(8)
+    ) async -> AutoFillNLParseResult {
+        // Prewarm should have built this on popover open. If it somehow
+        // didn't, build one now rather than skipping the parse.
+        let service = nlService ?? {
+            let s = AutoFillNLConstraintService(
+                activePlayers: store.activeTeam.lineup.activePlayers(from: store.players),
+                inningCount: store.lineup.innings.count
+            )
+            nlService = s
+            return s
+        }()
+
+        return await withTaskGroup(of: AutoFillNLParseResult.self) { group in
+            group.addTask { @MainActor in
+                do {
+                    return try await service.parse(prompt: prompt)
+                } catch {
+                    // Apple Intelligence unavailable, or the model call failed.
+                    // Proceed unconstrained rather than blocking the fill.
+                    return .empty
+                }
+            }
+            group.addTask { @MainActor in
+                try? await Task.sleep(for: timeout)
+                return .empty
+            }
+            let first = await group.next() ?? .empty
+            group.cancelAll()
+            return first
+        }
     }
 
     /// Builds a coach-readable explanation of why specific positions could not
@@ -691,12 +909,15 @@ struct DefensiveGridView: View {
             AutoFillPopover(
                 isSummary: false,
                 smartDefaultLastInning: smartDefaultLastInning,
-                inningCount: store.lineup.innings.count
+                inningCount: store.lineup.innings.count,
+                prompt: $autoFillPrompt,
+                isParsingPrompt: isParsingAutoFillPrompt
             ) { scope in
-                showingAutoFillPopover = false
                 runAutoFill(scope: scope)
             }
             .presentationCompactAdaptation(.popover)
+            .onAppear { prepareNLService() }
+            .onDisappear { teardownNLService() }
         }
     }
 
@@ -814,14 +1035,26 @@ struct AutoFillPopover: View {
     let isSummary: Bool
     let smartDefaultLastInning: Int
     let inningCount: Int
+    @Binding var prompt: String
+    let isParsingPrompt: Bool
     let onSelect: (DefensiveGridView.FillScope) -> Void
 
     @State private var selectedLastInning: Int
+    @FocusState private var promptFieldFocused: Bool
 
-    init(isSummary: Bool, smartDefaultLastInning: Int, inningCount: Int, onSelect: @escaping (DefensiveGridView.FillScope) -> Void) {
+    init(
+        isSummary: Bool,
+        smartDefaultLastInning: Int,
+        inningCount: Int,
+        prompt: Binding<String>,
+        isParsingPrompt: Bool,
+        onSelect: @escaping (DefensiveGridView.FillScope) -> Void
+    ) {
         self.isSummary = isSummary
         self.smartDefaultLastInning = smartDefaultLastInning
         self.inningCount = inningCount
+        self._prompt = prompt
+        self.isParsingPrompt = isParsingPrompt
         self.onSelect = onSelect
         self._selectedLastInning = State(initialValue: smartDefaultLastInning)
     }
@@ -849,6 +1082,36 @@ struct AutoFillPopover: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Optional adjustments")
+                    .font(.caption.bold())
+                    .foregroundColor(.secondary)
+                TextField(
+                    "e.g. \"Caleb pitches the first 2 innings\"",
+                    text: $prompt,
+                    axis: .vertical
+                )
+                .font(.caption)
+                .lineLimit(1...6)
+                .textFieldStyle(.roundedBorder)
+                .focused($promptFieldFocused)
+                .disabled(isParsingPrompt)
+
+                if isParsingPrompt {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Reading your instructions...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
             if !isSummary {
                 Button {
                     onSelect(.thisInning)
@@ -864,6 +1127,7 @@ struct AutoFillPopover: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 13)
                 }
+                .disabled(isParsingPrompt)
 
                 Divider()
             }
@@ -895,19 +1159,28 @@ struct AutoFillPopover: View {
                 Button {
                     onSelect(.through(selectedLastInning))
                 } label: {
-                    Text("Fill")
-                        .font(.subheadline.bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+                    HStack(spacing: 6) {
+                        if isParsingPrompt {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .tint(.white)
+                        }
+                        Text(isParsingPrompt ? "Reading instructions..." : "Fill")
+                            .font(.subheadline.bold())
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
                 }
+                .disabled(isParsingPrompt)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 13)
         }
         .frame(width: 280)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -1302,7 +1575,7 @@ struct PositionPickerView: View {
                     Text("Pitches available today")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                case .mustRest(let date):
+                case .mustRest:
                     Text("Must rest")
                         .font(.subheadline.bold())
                         .foregroundColor(.red)

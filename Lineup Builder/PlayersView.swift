@@ -1161,9 +1161,19 @@ struct PlayerFormView: View {
 
     // MARK: - Position Preferences Section (Pro)
 
+    // Only positions currently enabled under this team's Fair Play rules.
+    // Mirrors activeFieldPositions(config:) usage in DefensiveGridView and
+    // PositionSummaryView so preferences never show a position that can't
+    // actually be assigned (e.g. LCF/RCF when outfielderCount == 3, or
+    // Pitcher/Catcher when disabled).
+    private var availablePositions: [FieldPosition] {
+        store.lineup.activeFieldPositions(config: store.fairPlayConfig)
+            .filter { $0.isInfield || $0.isOutfield }
+    }
+
     private var positionPreferencesSection: some View {
         Section {
-            ForEach(FieldPosition.infieldPositions + FieldPosition.outfieldPositions, id: \.self) { position in
+            ForEach(availablePositions, id: \.self) { position in
                 preferenceRow(for: position)
             }
         } header: {

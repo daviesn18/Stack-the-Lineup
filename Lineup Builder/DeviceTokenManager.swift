@@ -116,7 +116,7 @@ final class DeviceTokenManager {
             let (results, _) = try await db.records(matching: query)
             for (recordID, result) in results {
                 if case .success = result {
-                    try? await db.deleteRecord(withID: recordID)
+                    _ = try? await db.deleteRecord(withID: recordID)
                 }
             }
             print("🗑️ Removed DeviceToken records for team \(teamID.prefix(8))...")

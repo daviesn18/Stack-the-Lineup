@@ -261,7 +261,7 @@ enum ICalParser {
     // MARK: - iCal String Unescaping
 
     /// RFC 5545: TEXT values escape commas, semicolons, backslashes, and newlines.
-    private static func unescape(_ s: String) -> String {
+    nonisolated private static func unescape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\,", with: ",")
          .replacingOccurrences(of: "\\;", with: ";")
          .replacingOccurrences(of: "\\n", with: "\n")

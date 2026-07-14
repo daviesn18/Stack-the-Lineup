@@ -217,6 +217,19 @@ actor CloudKitManager {
             freshRecord[modifiedAtField] = localModifiedAt as CKRecordValue
             let saved = try await (useSharedDB ? sharedDB : privateDB).save(freshRecord)
             recordCache[saved.recordID.recordName] = saved
+        } catch {
+            // Any other failure. For participant saves (sharedDB) this is the
+            // signal that a coach's edit silently failed to reach the head
+            // coach's zone — the key "is it working" failure mode.
+            if useSharedDB {
+                Task { @MainActor in
+                    Analytics.signal("sharing.sync.failed", parameters: [
+                        "stage": "participantSave",
+                        "error": error.localizedDescription
+                    ])
+                }
+            }
+            throw error
         }
     }
     
@@ -393,7 +406,18 @@ actor CloudKitManager {
     /// the CKShare record for each zone, letting us read the current participant's
     /// permission and set isReadOnly correctly rather than hardcoding it.
     func fetchSharedTeams() async throws -> [Team] {
-        let zones = try await sharedDB.allRecordZones()
+        let zones: [CKRecordZone]
+        do {
+            zones = try await sharedDB.allRecordZones()
+        } catch {
+            Task { @MainActor in
+                Analytics.signal("sharing.sync.failed", parameters: [
+                    "stage": "fetchZones",
+                    "error": error.localizedDescription
+                ])
+            }
+            throw error
+        }
         guard !zones.isEmpty else { return [] }
 
         let jsonKey   = self.jsonField
@@ -430,6 +454,12 @@ actor CloudKitManager {
                     case .success:
                         continuation.resume()
                     case .failure(let error):
+                        Task { @MainActor in
+                            Analytics.signal("sharing.sync.failed", parameters: [
+                                "stage": "fetchZoneChanges",
+                                "error": error.localizedDescription
+                            ])
+                        }
                         continuation.resume(throwing: error)
                     }
                 }
@@ -459,6 +489,14 @@ actor CloudKitManager {
             }
             for i in zoneTeams.indices { zoneTeams[i].isReadOnly = isReadOnly }
             result.append(contentsOf: zoneTeams)
+        }
+
+        // Fired whenever shared teams successfully materialize from the shared DB.
+        // Pair with team.share.accepted: accepted minus synced surfaces silent
+        // join failures (invite accepted but the zone never delivered records).
+        let syncedCount = result.count
+        Task { @MainActor in
+            Analytics.signal("sharing.synced", parameters: ["teamCount": "\(syncedCount)"])
         }
 
         return result

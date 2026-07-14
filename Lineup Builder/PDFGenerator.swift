@@ -359,7 +359,6 @@ class PDFGenerator {
             let wPlayer = w * pct.player
             let wThrown = w * pct.thrown
             let wAvail  = w * pct.avail
-            let wStatus = w * pct.status
 
             // Header row
             let hRect = CGRect(x: originX, y: ty, width: w, height: rowHeight)

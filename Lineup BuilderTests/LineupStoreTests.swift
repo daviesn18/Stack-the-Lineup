@@ -219,4 +219,46 @@ final class LineupStoreTests: XCTestCase {
         XCTAssertEqual(store.lineup.innings.count, 5, "Clear should preserve inning count")
         XCTAssertTrue(store.lineup.innings[0].assignments.isEmpty)
     }
+
+    // MARK: - shouldPreferCloudBlob (sync freshness)
+
+    // The iCloud KV copy must only shadow local data when it is strictly newer.
+    // Missing timestamps (legacy blobs) sort oldest; ties prefer local. This is
+    // the guard against the July 2026 KV clobber incident.
+
+    private let blob = Data("x".utf8)
+
+    func testCloudBlobIgnoredWhenAbsent() {
+        XCTAssertFalse(LineupStore.shouldPreferCloudBlob(
+            cloudData: nil, cloudSavedAt: 999, localData: blob, localSavedAt: 0))
+        XCTAssertFalse(LineupStore.shouldPreferCloudBlob(
+            cloudData: nil, cloudSavedAt: 0, localData: nil, localSavedAt: 0))
+    }
+
+    func testCloudBlobUsedWhenNoLocalData() {
+        XCTAssertTrue(LineupStore.shouldPreferCloudBlob(
+            cloudData: blob, cloudSavedAt: 0, localData: nil, localSavedAt: 0),
+            "First launch on a new device should adopt the synced blob even without a timestamp")
+    }
+
+    func testNewerCloudBlobWins() {
+        XCTAssertTrue(LineupStore.shouldPreferCloudBlob(
+            cloudData: blob, cloudSavedAt: 200, localData: blob, localSavedAt: 100))
+    }
+
+    func testOlderCloudBlobLoses() {
+        XCTAssertFalse(LineupStore.shouldPreferCloudBlob(
+            cloudData: blob, cloudSavedAt: 100, localData: blob, localSavedAt: 200))
+    }
+
+    func testTieAndLegacyBlobsPreferLocal() {
+        XCTAssertFalse(LineupStore.shouldPreferCloudBlob(
+            cloudData: blob, cloudSavedAt: 150, localData: blob, localSavedAt: 150))
+        // Both legacy (no timestamps): local device's own data must win.
+        XCTAssertFalse(LineupStore.shouldPreferCloudBlob(
+            cloudData: blob, cloudSavedAt: 0, localData: blob, localSavedAt: 0))
+        // Legacy cloud blob vs stamped local: local wins.
+        XCTAssertFalse(LineupStore.shouldPreferCloudBlob(
+            cloudData: blob, cloudSavedAt: 0, localData: blob, localSavedAt: 100))
+    }
 }

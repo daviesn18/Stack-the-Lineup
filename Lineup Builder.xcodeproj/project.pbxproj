@@ -7,11 +7,21 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		720774422FDCAAE300D4E8CE /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 720774412FDCAAE300D4E8CE /* WidgetKit.framework */; };
+		720774442FDCAAE300D4E8CE /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 720774432FDCAAE300D4E8CE /* SwiftUI.framework */; };
+		720774532FDCAAE500D4E8CE /* STLWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		720CE3CF2F68AEC400116C0A /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 720CE3CE2F68AEC400116C0A /* FoundationModels.framework */; };
 		72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = 72546BC92F80860600EE5B9E /* TelemetryDeck */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		720774512FDCAAE500D4E8CE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 720846EF2F53C48900F70E89 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7207743F2FDCAAE300D4E8CE;
+			remoteInfo = STLWidgetExtension;
+		};
 		720847052F53C48B00F70E89 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 720846EF2F53C48900F70E89 /* Project object */;
@@ -35,7 +45,25 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		720774542FDCAAE500D4E8CE /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				720774532FDCAAE500D4E8CE /* STLWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = STLWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		720774412FDCAAE300D4E8CE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		720774432FDCAAE300D4E8CE /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		7207745B2FDCABBE00D4E8CE /* STLWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = STLWidgetExtension.entitlements; sourceTree = "<group>"; };
 		720846F72F53C48900F70E89 /* Lineup Builder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Lineup Builder.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -44,6 +72,21 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		720774582FDCAAE500D4E8CE /* Exceptions for "STLWidget" folder in "STLWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				WidgetSnapshot.swift,
+			);
+			target = 7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */;
+		};
+		7207745F2FDCABFF00D4E8CE /* Exceptions for "Lineup Builder" folder in "STLWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				WidgetSnapshot.swift,
+			);
+			target = 7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */;
+		};
 		72C3BC042FA82FD900E05F30 /* Exceptions for "Lineup Builder" folder in "Lineup Builder" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -54,10 +97,19 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		720774452FDCAAE300D4E8CE /* STLWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				720774582FDCAAE500D4E8CE /* Exceptions for "STLWidget" folder in "STLWidgetExtension" target */,
+			);
+			path = STLWidget;
+			sourceTree = "<group>";
+		};
 		720846F92F53C48900F70E89 /* Lineup Builder */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				72C3BC042FA82FD900E05F30 /* Exceptions for "Lineup Builder" folder in "Lineup Builder" target */,
+				7207745F2FDCABFF00D4E8CE /* Exceptions for "Lineup Builder" folder in "STLWidgetExtension" target */,
 			);
 			path = "Lineup Builder";
 			sourceTree = "<group>";
@@ -75,6 +127,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		7207743D2FDCAAE300D4E8CE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				720774442FDCAAE300D4E8CE /* SwiftUI.framework in Frameworks */,
+				720774422FDCAAE300D4E8CE /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		720846F42F53C48900F70E89 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -111,9 +172,11 @@
 		720846EE2F53C48900F70E89 = {
 			isa = PBXGroup;
 			children = (
+				7207745B2FDCABBE00D4E8CE /* STLWidgetExtension.entitlements */,
 				720846F92F53C48900F70E89 /* Lineup Builder */,
 				720847072F53C48B00F70E89 /* Lineup BuilderTests */,
 				720847112F53C48B00F70E89 /* Lineup BuilderUITests */,
+				720774452FDCAAE300D4E8CE /* STLWidget */,
 				720CE3CD2F68AEC400116C0A /* Frameworks */,
 				720846F82F53C48900F70E89 /* Products */,
 			);
@@ -126,6 +189,7 @@
 				720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */,
 				7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */,
 				728924FE2FA11FCC0088F25D /* StackTheLineupTests.xctest */,
+				720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -134,6 +198,8 @@
 			isa = PBXGroup;
 			children = (
 				720CE3CE2F68AEC400116C0A /* FoundationModels.framework */,
+				720774412FDCAAE300D4E8CE /* WidgetKit.framework */,
+				720774432FDCAAE300D4E8CE /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -141,6 +207,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 720774572FDCAAE500D4E8CE /* Build configuration list for PBXNativeTarget "STLWidgetExtension" */;
+			buildPhases = (
+				7207743C2FDCAAE300D4E8CE /* Sources */,
+				7207743D2FDCAAE300D4E8CE /* Frameworks */,
+				7207743E2FDCAAE300D4E8CE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				720774452FDCAAE300D4E8CE /* STLWidget */,
+			);
+			name = STLWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = STLWidgetExtension;
+			productReference = 720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		720846F62F53C48900F70E89 /* Lineup Builder */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 720847182F53C48B00F70E89 /* Build configuration list for PBXNativeTarget "Lineup Builder" */;
@@ -148,10 +236,12 @@
 				720846F32F53C48900F70E89 /* Sources */,
 				720846F42F53C48900F70E89 /* Frameworks */,
 				720846F52F53C48900F70E89 /* Resources */,
+				720774542FDCAAE500D4E8CE /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				720774522FDCAAE500D4E8CE /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				720846F92F53C48900F70E89 /* Lineup Builder */,
@@ -237,9 +327,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2640;
+				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					7207743F2FDCAAE300D4E8CE = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					720846F62F53C48900F70E89 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -278,11 +371,19 @@
 				720847032F53C48B00F70E89 /* Lineup BuilderTests */,
 				7208470D2F53C48B00F70E89 /* Lineup BuilderUITests */,
 				728924FD2FA11FCC0088F25D /* StackTheLineupTests */,
+				7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		7207743E2FDCAAE300D4E8CE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		720846F52F53C48900F70E89 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -314,6 +415,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		7207743C2FDCAAE300D4E8CE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		720846F32F53C48900F70E89 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -345,6 +453,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		720774522FDCAAE500D4E8CE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */;
+			targetProxy = 720774512FDCAAE500D4E8CE /* PBXContainerItemProxy */;
+		};
 		720847062F53C48B00F70E89 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 720846F62F53C48900F70E89 /* Lineup Builder */;
@@ -363,6 +476,73 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		720774552FDCAAE500D4E8CE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = STLWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6R6HA6RU2S;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = STLWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = STLWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder.STLWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		720774562FDCAAE500D4E8CE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = STLWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6R6HA6RU2S;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = STLWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = STLWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder.STLWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		720847162F53C48B00F70E89 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -491,7 +671,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "Lineup Builder/Lineup Builder.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 30;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
 				ENABLE_APP_SANDBOX = YES;
@@ -517,7 +697,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 3.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -542,7 +722,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "Lineup Builder/Lineup Builder.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 30;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
 				ENABLE_APP_SANDBOX = YES;
@@ -568,7 +748,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 3.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -741,6 +921,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		720774572FDCAAE500D4E8CE /* Build configuration list for PBXNativeTarget "STLWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				720774552FDCAAE500D4E8CE /* Debug */,
+				720774562FDCAAE500D4E8CE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		720846F22F53C48900F70E89 /* Build configuration list for PBXProject "Lineup Builder" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

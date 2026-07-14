@@ -11,6 +11,7 @@ struct GameLogDetailView: View {
     let log: GameLog
 
     @State private var showingPitchCountEdit = false
+    @State private var showingNotesEdit = false
 
     private var archivedAtString: String {
         let f = DateFormatter()
@@ -160,7 +161,49 @@ struct GameLogDetailView: View {
                     .padding(.bottom, 8)
 
                 ArchivedPositionGridView(log: log)
-                    .padding(.bottom, 32)
+
+                // Game Notes
+                HStack {
+                    Text("Game Notes")
+                        .font(.headline)
+                    Spacer()
+                    Button {
+                        showingNotesEdit = true
+                    } label: {
+                        Label(
+                            log.notes.isEmpty ? "Add" : "Edit",
+                            systemImage: log.notes.isEmpty ? "plus.circle" : "pencil"
+                        )
+                        .font(.subheadline)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 24)
+                .padding(.bottom, 8)
+
+                GroupBox {
+                    if log.notes.isEmpty {
+                        Button {
+                            showingNotesEdit = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "note.text")
+                                    .foregroundStyle(.secondary)
+                                Text("No notes recorded. Tap Add to write some.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        Text(log.notes)
+                            .font(.callout)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 32)
             }
         }
         .navigationTitle(log.opponent.isEmpty ? "Game Log" : "vs. \(log.opponent)")
@@ -168,6 +211,10 @@ struct GameLogDetailView: View {
         .background(Color(.systemGroupedBackground))
         .sheet(isPresented: $showingPitchCountEdit) {
             RetroactivePitchCountSheet(log: log)
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showingNotesEdit) {
+            NotesEditSheet(log: log)
                 .environmentObject(store)
         }
     }
@@ -381,6 +428,48 @@ private struct RetroactivePitcherPickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Notes Edit Sheet
+
+private struct NotesEditSheet: View {
+    @EnvironmentObject var store: LineupStore
+    @Environment(\.dismiss) var dismiss
+
+    let log: GameLog
+    @State private var notes: String
+
+    init(log: GameLog) {
+        self.log = log
+        self._notes = State(initialValue: log.notes)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextEditor(text: $notes)
+                        .frame(minHeight: 120)
+                } footer: {
+                    Text("Score, standout moments, coaching reminders for next time.")
+                }
+            }
+            .navigationTitle("Game Notes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        store.updateGameLogNotes(notes, for: log.id)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
                 }
             }
         }

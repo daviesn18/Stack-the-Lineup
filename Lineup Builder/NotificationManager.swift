@@ -34,7 +34,32 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        let eventType = notification.request.content.userInfo["eventType"] as? String ?? "unknown"
+        Task { @MainActor in
+            Analytics.signal("push.received", parameters: [
+                "eventType": eventType,
+                "state": "foreground"
+            ])
+        }
         completionHandler([.banner, .sound])
+    }
+
+    /// Fired when the user taps a notification (from lock screen, banner, or
+    /// notification center). This is the common delivery path, since most
+    /// pushes arrive while the app is backgrounded.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let eventType = response.notification.request.content.userInfo["eventType"] as? String ?? "unknown"
+        Task { @MainActor in
+            Analytics.signal("push.received", parameters: [
+                "eventType": eventType,
+                "state": "tapped"
+            ])
+        }
+        completionHandler()
     }
 
     // MARK: - Permission
@@ -105,9 +130,17 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 let (_, response) = try await URLSession.shared.data(for: request)
                 if let http = response as? HTTPURLResponse {
                     print("🔔 Worker response: \(http.statusCode) for \(eventType)")
+                    Analytics.signal("push.sent", parameters: [
+                        "eventType": eventType,
+                        "status": "\(http.statusCode)"
+                    ])
                 }
             } catch {
                 print("⚠️ Worker POST failed: \(error.localizedDescription)")
+                Analytics.signal("push.sent", parameters: [
+                    "eventType": eventType,
+                    "status": "network_error"
+                ])
             }
         }
     }

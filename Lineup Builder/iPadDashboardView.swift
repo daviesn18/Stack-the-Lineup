@@ -906,6 +906,14 @@ struct DetailPaneView: View {
     @State private var showingAutoFillIncomplete = false
     @State private var autoFillIncompleteMessage: String = ""
 
+    // NL Auto-Fill constraint prompt — resets after every fill, mirrors
+    // the iPhone DefensiveGridView implementation.
+    @State private var autoFillPrompt: String = ""
+    @State private var isParsingAutoFillPrompt = false
+    @State private var showingAutoFillConstraintNotice = false
+    @State private var autoFillConstraintNoticeMessage: String = ""
+    @State private var nlService: AutoFillNLConstraintService? = nil
+
     private var smartDefaultLastInning: Int {
         for i in stride(from: store.lineup.innings.count - 1, through: 0, by: -1) {
             if !store.lineup.innings[i].assignments.isEmpty { return i }
@@ -915,6 +923,151 @@ struct DetailPaneView: View {
 
     private var hasAnyAssignments: Bool {
         store.lineup.innings.contains { !$0.assignments.isEmpty }
+    }
+
+    @MainActor
+    private func prepareNLService() {
+        let service = AutoFillNLConstraintService(
+            activePlayers: store.activeTeam.lineup.activePlayers(from: store.players),
+            inningCount: store.lineup.innings.count
+        )
+        service.prewarm()
+        nlService = service
+    }
+
+    @MainActor
+    private func teardownNLService() {
+        nlService = nil
+    }
+
+    /// Parses the NL constraint prompt (if any), then runs AutoFillEngine
+    /// for the summary view's "Fill Innings 1–N" action. Mirrors
+    /// DefensiveGridView.performAutoFill on iPhone — a blank prompt, or an
+    /// on-device parse failure, falls back to unconstrained behavior.
+    @MainActor
+    private func performAutoFill(through lastInning: Int) async {
+        let prompt = autoFillPrompt
+
+        var constraints = AutoFillConstraintSet.empty
+        var parseDiagnosticMessage: String? = nil
+
+        if !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            isParsingAutoFillPrompt = true
+            let parseResult = await parseAutoFillPromptWithTimeout(prompt: prompt)
+            constraints = parseResult.constraints
+            parseDiagnosticMessage = parseResult.diagnosticMessage
+            Analytics.signal("autofill.nl_prompt_used", parameters: [
+                "constraintCount": "\(constraints.playerConstraints.count)",
+                "diagnosticCount": "\(parseResult.diagnostics.count)"
+            ])
+            isParsingAutoFillPrompt = false
+        }
+
+        // Parsing has settled — dismiss the popover now rather than the
+        // instant Fill was tapped, so the spinner was actually visible
+        // while the on-device parse was in flight.
+        showingAutoFillPopover = false
+
+        let prefs = Dictionary(
+            uniqueKeysWithValues: store.players.map { ($0.id, $0.positionPreferences) }
+        )
+        let result = AutoFillEngine.fillInnings(
+            through: lastInning,
+            in: store.lineup,
+            players: store.players,
+            preferences: prefs,
+            config: store.fairPlayConfig,
+            pitchingConfig: store.pitchingConfig,
+            gameLogs: store.gameLogs,
+            constraints: constraints
+        )
+
+        if result.filledCount > 0 {
+            store.activeTeam.lineup = result.lineup
+            store.save()
+        }
+
+        autoFillPrompt = ""
+
+        if result.hasUnfilledSlots,
+           let message = result.incompleteMessage(multiInning: true) {
+            autoFillIncompleteMessage = message
+            showingAutoFillIncomplete = true
+        }
+
+        // Parse-side diagnostics (an instruction we couldn't resolve at all)
+        // and engine-side notices (an instruction we honored by bending a
+        // fair-play guideline) both belong in the same alert — from the
+        // coach's point of view they're all "here's what happened to what you
+        // asked for." Parse misses lead, since a skipped instruction is the
+        // more surprising outcome.
+        let engineNotice = result.constraintNoticeMessage(players: store.players)
+        let combinedNotice = [parseDiagnosticMessage, engineNotice]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+
+        if !combinedNotice.isEmpty {
+            autoFillConstraintNoticeMessage = combinedNotice
+            let delay = result.hasUnfilledSlots ? 0.35 : 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                showingAutoFillConstraintNotice = true
+            }
+        }
+
+        Analytics.signal("autofill.used", parameters: [
+            "mode": "range",
+            "filledCount": "\(result.filledCount)",
+            "unfilledCount": "\(result.unfilledSlots.count)"
+        ])
+    }
+
+    /// Races the NL parse against a timeout so a slow or stuck on-device model
+    /// call can never leave the coach staring at a spinner indefinitely. Falls
+    /// back to unconstrained after `timeout` elapses.
+    ///
+    /// With prewarming in place the session is already warm and the
+    /// instructions already prefilled by the time this runs, so a normal parse
+    /// should land well inside the timeout. The old 12s ceiling was sized for
+    /// a cold start on every call; 8s is a more honest bound now, and if the
+    /// model hasn't answered in 8 seconds with a warm session, waiting longer
+    /// is unlikely to help.
+    ///
+    /// Note: if the underlying model call ignores cancellation it may keep
+    /// running in the background after the timeout wins. That's harmless (the
+    /// result is discarded), just not free.
+    private func parseAutoFillPromptWithTimeout(
+        prompt: String,
+        timeout: Duration = .seconds(8)
+    ) async -> AutoFillNLParseResult {
+        // Prewarm should have built this on popover open. If it somehow
+        // didn't, build one now rather than skipping the parse.
+        let service = nlService ?? {
+            let s = AutoFillNLConstraintService(
+                activePlayers: store.activeTeam.lineup.activePlayers(from: store.players),
+                inningCount: store.lineup.innings.count
+            )
+            nlService = s
+            return s
+        }()
+
+        return await withTaskGroup(of: AutoFillNLParseResult.self) { group in
+            group.addTask { @MainActor in
+                do {
+                    return try await service.parse(prompt: prompt)
+                } catch {
+                    // Apple Intelligence unavailable, or the model call failed.
+                    // Proceed unconstrained rather than blocking the fill.
+                    return .empty
+                }
+            }
+            group.addTask { @MainActor in
+                try? await Task.sleep(for: timeout)
+                return .empty
+            }
+            let first = await group.next() ?? .empty
+            group.cancelAll()
+            return first
+        }
     }
 
     var body: some View {
@@ -988,30 +1141,15 @@ struct DetailPaneView: View {
                             },
                             showingAutoFillPopover: $showingAutoFillPopover,
                             onFillThrough: { lastInning in
-                                let prefs = Dictionary(
-                                    uniqueKeysWithValues: store.players.map { ($0.id, $0.positionPreferences) }
-                                )
-                                let result = AutoFillEngine.fillInnings(
-                                    through: lastInning,
-                                    in: store.lineup,
-                                    players: store.players,
-                                    preferences: prefs,
-                                    config: store.fairPlayConfig,
-                                    pitchingConfig: store.pitchingConfig,
-                                    gameLogs: store.gameLogs
-                                )
-                                if result.filledCount > 0 {
-                                    store.activeTeam.lineup = result.lineup
-                                    store.save()
-                                }
-                                if result.hasUnfilledSlots,
-                                   let message = result.incompleteMessage(multiInning: true) {
-                                    autoFillIncompleteMessage = message
-                                    showingAutoFillIncomplete = true
-                                }
+                                Task { await performAutoFill(through: lastInning) }
                             },
-                            smartDefaultLastInning: smartDefaultLastInning
+                            smartDefaultLastInning: smartDefaultLastInning,
+                            autoFillPrompt: $autoFillPrompt,
+                            isParsingAutoFillPrompt: isParsingAutoFillPrompt
                         )
+                        .onChange(of: showingAutoFillPopover) { _, isShowing in
+                            if isShowing { prepareNLService() } else { teardownNLService() }
+                        }
 
                         // Clear positions button — summary-only context, clears all innings
                         if hasAnyAssignments {
@@ -1078,6 +1216,11 @@ struct DetailPaneView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(autoFillIncompleteMessage)
+        }
+        .alert("About Your Instructions", isPresented: $showingAutoFillConstraintNotice) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(autoFillConstraintNoticeMessage)
         }
     }
 }

@@ -31,6 +31,17 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nickdavies.LineupBuilder.Lineup-Builder</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>stackthelineup</string>
+			</array>
+		</dict>
+	</array>
 	<key>CKSharingSupported</key>
 	<true/>
 	<key>LSApplicationQueriesSchemes</key>

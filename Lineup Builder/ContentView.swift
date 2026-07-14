@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 struct ContentView: View {
     @StateObject var store = LineupStore()
@@ -238,7 +239,10 @@ struct ContentView: View {
             )
         }
         .onOpenURL { url in
-            if url.pathExtension.lowercased() == "stlteam" {
+            if url.scheme == "stackthelineup" {
+                // Deep link from the home screen widget — jump straight to Lineup tab.
+                selectedTab = 1
+            } else if url.pathExtension.lowercased() == "stlteam" {
                 handleIncomingTeamURL(url)
             } else {
                 handleIncomingRosterURL(url)
@@ -259,6 +263,9 @@ struct ContentView: View {
                 store.load()
                 // Pull CloudKit changes (owned + shared teams) concurrently.
                 Task { await store.fetchCloudKitChanges() }
+                // Refresh the home screen widget so it reflects any changes made
+                // on another device or since the last app session.
+                WidgetCenter.shared.reloadAllTimelines()
                 // Check whether to show the archive nudge, after a short delay
                 // so the store has settled from load().
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

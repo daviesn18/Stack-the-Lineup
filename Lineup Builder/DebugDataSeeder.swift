@@ -117,10 +117,172 @@ enum DebugDataSeeder {
             store.insertDebugGameLog(log)
         }
 
+        // Seed a couple of lineup templates so the template picker/editor
+        // has real data to exercise, including overlapping-position variety.
+        for template in makeFakeTemplates() {
+            store.saveTemplate(template)
+        }
+
+        // Seed a schedule by running mock .ics text through the real
+        // ICalParser, exercising the actual import pipeline rather than
+        // hand-building ScheduledGame values. Lets Pick from Schedule,
+        // the upcoming-games filter, and practice/cancelled filtering all
+        // be tested against the other seeded data in the same team.
+        switch ICalParser.parse(data: makeFakeICalData()) {
+        case .success(let events):
+            let games = events.map { event in
+                ScheduledGame(
+                    icalUID: event.uid,
+                    date: event.date,
+                    opponent: event.opponent,
+                    location: event.location,
+                    rawSummary: event.rawSummary,
+                    isCancelled: event.isCancelled
+                )
+            }
+            store.mergeScheduledGames(games)
+            store.setCalendarSubscriptionURL("https://example.com/test-team.ics")
+        case .failure:
+            break // seeding tool only — the mock text below is known-good
+        }
+
         // Switch back to the original active team
         if let previousID = previousTeamID, previousID != testTeamID {
             store.switchTeam(to: previousID)
         }
+    }
+
+    // MARK: - Mock Schedule (.ics) Construction
+    // Builds real iCalendar text and runs it through ICalParser rather than
+    // hand-building ScheduledGame values, so seeding exercises the same
+    // pipeline a real GameChanger/LeagueApps export would go through.
+    // Covers: UTC datetime, TZID datetime, STATUS:CANCELLED, a practice
+    // event (should be filtered from "upcoming games" but still stored),
+    // and a same-opponent rematch against a team from the fake game logs.
+
+    private static func makeFakeICalData() -> Data {
+        let utcFormatter = DateFormatter()
+        utcFormatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        utcFormatter.timeZone = TimeZone(identifier: "UTC")
+
+        let localFormatter = DateFormatter()
+        localFormatter.dateFormat = "yyyyMMdd'T'HHmmss"
+        localFormatter.timeZone = TimeZone(identifier: "America/New_York")
+
+        func utcStamp(daysFromNow: Int, hour: Int, minute: Int) -> String {
+            var comps = DateComponents()
+            comps.day = daysFromNow
+            comps.hour = hour
+            comps.minute = minute
+            let date = Calendar.current.date(byAdding: comps, to: Calendar.current.startOfDay(for: Date()))!
+            return utcFormatter.string(from: date)
+        }
+
+        func localStamp(daysFromNow: Int, hour: Int, minute: Int) -> String {
+            var comps = DateComponents()
+            comps.day = daysFromNow
+            comps.hour = hour
+            comps.minute = minute
+            let date = Calendar.current.date(byAdding: comps, to: Calendar.current.startOfDay(for: Date()))!
+            return localFormatter.string(from: date)
+        }
+
+        let events: [String] = [
+            """
+            BEGIN:VEVENT
+            UID:stl-test-1@stackthelineup.debug
+            DTSTAMP:\(utcStamp(daysFromNow: 1, hour: 23, minute: 30))
+            DTSTART:\(utcStamp(daysFromNow: 1, hour: 23, minute: 30))
+            SUMMARY:Test Team @ Cardinals
+            LOCATION:Riverside Park Field 1
+            END:VEVENT
+            """,
+            """
+            BEGIN:VEVENT
+            UID:stl-test-2@stackthelineup.debug
+            DTSTAMP:\(utcStamp(daysFromNow: 3, hour: 22, minute: 0))
+            DTSTART:\(utcStamp(daysFromNow: 3, hour: 22, minute: 0))
+            SUMMARY:Warriors @ Wildcats
+            LOCATION:City Park Field 2
+            END:VEVENT
+            """,
+            """
+            BEGIN:VEVENT
+            UID:stl-test-3@stackthelineup.debug
+            DTSTAMP:\(localStamp(daysFromNow: 6, hour: 18, minute: 30))
+            DTSTART;TZID=America/New_York:\(localStamp(daysFromNow: 6, hour: 18, minute: 30))
+            SUMMARY:Test Team vs Tigers
+            LOCATION:Home Field
+            END:VEVENT
+            """,
+            """
+            BEGIN:VEVENT
+            UID:stl-test-4@stackthelineup.debug
+            DTSTAMP:\(utcStamp(daysFromNow: 5, hour: 23, minute: 0))
+            DTSTART:\(utcStamp(daysFromNow: 5, hour: 23, minute: 0))
+            SUMMARY:Test Team vs Eagles
+            STATUS:CANCELLED
+            END:VEVENT
+            """,
+            """
+            BEGIN:VEVENT
+            UID:stl-test-5@stackthelineup.debug
+            DTSTAMP:\(utcStamp(daysFromNow: 2, hour: 21, minute: 0))
+            DTSTART:\(utcStamp(daysFromNow: 2, hour: 21, minute: 0))
+            SUMMARY:Team Practice - Batting Cages
+            LOCATION:Indoor Facility
+            END:VEVENT
+            """,
+            """
+            BEGIN:VEVENT
+            UID:stl-test-6@stackthelineup.debug
+            DTSTAMP:\(utcStamp(daysFromNow: 10, hour: 22, minute: 30))
+            DTSTART:\(utcStamp(daysFromNow: 10, hour: 22, minute: 30))
+            SUMMARY:Test Team vs. Blue Jays
+            LOCATION:Eastside Complex
+            END:VEVENT
+            """,
+        ]
+
+        let text = "BEGIN:VCALENDAR\nVERSION:2.0\n" + events.joined(separator: "\n") + "\nEND:VCALENDAR"
+        return Data(text.utf8)
+    }
+
+    // MARK: - Template Construction
+    // Two templates covering different lock patterns: a standard home
+    // rotation with a pitcher/catcher platoon, and a shorter, more locked-down
+    // variant for testing a template with heavier coverage.
+
+    private static func makeFakeTemplates() -> [LineupTemplate] {
+        let jakeID   = fakePlayers.first { $0.firstName == "Jake" }!.id
+        let nateID   = fakePlayers.first { $0.firstName == "Nate" }!.id
+        let drewID   = fakePlayers.first { $0.firstName == "Drew" }!.id
+        let tylerID  = fakePlayers.first { $0.firstName == "Tyler" }!.id
+        let connorID = fakePlayers.first { $0.firstName == "Connor" }!.id
+        let battingOrder = fakePlayers.map { $0.id }
+
+        let homeRotation = LineupTemplate(
+            name: "Home Rotation",
+            battingOrder: battingOrder,
+            positionLocks: [
+                PositionLock(playerID: jakeID, position: .pitcher, innings: 0...1),
+                PositionLock(playerID: nateID, position: .pitcher, innings: 4...6),
+                PositionLock(playerID: tylerID, position: .catcher, innings: 0...2),
+                PositionLock(playerID: connorID, position: .shortstop, innings: 0...0),
+            ]
+        )
+
+        let awayRotation = LineupTemplate(
+            name: "Away Rotation — short bench",
+            battingOrder: battingOrder,
+            positionLocks: [
+                PositionLock(playerID: drewID, position: .pitcher, innings: 0...1),
+                PositionLock(playerID: jakeID, position: .pitcher, innings: 2...3),
+                PositionLock(playerID: tylerID, position: .catcher, innings: 0...5),
+            ]
+        )
+
+        return [homeRotation, awayRotation]
     }
 
     // MARK: - Game Log Construction
@@ -133,24 +295,34 @@ enum DebugDataSeeder {
         // Snapshots built from fakePlayers so IDs match the live roster
         let snapshots = fakePlayers.map { PlayerSnapshot(from: $0) }
 
-        // Pitch counts for the most recent game (-2 days) so eligibility warnings
-        // fire immediately when testing. Jake threw 55 pitches (3 rest days for ages 11-12),
-        // Nate threw 22 (1 rest day). Older games have no pitch data — realistic for
-        // a team that just enabled pitch tracking.
-        let jakeID   = fakePlayers.first { $0.firstName == "Jake" }?.id.uuidString ?? ""
-        let nateID   = fakePlayers.first { $0.firstName == "Nate" }?.id.uuidString ?? ""
-        let drewID   = fakePlayers.first { $0.firstName == "Drew" }?.id.uuidString ?? ""
-        let recentPitchCounts: [String: Int] = [
-            jakeID: 55,   // 3 rest days — ineligible for several days
-            nateID: 22,   // 1 rest day — ineligible today, available tomorrow
-            drewID: 12,   // 0 rest days — eligible
+        // Pitch counts spread across all 5 games rather than just the most
+        // recent one — needed to exercise the weekly rolling-window total,
+        // not just single-game rest day math. Jake and Nate pitch in the
+        // last two games (offsets -7 and -2, both inside a 7-day window),
+        // so their combined weekly totals should trip weekly-limit warnings
+        // if a team's PitchingConfig has one configured. Drew only shows up
+        // in a couple of games — realistic for a spot-start reliever.
+        let jakeID = fakePlayers.first { $0.firstName == "Jake" }?.id.uuidString ?? ""
+        let nateID = fakePlayers.first { $0.firstName == "Nate" }?.id.uuidString ?? ""
+        let drewID = fakePlayers.first { $0.firstName == "Drew" }?.id.uuidString ?? ""
+
+        let pitchCountsByGame: [[String: Int]] = [
+            // Game 0 — Tigers, 28 days ago
+            [jakeID: 40, nateID: 15],
+            // Game 1 — Blue Jays, 21 days ago
+            [drewID: 30, jakeID: 20],
+            // Game 2 — Cardinals, 14 days ago
+            [nateID: 45, drewID: 10],
+            // Game 3 — Marlins, 7 days ago (inside the rolling week with game 4)
+            [jakeID: 35, nateID: 18],
+            // Game 4 — Eagles, 2 days ago (most recent, drives current eligibility)
+            [jakeID: 55, nateID: 22, drewID: 12],
         ]
 
         return zip(zip(opponents, inningCounts), dayOffsets).enumerated().map { index, args in
             let ((opponent, innings), offset) = args
             let date = Date().addingTimeInterval(offset * 86_400)
-            // Only the most recent game (index 4, offset -2) gets pitch counts
-            let pitchCounts = index == 4 ? recentPitchCounts : [:]
+            let pitchCounts = pitchCountsByGame[index]
             return GameLog(
                 gameDate: date,
                 opponent: opponent,

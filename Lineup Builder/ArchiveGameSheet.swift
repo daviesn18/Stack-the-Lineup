@@ -26,6 +26,7 @@ struct ArchiveGameSheet: View {
     @State private var pitcherIDs: [UUID] = []
     @State private var pitchCounts: [UUID: String] = [:]
     @State private var showingAddPitcher = false
+    @State private var gameNotes: String = ""
 
     // MARK: - Computed
 
@@ -71,6 +72,7 @@ struct ArchiveGameSheet: View {
                 if purchaseManager.isPro {
                     pitchCountSection
                 }
+                notesSection
                 archiveSection
             }
             .navigationTitle("Archive Game")
@@ -191,6 +193,13 @@ struct ArchiveGameSheet: View {
         }
     }
 
+    private var notesSection: some View {
+        Section("Game Notes") {
+            TextField("Score, standout moments, reminders... (optional)", text: $gameNotes, axis: .vertical)
+                .lineLimit(3...6)
+        }
+    }
+
     private var archiveSection: some View {
         Section {
             Button {
@@ -237,7 +246,7 @@ struct ArchiveGameSheet: View {
 
     private func archiveGame() {
         archivedOpponent = opponentDisplay
-        let newLogID = store.archiveCurrentLineup(inningsPlayed: inningsPlayed)
+        let newLogID = store.archiveCurrentLineup(inningsPlayed: inningsPlayed, notes: gameNotes)
         onArchived?()
 
         // Save any pitch counts that were entered

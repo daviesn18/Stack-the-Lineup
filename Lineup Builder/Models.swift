@@ -292,6 +292,10 @@ struct FairPlayConfig: Codable, Sendable {
     var noConsecutivePosition: Bool = false
     /// Don't sit any player twice before everyone has sat once.
     var equalBenchTime: Bool = false
+    /// Auto-Fill tries to give each player a different field position in
+    /// every inning. Falls back to repeats when no fresh positions are
+    /// available rather than leaving a slot unfilled.
+    var noRepeatPositions: Bool = false
 
     // MARK: Fielding minimums
     /// Minimum fielding innings each active player must play.
@@ -326,6 +330,7 @@ struct FairPlayConfig: Codable, Sendable {
         noConsecutiveBench: Bool = true,
         noConsecutivePosition: Bool = false,
         equalBenchTime: Bool = false,
+        noRepeatPositions: Bool = false,
         minimumFieldingInnings: Int = 4,
         minimumInfieldInnings: Int = 1,
         minimumOutfieldInnings: Int = 1,
@@ -336,9 +341,10 @@ struct FairPlayConfig: Codable, Sendable {
         self.noPitcher = noPitcher
         self.noCatcher = noCatcher
         self.outfielderCount = outfielderCount
-        self.noConsecutiveBench = noConsecutiveBench
+        self.noConsecutiveBench    = noConsecutiveBench
         self.noConsecutivePosition = noConsecutivePosition
-        self.equalBenchTime = equalBenchTime
+        self.equalBenchTime        = equalBenchTime
+        self.noRepeatPositions     = noRepeatPositions
         self.minimumFieldingInnings = minimumFieldingInnings
         self.minimumInfieldInnings = minimumInfieldInnings
         self.minimumOutfieldInnings = minimumOutfieldInnings
@@ -355,6 +361,7 @@ struct FairPlayConfig: Codable, Sendable {
         noConsecutiveBench         = (try? c.decodeIfPresent(Bool.self,           forKey: .noConsecutiveBench))         ?? true
         noConsecutivePosition      = (try? c.decodeIfPresent(Bool.self,           forKey: .noConsecutivePosition))      ?? false
         equalBenchTime             = (try? c.decodeIfPresent(Bool.self,           forKey: .equalBenchTime))             ?? false
+        noRepeatPositions          = (try? c.decodeIfPresent(Bool.self,           forKey: .noRepeatPositions))          ?? false
         minimumFieldingInnings     = (try? c.decodeIfPresent(Int.self,            forKey: .minimumFieldingInnings))     ?? 4
         minimumInfieldInnings      = (try? c.decodeIfPresent(Int.self,            forKey: .minimumInfieldInnings))      ?? 1
         minimumOutfieldInnings     = (try? c.decodeIfPresent(Int.self,            forKey: .minimumOutfieldInnings))     ?? 1
@@ -718,6 +725,66 @@ struct Lineup: Codable, Sendable {
     }
 }
 
+// MARK: - Lineup Template
+// A reusable, partially-specified lineup. Unlike a saved Lineup, a template
+// does not require every cell to be filled. Position locks pin specific
+// players to specific positions for a range of innings (e.g. Caleb pitches
+// innings 1-2). Every cell not covered by a lock stays open for the coach
+// to fill manually or via AutoFillEngine, which already skips any slot that
+// already has an assignment — so no AutoFillEngine changes are needed to
+// respect locks.
+
+struct PositionLock: Codable, Identifiable, Sendable, Equatable {
+    var id: UUID = UUID()
+    var playerID: UUID
+    var position: FieldPosition
+    /// 0-based inning range, inclusive. e.g. 0...1 covers innings 1-2 on screen.
+    var innings: ClosedRange<Int>
+
+    init(id: UUID = UUID(), playerID: UUID, position: FieldPosition, innings: ClosedRange<Int>) {
+        self.id = id
+        self.playerID = playerID
+        self.position = position
+        self.innings = innings
+    }
+}
+
+struct LineupTemplate: Identifiable, Codable, Sendable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    /// Full batting order — always fully specified, no partial locks.
+    var battingOrder: [UUID]
+    /// Locked player/position/inning-range triples. Everything not covered
+    /// by a lock is left open in any lineup the template is applied to.
+    var positionLocks: [PositionLock]
+    var createdAt: Date = Date()
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        battingOrder: [UUID],
+        positionLocks: [PositionLock],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.battingOrder = battingOrder
+        self.positionLocks = positionLocks
+        self.createdAt = createdAt
+    }
+
+    // Custom decode: safe defaults so a future field addition doesn't break
+    // decoding of templates saved by an older build.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id            = (try? c.decode(UUID.self,            forKey: .id))            ?? UUID()
+        name          = (try? c.decode(String.self,          forKey: .name))          ?? ""
+        battingOrder  = (try? c.decode([UUID].self,           forKey: .battingOrder))  ?? []
+        positionLocks = (try? c.decode([PositionLock].self,   forKey: .positionLocks)) ?? []
+        createdAt     = (try? c.decode(Date.self,             forKey: .createdAt))     ?? Date()
+    }
+}
+
 // MARK: - PlayerSnapshot
 // Freezes player identity at archive time so historical logs remain accurate
 // even if a player is later renamed or deleted from the active roster.
@@ -756,6 +823,9 @@ struct GameLog: Identifiable, Codable, Sendable {
     /// Display name of the coach who archived this game. Empty for logs created
     /// before v3.0 or on single-coach teams.
     var archivedBy: String = ""
+    /// Freeform coach notes captured at archive time. Optional — empty for games
+    /// archived before v3.1. Editable retroactively from GameLogDetailView.
+    var notes: String = ""
 
     nonisolated var playedInnings: [InningAssignment] {
         Array(innings.prefix(inningsPlayed))
@@ -779,11 +849,13 @@ struct GameLog: Identifiable, Codable, Sendable {
         archivedAt     = (try? c.decode(Date.self,             forKey: .archivedAt))     ?? Date()
         pitchCounts    = (try? c.decodeIfPresent([String: Int].self, forKey: .pitchCounts)) ?? [:]
         archivedBy     = (try? c.decode(String.self, forKey: .archivedBy)) ?? ""
+        notes          = (try? c.decodeIfPresent(String.self, forKey: .notes)) ?? ""
     }
 
     init(id: UUID = UUID(), gameDate: Date, opponent: String, inningsPlayed: Int,
          battingOrder: [UUID], innings: [InningAssignment], playerSnapshot: [PlayerSnapshot],
-         archivedAt: Date = Date(), pitchCounts: [String: Int] = [:], archivedBy: String = "") {
+         archivedAt: Date = Date(), pitchCounts: [String: Int] = [:], archivedBy: String = "",
+         notes: String = "") {
         self.id             = id
         self.gameDate       = gameDate
         self.opponent       = opponent
@@ -794,6 +866,7 @@ struct GameLog: Identifiable, Codable, Sendable {
         self.archivedAt     = archivedAt
         self.pitchCounts    = pitchCounts
         self.archivedBy     = archivedBy
+        self.notes          = notes
     }
 }
 
@@ -883,6 +956,10 @@ struct Team: Identifiable, Codable {
     /// Used to route CloudKit saves to sharedDB instead of privateDB.
     /// Never persisted to the server blob -- always re-derived from the fetch path.
     var isSharedParticipant: Bool = false
+    /// Saved lineup templates for this team. First template is free; additional
+    /// templates are Pro-gated (checked at the UI layer via purchaseManager.isPro,
+    /// same pattern as Multiple Teams).
+    var lineupTemplates: [LineupTemplate] = []
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -907,7 +984,8 @@ struct Team: Identifiable, Codable {
         coachName: String = "",
         ckRecordName: String? = nil,
         isReadOnly: Bool = false,
-        isSharedParticipant: Bool = false
+        isSharedParticipant: Bool = false,
+        lineupTemplates: [LineupTemplate] = []
     ) {
         self.id = id
         self.name = name
@@ -925,6 +1003,7 @@ struct Team: Identifiable, Codable {
         self.ckRecordName = ckRecordName
         self.isReadOnly = isReadOnly
         self.isSharedParticipant = isSharedParticipant
+        self.lineupTemplates = lineupTemplates
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -955,6 +1034,8 @@ struct Team: Identifiable, Codable {
         // isSharedParticipant is never stored in the JSON blob -- it is always
         // re-derived from the fetch path (fetchSharedTeams sets it to true).
         isSharedParticipant      = false
+        // lineupTemplates is new in this release — older Team blobs won't include it.
+        lineupTemplates          = (try? c.decode([LineupTemplate].self, forKey: .lineupTemplates)) ?? []
     }
 }
 
@@ -1010,6 +1091,7 @@ class LineupStore: ObservableObject {
 
     // MARK: - Constants
     private let teamsKey      = "stl_teams"
+    private let savedAtKey    = "stl_teams_saved_at"
     private let activeTeamKey = "stl_active_team_id"
     private let maxGameLogs   = 20
 
@@ -1052,8 +1134,10 @@ class LineupStore: ObservableObject {
     /// a CloudKit push. Use when persisting metadata-only changes (e.g. ckRecordName
     /// stamps) that CloudKit already knows about, to avoid redundant round-trips.
     private func saveLocalOnly() {
-        let snapshot = teams
-        let activeID = activeTeamID?.uuidString
+        let snapshot   = teams
+        let activeID   = activeTeamID?.uuidString
+        let widgetTeam = activeTeam  // value copy — safe to capture in detached task
+        let savedAt    = Date().timeIntervalSince1970
 
         Task.detached(priority: .utility) {
             let encoder = JSONEncoder()
@@ -1062,6 +1146,7 @@ class LineupStore: ObservableObject {
             // Write to UserDefaults on main thread
             await MainActor.run {
                 UserDefaults.standard.set(data, forKey: "stl_teams")
+                UserDefaults.standard.set(savedAt, forKey: "stl_teams_saved_at")
                 if let id = activeID {
                     UserDefaults.standard.set(id, forKey: "stl_active_team_id")
                 }
@@ -1070,13 +1155,30 @@ class LineupStore: ObservableObject {
             // Write to iCloud KV store off main thread — synchronize() must
             // not be called on the main thread per Apple documentation.
             // KV store is kept as a fallback alongside CloudKit for v3.0.
+            //
+            // DEBUG builds never write the KV store: it is shared across every
+            // install of the bundle ID on the same Apple ID (no dev/prod split,
+            // unlike CloudKit), so a debug write here can clobber real devices.
+            // This caused the July 2026 data wipe.
+            #if !DEBUG
             let icloud = NSUbiquitousKeyValueStore.default
             if data.count < 800_000 {
                 icloud.set(data, forKey: "stl_teams")
+                icloud.set(savedAt, forKey: "stl_teams_saved_at")
                 if let id = activeID { icloud.set(id, forKey: "stl_active_team_id") }
                 icloud.synchronize()
             } else {
+                // The saved-at stamp is deliberately not written either: the KV
+                // copy stays frozen at its old timestamp, so applyStoredData()
+                // keeps preferring the newer local blob instead of the stale
+                // KV one.
                 print("⚠️ Teams blob exceeds iCloud KV safety threshold. Storing locally only.")
+            }
+            #endif
+
+            // Write lightweight snapshot to App Group container for the home screen widget.
+            await MainActor.run {
+                WidgetDataBridge.writeSnapshot(from: widgetTeam)
             }
         }
     }
@@ -1087,6 +1189,8 @@ class LineupStore: ObservableObject {
         // Register for iCloud change notifications so updates from other
         // devices are applied as soon as they arrive.
         // Guard against duplicate observers on re-load.
+        // DEBUG builds skip the KV store entirely — see applyStoredData().
+        #if !DEBUG
         NotificationCenter.default.removeObserver(
             self,
             name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
@@ -1106,6 +1210,7 @@ class LineupStore: ObservableObject {
         Task.detached(priority: .utility) {
             NSUbiquitousKeyValueStore.default.synchronize()
         }
+        #endif
 
         // One-time CloudKit migration — runs exactly once per install, gated by
         // hasCompletedCloudKitMigration in UserDefaults. Defers gracefully when
@@ -1133,21 +1238,63 @@ class LineupStore: ObservableObject {
         }
     }
 
-    /// Reads from iCloud KV store (preferred) then UserDefaults (fallback)
-    /// and applies the decoded data to the store. Safe to call multiple times.
+    /// Decides whether the iCloud KV copy of the teams blob should be applied
+    /// instead of the local UserDefaults copy. The newer save-timestamp wins;
+    /// a missing timestamp sorts oldest (legacy blobs), and ties prefer local
+    /// so a device's own data is never shadowed by stale shared sync state.
+    static func shouldPreferCloudBlob(cloudData: Data?, cloudSavedAt: TimeInterval,
+                                      localData: Data?, localSavedAt: TimeInterval) -> Bool {
+        guard cloudData != nil else { return false }
+        guard localData != nil else { return true }
+        return cloudSavedAt > localSavedAt
+    }
+
+    /// Reads the teams blob from UserDefaults and the iCloud KV store, applies
+    /// whichever copy has the newer save-timestamp, and decodes it into the
+    /// store. Safe to call multiple times. DEBUG builds read local data only —
+    /// the KV store is shared with production devices on the same Apple ID.
     ///
     /// SAFETY RULE: if storage contains data but it fails to decode, we return
     /// early without touching `teams`. This prevents a decode failure from
     /// cascading into migrateOrCreateDefaultTeam() which would overwrite iCloud
     /// with an empty team.
     private func applyStoredData() {
-        let icloud = NSUbiquitousKeyValueStore.default
         let decoder = JSONDecoder()
 
-        let teamsData = icloud.data(forKey: teamsKey) ?? UserDefaults.standard.data(forKey: teamsKey)
+        let localData = UserDefaults.standard.data(forKey: teamsKey)
+
+        #if DEBUG
+        let teamsData = localData
+        let savedID = UserDefaults.standard.string(forKey: activeTeamKey)
+        #else
+        let icloud = NSUbiquitousKeyValueStore.default
+        let preferCloud = Self.shouldPreferCloudBlob(
+            cloudData: icloud.data(forKey: teamsKey),
+            cloudSavedAt: icloud.double(forKey: savedAtKey),
+            localData: localData,
+            localSavedAt: UserDefaults.standard.double(forKey: savedAtKey)
+        )
+        let teamsData = preferCloud ? icloud.data(forKey: teamsKey) : localData
+        let savedID = preferCloud
+            ? (icloud.string(forKey: activeTeamKey) ?? UserDefaults.standard.string(forKey: activeTeamKey))
+            : (UserDefaults.standard.string(forKey: activeTeamKey) ?? icloud.string(forKey: activeTeamKey))
+        #endif
 
         if let data = teamsData {
             if let decoded = try? decoder.decode([Team].self, from: data) {
+                // Cheap clobber detection: an incoming blob carrying notably less
+                // data than what's already loaded is the signature of a sync wipe
+                // (July 2026 incident). Signal it so future variants are visible.
+                if !teams.isEmpty {
+                    let oldLogs = teams.reduce(0) { $0 + $1.gameLogs.count }
+                    let newLogs = decoded.reduce(0) { $0 + $1.gameLogs.count }
+                    if decoded.count < teams.count || newLogs < oldLogs {
+                        Analytics.signal("sync.blob_shrank", parameters: [
+                            "oldTeams": "\(teams.count)", "newTeams": "\(decoded.count)",
+                            "oldLogs": "\(oldLogs)", "newLogs": "\(newLogs)"
+                        ])
+                    }
+                }
                 // Happy path — data exists and decoded cleanly.
                 // Sort each team's game logs by gameDate descending — corrects any
                 // logs stored out of order due to the archive-order bug.
@@ -1167,8 +1314,6 @@ class LineupStore: ObservableObject {
         }
         // If teamsData is nil, fall through to migration — this is a genuine first launch.
 
-        let savedID = icloud.string(forKey: activeTeamKey)
-                      ?? UserDefaults.standard.string(forKey: activeTeamKey)
         if let idString = savedID, let uuid = UUID(uuidString: idString) {
             activeTeamID = uuid
         }
@@ -1433,7 +1578,7 @@ class LineupStore: ObservableObject {
     // MARK: - Game Log Operations
 
     @discardableResult
-    func archiveCurrentLineup(inningsPlayed: Int) -> UUID {
+    func archiveCurrentLineup(inningsPlayed: Int, notes: String = "") -> UUID {
         let snapshot = activeTeam.players.map { PlayerSnapshot(from: $0) }
 
         let coachName = activeTeam.coachName.trimmingCharacters(in: .whitespaces)
@@ -1444,7 +1589,8 @@ class LineupStore: ObservableObject {
             battingOrder: activeTeam.lineup.battingOrder,
             innings: activeTeam.lineup.innings,
             playerSnapshot: snapshot,
-            archivedBy: coachName
+            archivedBy: coachName,
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
         activeTeam.gameLogs.append(log)
@@ -1469,6 +1615,14 @@ class LineupStore: ObservableObject {
     func replacePitchCounts(_ counts: [String: Int], for logID: UUID) {
         guard let idx = activeTeam.gameLogs.firstIndex(where: { $0.id == logID }) else { return }
         activeTeam.gameLogs[idx].pitchCounts = counts
+        save()
+    }
+
+    /// Updates the freeform notes on an archived game log.
+    func updateGameLogNotes(_ notes: String, for logID: UUID) {
+        guard let idx = activeTeam.gameLogs.firstIndex(where: { $0.id == logID }) else { return }
+        activeTeam.gameLogs[idx].notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        Analytics.signal("gamelog.notes.updated")
         save()
     }
 
@@ -1757,6 +1911,69 @@ class LineupStore: ObservableObject {
         Analytics.signal("schedule.game.applied")
     }
 
+    // MARK: - Lineup Templates
+
+    /// Templates saved for the active team, most recent first.
+    var lineupTemplates: [LineupTemplate] {
+        activeTeam.lineupTemplates.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Saves a new template to the active team. Pro-gating (first template
+    /// free, additional templates require Pro) is enforced by the caller —
+    /// same pattern as Multiple Teams — this method performs no gating itself.
+    func saveTemplate(_ template: LineupTemplate) {
+        activeTeam.lineupTemplates.append(template)
+        Analytics.signal("template.saved", parameters: [
+            "templateCount": "\(activeTeam.lineupTemplates.count)"
+        ])
+        save()
+    }
+
+    func deleteTemplate(id: UUID) {
+        activeTeam.lineupTemplates.removeAll { $0.id == id }
+        Analytics.signal("template.deleted")
+        save()
+    }
+
+    /// Builds a fresh Lineup from a template, scoped to the active team's
+    /// current roster. Any locked player no longer on the active roster is
+    /// silently skipped — that cell (and any batting order slot) stays open
+    /// rather than surfacing a warning. Everything not covered by a lock is
+    /// left open for manual assignment or AutoFill, which already never
+    /// touches a slot that already has an assignment.
+    func applyTemplate(_ template: LineupTemplate) {
+        revertToDraftIfFinalized()
+
+        let activeIDs = Set(activeTeam.players.map { $0.id })
+        var newLineup = Lineup()
+        newLineup.gameDate = activeTeam.lineup.gameDate
+        newLineup.opponent = activeTeam.lineup.opponent
+
+        // Batting order is always fully specified on the template — but still
+        // filter out players no longer on the roster, compressing the order
+        // rather than leaving a gap.
+        newLineup.battingOrder = template.battingOrder.filter { activeIDs.contains($0) }
+
+        // Resize innings to match the team's current game length before
+        // applying locks, so lock ranges map onto the right inning count.
+        let inningCount = activeTeam.gameInningCount
+        newLineup.innings = Array(repeating: InningAssignment(), count: inningCount)
+
+        for lock in template.positionLocks {
+            guard let player = activeTeam.players.first(where: { $0.id == lock.playerID }) else {
+                continue // player no longer on roster — skip silently, cell stays open
+            }
+            for inningIndex in lock.innings {
+                guard inningIndex >= 0 && inningIndex < newLineup.innings.count else { continue }
+                newLineup.innings[inningIndex].assign(player: player, position: lock.position)
+            }
+        }
+
+        activeTeam.lineup = newLineup
+        Analytics.signal("template.applied", parameters: ["templateName": template.name])
+        save()
+    }
+
     // MARK: - Team Management
 
     func addTeam(name: String, color: Color = .blue) {
@@ -1783,7 +2000,11 @@ class LineupStore: ObservableObject {
     func switchTeam(to id: UUID) {
         guard teams.contains(where: { $0.id == id }) else { return }
         activeTeamID = id
-        Analytics.signal("team.switched", parameters: ["teamCount": "\(teams.count)"])
+        let isSharedTeam = teams.first(where: { $0.id == id })?.isSharedParticipant ?? false
+        Analytics.signal("team.switched", parameters: [
+            "teamCount": "\(teams.count)",
+            "shared": isSharedTeam ? "true" : "false"
+        ])
         save()
     }
 
