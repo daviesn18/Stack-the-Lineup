@@ -211,7 +211,7 @@ struct QuickSetSheet: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack {
                     Text(position.displayName)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 14, weight: .semibold))
                     Spacer()
                     if isCurrent {
                         Image(systemName: "checkmark")
@@ -373,16 +373,20 @@ struct QuickSetSheet: View {
     }
 
     // MARK: - Pill Colors (Design Tokens)
+    //
+    // Muted position palette (design direction 2a) -- same tints/text as the
+    // grid cells so the sheet and grid read as one system. #007AFF stays the
+    // interactive color (selection outlines, chips).
 
     private func pillTintColor(_ position: FieldPosition) -> Color {
-        if position.isBench || position.isAbsent { return Color(red: 0.557, green: 0.557, blue: 0.576).opacity(0.15) }
-        if position.isInfield { return Color(red: 0.0, green: 0.478, blue: 1.0).opacity(0.15) }
-        return Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.15)
+        if position.isBench || position.isAbsent { return Color(red: 0.557, green: 0.557, blue: 0.576).opacity(0.10) }
+        if position.isInfield { return Color(red: 0.0, green: 0.478, blue: 1.0).opacity(0.09) }
+        return Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.10)
     }
 
     private func pillTextColor(_ position: FieldPosition) -> Color {
-        if position.isBench || position.isAbsent { return Color(red: 0.557, green: 0.557, blue: 0.576) }
-        if position.isInfield { return Color(red: 0.0, green: 0.478, blue: 1.0) }
-        return Color(red: 0.204, green: 0.780, blue: 0.349)
+        if position.isBench || position.isAbsent { return Color(red: 0.541, green: 0.541, blue: 0.557) }
+        if position.isInfield { return Color(red: 0.306, green: 0.431, blue: 0.588) }
+        return Color(red: 0.357, green: 0.541, blue: 0.400)
     }
 }

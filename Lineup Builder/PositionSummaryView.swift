@@ -37,7 +37,15 @@ struct PositionSummaryView: View {
 
     // MARK: - Layout Constants
 
+    /// Landscape flips the scarce axis: width is abundant (all 7 innings fit
+    /// with no horizontal scroll) but height is scarce, so vertical metrics
+    /// tighten and the chrome collapses to single rows.
+    var isLandscape: Bool { verticalSizeClass == .compact }
+
     var playerColumnWidth: CGFloat {
+        // Landscape uses the spec's fixed 96pt name column; portrait sizes to
+        // the longest name as before.
+        if isLandscape { return 96 }
         let font = UIFont.preferredFont(forTextStyle: .caption1)
         let maxWidth = displayPlayers.reduce(CGFloat(0)) { current, player in
             let firstWidth = (player.firstName as NSString).size(withAttributes: [.font: font]).width
@@ -47,22 +55,40 @@ struct PositionSummaryView: View {
         return min(max(maxWidth + 20, 60), 160)
     }
 
-    let positionLabelWidth: CGFloat = 52
-    let minInningColumnWidth: CGFloat = 80
+    /// 86pt effective label column per design spec (70pt + 16pt screen padding);
+    /// 64pt in landscape where the acronym column can afford to be narrower.
+    var positionLabelWidth: CGFloat { isLandscape ? 64 : 70 }
+
+    /// By Player cells flex to fill the width, but never below the width that
+    /// renders "Bench" on one line at 14pt semibold -- a little horizontal
+    /// scroll is preferable to the label wrapping.
+    let minInningColumnWidth: CGFloat = 46
 
     /// By Position scrolls horizontally when 7 innings won't fit, but expands to
     // fill available width when they do (72pt is the minimum that renders
     // "Drew S." style names without clipping).
     let minByPositionColumnWidth: CGFloat = 72
 
+    // Cell spacing spec -- identical on By Player and By Position so the two
+    // grids read as one system. Gap is a shared row gap (HStack spacing), never
+    // per-cell margins, so the inning-number header and every data row line up.
+    // Landscape tightens the vertical metrics (28pt cells, 4pt row padding,
+    // radius 7) and widens the column gap to 5pt per the landscape spec.
+    var columnGap: CGFloat { isLandscape ? 5 : 4 }
+    let gridPadding: CGFloat = 16
+    var cellHeight: CGFloat { isLandscape ? 28 : 34 }
+    var rowVerticalPadding: CGFloat { isLandscape ? 4 : 8 }
+    var cellCornerRadius: CGFloat { isLandscape ? 7 : 8 }
+    var rowHeight: CGFloat { cellHeight + rowVerticalPadding * 2 }
+
     func byPositionColumnWidth(availableWidth: CGFloat) -> CGFloat {
-        let remaining = availableWidth - positionLabelWidth
+        let remaining = availableWidth - gridPadding * 2 - positionLabelWidth - columnGap * CGFloat(inningCount)
         let ideal = remaining / CGFloat(inningCount)
         return max(minByPositionColumnWidth, ideal)
     }
 
     func inningColumnWidth(availableWidth: CGFloat) -> CGFloat {
-        let remaining = availableWidth - playerColumnWidth
+        let remaining = availableWidth - gridPadding * 2 - playerColumnWidth - columnGap * CGFloat(inningCount)
         let ideal = remaining / CGFloat(inningCount)
         return max(minInningColumnWidth, ideal)
     }
@@ -124,6 +150,10 @@ struct PositionSummaryView: View {
                         pitchingTable
                     }
                 }
+                // Grid tabs sit on the F2F2F7 canvas so white cells read as
+                // boxes. Pitching keeps its original plain background -- it is
+                // out of scope for the redesign.
+                .background(viewMode == .pitching ? Color(.systemBackground) : Color(.systemGroupedBackground))
             }
             .sheet(item: $quickSetTarget) { target in
                 QuickSetSheet(origin: target.origin, initialInning: target.inning)
@@ -134,18 +164,36 @@ struct PositionSummaryView: View {
 
     // MARK: - Title Bar
 
+    @ViewBuilder
     private var titleBar: some View {
-        VStack(spacing: 10) {
-            if verticalSizeClass == .compact {
-                HStack(spacing: 12) {
-                    Text("Position Summary")
-                        .font(.title2.bold())
-                        .layoutPriority(1)
-                    Spacer()
+        if isLandscape {
+            // Landscape collapses the title, segmented control, finalize
+            // action, and Auto-Fill into one horizontal bar to reclaim
+            // vertical space. The full-width Auto-Fill banner is portrait-only.
+            HStack(spacing: 12) {
+                Text("Position Summary")
+                    .font(.system(size: 20, weight: .bold))
+                    .lineLimit(1)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 8)
+
+                viewModePicker
+                    .frame(maxWidth: 300)
+
+                Spacer(minLength: 8)
+
+                finalizeLink
+
+                if viewMode != .pitching {
+                    autoFillPill
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-            } else {
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
+        } else {
+            VStack(spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("Position Summary")
                         .font(.largeTitle.bold())
@@ -153,25 +201,58 @@ struct PositionSummaryView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-            }
 
-            Picker("View", selection: $viewMode) {
-                ForEach(SummaryViewMode.allCases, id: \.self) { mode in
-                    Text(mode.rawValue).tag(mode)
+                viewModePicker
+                    .padding(.horizontal, 16)
+
+                // Auto-Fill is now a primary, always-visible action on the two
+                // assignment tabs -- replaces the old small bolt icon next to the
+                // title. Not shown on Pitching, which has its own assignment flow.
+                if viewMode != .pitching {
+                    autoFillButton
+                        .padding(.horizontal, 16)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+    }
 
-            // Auto-Fill is now a primary, always-visible action on the two
-            // assignment tabs -- replaces the old small bolt icon next to the
-            // title. Not shown on Pitching, which has its own assignment flow.
-            if viewMode != .pitching {
-                autoFillButton
-                    .padding(.horizontal, 16)
+    private var viewModePicker: some View {
+        Picker("View", selection: $viewMode) {
+            ForEach(SummaryViewMode.allCases, id: \.self) { mode in
+                Text(mode.rawValue).tag(mode)
             }
         }
-        .padding(.bottom, 8)
+        .pickerStyle(.segmented)
+    }
+
+    /// Landscape folds the status strip's finalize action into the top bar --
+    /// the standalone Draft/status row is portrait-only.
+    @ViewBuilder
+    private var finalizeLink: some View {
+        if store.activeTeam.isReadOnly {
+            HStack(spacing: 4) {
+                Image(systemName: "lock.fill")
+                Text("View only")
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.secondary)
+        } else if store.lineup.status == .finalized {
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.green)
+                Button("Reopen") { store.reopenLineup() }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.blue)
+            }
+        } else {
+            Button { store.finalizeLineup() } label: {
+                Text("Finalize lineup →")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.blue)
+            }
+        }
     }
 
     private var autoFillButton: some View {
@@ -189,38 +270,65 @@ struct PositionSummaryView: View {
         }
         .accessibilityLabel("Auto-Fill All Positions")
         .popover(isPresented: $showingAutoFillPopover, arrowEdge: .top) {
-            AutoFillPopover(
-                isSummary: true,
-                smartDefaultLastInning: smartDefaultLastInning,
-                inningCount: store.lineup.innings.count,
-                prompt: $autoFillPrompt,
-                isParsingPrompt: isParsingAutoFillPrompt
-            ) { scope in
-                if case .through(let last) = scope { onFillThrough(last) }
-            }
-            .presentationCompactAdaptation(.popover)
+            autoFillPopoverContent
         }
+    }
+
+    /// Compact pill replacement for the full-width Auto-Fill banner in
+    /// landscape. Same action and popover, smaller footprint.
+    private var autoFillPill: some View {
+        Button { onAutoFill() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "bolt.fill")
+                Text("Auto-Fill")
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(purchaseManager.isPro ? Color.blue : Color(.systemGray3))
+            .clipShape(Capsule())
+        }
+        .accessibilityLabel("Auto-Fill All Positions")
+        .popover(isPresented: $showingAutoFillPopover, arrowEdge: .top) {
+            autoFillPopoverContent
+        }
+    }
+
+    private var autoFillPopoverContent: some View {
+        AutoFillPopover(
+            isSummary: true,
+            smartDefaultLastInning: smartDefaultLastInning,
+            inningCount: store.lineup.innings.count,
+            prompt: $autoFillPrompt,
+            isParsingPrompt: isParsingAutoFillPrompt
+        ) { scope in
+            if case .through(let last) = scope { onFillThrough(last) }
+        }
+        .presentationCompactAdaptation(.popover)
     }
 
     // MARK: - Cell Color
 
-    /// Category tint used for a filled cell's background (15% opacity per design tokens).
+    /// Category tint used for a filled cell's background. Muted palette
+    /// (design direction 2a) -- 9-10% opacity, softer than the old vivid tints.
     private func cellColor(for position: FieldPosition?) -> Color {
         guard let position else { return .clear }
         if position.isAbsent   { return Color(.systemGray4).opacity(0.4) }
-        if position.isBench    { return Color(red: 0.557, green: 0.557, blue: 0.576).opacity(0.15) }
-        if position.isInfield  { return Color(red: 0.0, green: 0.478, blue: 1.0).opacity(0.15) }
-        if position.isOutfield { return Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.15) }
+        if position.isBench    { return Color(red: 0.557, green: 0.557, blue: 0.576).opacity(0.10) }
+        if position.isInfield  { return Color(red: 0.0, green: 0.478, blue: 1.0).opacity(0.09) }
+        if position.isOutfield { return Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.10) }
         return .clear
     }
 
-    /// Solid category color used for a filled cell's text (design tokens).
+    /// Muted category color used for a filled cell's text (design direction 2a):
+    /// infield #4E6E96, outfield #5B8A66, bench #8A8A8E.
     private func cellTextColor(for position: FieldPosition?) -> Color {
         guard let position else { return .primary }
         if position.isAbsent   { return Color(.systemGray) }
-        if position.isBench    { return Color(red: 0.557, green: 0.557, blue: 0.576) }
-        if position.isInfield  { return Color(red: 0.0, green: 0.478, blue: 1.0) }
-        if position.isOutfield { return Color(red: 0.204, green: 0.780, blue: 0.349) }
+        if position.isBench    { return Color(red: 0.541, green: 0.541, blue: 0.557) }
+        if position.isInfield  { return Color(red: 0.306, green: 0.431, blue: 0.588) }
+        if position.isOutfield { return Color(red: 0.357, green: 0.541, blue: 0.400) }
         return .primary
     }
 
@@ -253,67 +361,64 @@ struct PositionSummaryView: View {
     // MARK: - By Player Table
 
     private func byPlayerTable(colWidth: CGFloat, containerWidth: CGFloat) -> some View {
-        let totalInningWidth = CGFloat(inningCount) * colWidth
-        let needsHScroll = totalInningWidth > containerWidth - playerColumnWidth
+        let totalInningWidth = CGFloat(inningCount) * colWidth + CGFloat(inningCount - 1) * columnGap
+        let needsHScroll = totalInningWidth > containerWidth - gridPadding * 2 - playerColumnWidth
 
         return ScrollView(.vertical) {
             VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
+                HStack(alignment: .top, spacing: columnGap) {
 
                     // Frozen player name column
                     VStack(spacing: 0) {
                         Text("Player")
-                            .font(.caption.bold())
-                            .frame(width: playerColumnWidth, height: 37, alignment: .leading)
-                            .padding(.leading, 12)
-                            .background(Color(.systemGray5))
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: playerColumnWidth, height: 30, alignment: .leading)
                         Divider()
-                        ForEach(Array(displayPlayers.enumerated()), id: \.element.id) { index, player in
+                        ForEach(displayPlayers) { player in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(player.firstName)
-                                    .font(.caption.bold())
+                                    .font(.system(size: 13, weight: .bold))
                                     .lineLimit(1)
                                 Text(player.lastName)
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
-                            .frame(width: playerColumnWidth, height: 40, alignment: .leading)
-                            .padding(.leading, 12)
-                            .background(index.isMultiple(of: 2) ? Color(.systemBackground) : Color(.systemGray6).opacity(0.5))
+                            .frame(width: playerColumnWidth, height: rowHeight, alignment: .leading)
                             Divider()
                         }
                     }
                     .frame(width: playerColumnWidth)
-                    .overlay(alignment: .trailing) {
-                        Rectangle().fill(Color(.separator)).frame(width: 0.5)
-                    }
 
-                    // Scrollable inning columns
+                    // Scrollable inning columns. Header and rows share one
+                    // container so they stay in lockstep, and use the same
+                    // column gap so every column lines up with its header.
                     ScrollView(.horizontal, showsIndicators: needsHScroll) {
                         VStack(spacing: 0) {
-                            HStack(spacing: 0) {
+                            HStack(spacing: columnGap) {
                                 ForEach(0..<inningCount, id: \.self) { i in
                                     Text("\(i + 1)")
-                                        .font(.caption.bold())
-                                        .frame(width: colWidth, height: 37)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(.secondary)
+                                        .frame(width: colWidth, height: 30)
                                 }
                             }
-                            .background(Color(.systemGray5))
                             Divider()
-                            ForEach(Array(displayPlayers.enumerated()), id: \.element.id) { index, player in
-                                HStack(spacing: 0) {
+                            ForEach(displayPlayers) { player in
+                                HStack(spacing: columnGap) {
                                     ForEach(0..<inningCount, id: \.self) { inning in
                                         playerPositionCell(player: player, inning: inning, colWidth: colWidth)
                                     }
                                 }
-                                .background(index.isMultiple(of: 2) ? Color(.systemBackground) : Color(.systemGray6).opacity(0.5))
+                                .padding(.vertical, rowVerticalPadding)
                                 Divider()
                             }
                         }
                         .frame(width: totalInningWidth)
                     }
                 }
+                .padding(.horizontal, gridPadding)
                 fairPlaySection
             }
         }
@@ -322,58 +427,57 @@ struct PositionSummaryView: View {
     // MARK: - By Position Table
 
     private func byPositionTable(colWidth: CGFloat, containerWidth: CGFloat) -> some View {
-        let totalInningWidth = CGFloat(inningCount) * colWidth
-        let needsHScroll = totalInningWidth > containerWidth - positionLabelWidth
+        let totalInningWidth = CGFloat(inningCount) * colWidth + CGFloat(inningCount - 1) * columnGap
+        let needsHScroll = totalInningWidth > containerWidth - gridPadding * 2 - positionLabelWidth
 
         return ScrollView(.vertical) {
             VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
 
-                    // Frozen position label column
+                HStack(alignment: .top, spacing: columnGap) {
+
+                    // Frozen position label column (acronym only, stays pinned)
                     VStack(spacing: 0) {
                         Text("Position")
-                            .font(.caption.bold())
-                            .frame(width: positionLabelWidth, height: 37, alignment: .leading)
-                            .padding(.leading, 12)
-                            .background(Color(.systemGray5))
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: positionLabelWidth, height: 30, alignment: .leading)
                         Divider()
-                        ForEach(Array(activeInfieldPositions.enumerated()), id: \.element) { idx, pos in
-                            positionLabelCell(pos.rawValue, isEven: idx.isMultiple(of: 2))
+                        ForEach(activeInfieldPositions, id: \.self) { pos in
+                            positionLabelCell(pos.rawValue)
                             Divider()
                         }
-                        ForEach(Array(activeOutfieldPositions.enumerated()), id: \.element) { idx, pos in
-                            positionLabelCell(pos.rawValue, isEven: idx.isMultiple(of: 2))
+                        ForEach(activeOutfieldPositions, id: \.self) { pos in
+                            positionLabelCell(pos.rawValue)
                             Divider()
                         }
                         positionSectionHeader("BENCH")
                         ForEach(0..<benchRowCount, id: \.self) { i in
-                            positionLabelCell(benchRowCount == 1 ? "BN" : "BN \(i + 1)", isEven: i.isMultiple(of: 2))
+                            positionLabelCell(benchRowCount == 1 ? "BN" : "BN \(i + 1)")
                             Divider()
                         }
                     }
                     .frame(width: positionLabelWidth)
-                    .overlay(alignment: .trailing) {
-                        Rectangle().fill(Color(.separator)).frame(width: 0.5)
-                    }
 
-                    // Scrollable inning columns
+                    // Scrollable inning columns. Header and rows share this one
+                    // container so they scroll in lockstep, on the identical
+                    // cell-width + gap rhythm as the header row.
                     ScrollView(.horizontal, showsIndicators: needsHScroll) {
                         VStack(spacing: 0) {
-                            HStack(spacing: 0) {
+                            HStack(spacing: columnGap) {
                                 ForEach(0..<inningCount, id: \.self) { i in
                                     Text("\(i + 1)")
-                                        .font(.caption.bold())
-                                        .frame(width: colWidth, height: 37)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(.secondary)
+                                        .frame(width: colWidth, height: 30)
                                 }
                             }
-                            .background(Color(.systemGray5))
                             Divider()
-                            ForEach(Array(activeInfieldPositions.enumerated()), id: \.element) { idx, pos in
-                                inningCellRow(position: pos, benchIndex: nil, isEven: idx.isMultiple(of: 2), colWidth: colWidth)
+                            ForEach(activeInfieldPositions, id: \.self) { pos in
+                                inningCellRow(position: pos, benchIndex: nil, colWidth: colWidth)
                                 Divider()
                             }
-                            ForEach(Array(activeOutfieldPositions.enumerated()), id: \.element) { idx, pos in
-                                inningCellRow(position: pos, benchIndex: nil, isEven: idx.isMultiple(of: 2), colWidth: colWidth)
+                            ForEach(activeOutfieldPositions, id: \.self) { pos in
+                                inningCellRow(position: pos, benchIndex: nil, colWidth: colWidth)
                                 Divider()
                             }
                             // Bench separator
@@ -381,13 +485,14 @@ struct PositionSummaryView: View {
                                 .frame(width: totalInningWidth, height: 22)
                                 .background(Color(.systemGray5).opacity(0.8))
                             ForEach(0..<benchRowCount, id: \.self) { i in
-                                inningCellRow(position: .bench, benchIndex: i, isEven: i.isMultiple(of: 2), colWidth: colWidth)
+                                inningCellRow(position: .bench, benchIndex: i, colWidth: colWidth)
                                 Divider()
                             }
                         }
                         .frame(width: totalInningWidth)
                     }
                 }
+                .padding(.horizontal, gridPadding)
                 fairPlaySection
             }
         }
@@ -395,13 +500,13 @@ struct PositionSummaryView: View {
 
     // MARK: - Row Helpers
 
-    private func inningCellRow(position: FieldPosition, benchIndex: Int?, isEven: Bool, colWidth: CGFloat) -> some View {
-        HStack(spacing: 0) {
+    private func inningCellRow(position: FieldPosition, benchIndex: Int?, colWidth: CGFloat) -> some View {
+        HStack(spacing: columnGap) {
             ForEach(0..<inningCount, id: \.self) { inning in
                 positionSlotCell(position: position, benchIndex: benchIndex, inning: inning, colWidth: colWidth)
             }
         }
-        .background(isEven ? Color(.systemBackground) : Color(.systemGray6).opacity(0.5))
+        .padding(.vertical, rowVerticalPadding)
     }
 
     private func positionSectionHeader(_ title: String) -> some View {
@@ -409,17 +514,14 @@ struct PositionSummaryView: View {
             .font(.system(size: 10, weight: .semibold))
             .foregroundColor(.secondary)
             .frame(width: positionLabelWidth, height: 22, alignment: .leading)
-            .padding(.leading, 12)
             .background(Color(.systemGray5).opacity(0.8))
     }
 
-    private func positionLabelCell(_ name: String, isEven: Bool) -> some View {
+    private func positionLabelCell(_ name: String) -> some View {
         Text(name)
-            .font(.caption.bold())
+            .font(.system(size: 13, weight: .bold))
             .lineLimit(1)
-            .frame(width: positionLabelWidth, height: 40, alignment: .leading)
-            .padding(.leading, 12)
-            .background(isEven ? Color(.systemBackground) : Color(.systemGray6).opacity(0.5))
+            .frame(width: positionLabelWidth, height: rowHeight, alignment: .leading)
     }
 
     // MARK: - By Player Position Cell
@@ -448,7 +550,8 @@ struct PositionSummaryView: View {
                 Group {
                     if let pos = position {
                         Text(pos.rawValue)
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: isLandscape ? 13 : 14, weight: .semibold))
+                            .lineLimit(1)
                             .foregroundColor(cellTextColor(for: pos))
                     } else {
                         Text("+")
@@ -456,12 +559,13 @@ struct PositionSummaryView: View {
                             .foregroundColor(Color(red: 0.780, green: 0.780, blue: 0.800))
                     }
                 }
-                .frame(width: colWidth, height: 40)
+                .padding(.horizontal, 2)
+                .frame(width: colWidth, height: cellHeight)
                 .background(pitchWarning != nil ? Color.red.opacity(0.12) : (position != nil ? cellColor(for: position) : Color(.systemBackground)))
-                .cornerRadius(8)
+                .cornerRadius(cellCornerRadius)
                 .overlay {
                     if backToBackBench {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: cellCornerRadius)
                             .strokeBorder(Color.red, lineWidth: 1.5)
                     }
                 }
@@ -507,7 +611,7 @@ struct PositionSummaryView: View {
                 Group {
                     if let player = assignedPlayer {
                         Text("\(player.firstName) \(player.lastName.prefix(1)).")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: isLandscape ? 11 : 12, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                             .foregroundColor(cellTextColor(for: position))
@@ -517,12 +621,13 @@ struct PositionSummaryView: View {
                             .foregroundColor(Color(red: 0.780, green: 0.780, blue: 0.800))
                     }
                 }
-                .frame(width: colWidth, height: 40)
+                .padding(.horizontal, 2)
+                .frame(width: colWidth, height: cellHeight)
                 .background(assignedPlayer != nil ? cellColor(for: position) : Color(.systemBackground))
-                .cornerRadius(8)
+                .cornerRadius(cellCornerRadius)
                 .overlay {
                     if let player = assignedPlayer, isBackToBackBench(player: player, inning: inning), position.isBench {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: cellCornerRadius)
                             .strokeBorder(Color.red, lineWidth: 1.5)
                     }
                 }
@@ -570,13 +675,13 @@ struct PositionSummaryView: View {
                         .padding(.leading, 16)
                     Text("Thrown")
                         .font(.caption.bold())
-                        .frame(width: 60, alignment: .center)
+                        .frame(width: pitchThrownWidth, alignment: .center)
                     Text("Available")
                         .font(.caption.bold())
-                        .frame(width: 80, alignment: .center)
+                        .frame(width: pitchAvailableWidth, alignment: .center)
                     Text("Status")
                         .font(.caption.bold())
-                        .frame(width: 82, alignment: .center)
+                        .frame(width: pitchStatusHeaderWidth, alignment: .center)
                         .padding(.trailing, 8)
                 }
                 .frame(height: 34)
@@ -618,19 +723,19 @@ struct PositionSummaryView: View {
                                 Text("\(row.windowPitches)")
                                     .font(.subheadline.monospacedDigit())
                                     .foregroundColor(.secondary)
-                                    .frame(width: 60, alignment: .center)
+                                    .frame(width: pitchThrownWidth, alignment: .center)
 
                                 // Available — min(dailyMax, weeklyRemaining) minus window pitches
                                 Text(row.dailyMax > 0 ? "\(row.available)" : "—")
                                     .font(.subheadline.monospacedDigit().bold())
                                     .foregroundColor(remainingColor(row.available, max: row.dailyMax))
-                                    .frame(width: 80, alignment: .center)
+                                    .frame(width: pitchAvailableWidth, alignment: .center)
 
                                 Text(row.status.displayLabel)
                                     .font(.caption)
                                     .foregroundColor(row.status.isRestricted ? .red : .secondary)
                                     .multilineTextAlignment(.center)
-                                    .frame(width: 74, alignment: .center)
+                                    .frame(width: pitchStatusWidth, alignment: .center)
 
                                 Image(systemName: "chevron.right")
                                     .font(.caption.bold())
@@ -664,6 +769,14 @@ struct PositionSummaryView: View {
     }
 
     // MARK: - Pitching Table Helpers
+
+    // Landscape widens the numeric/status columns (110/120/180 per the
+    // landscape spec) since width is abundant; portrait keeps the tighter
+    // widths that fit an iPhone in one screen.
+    private var pitchThrownWidth: CGFloat { isLandscape ? 110 : 60 }
+    private var pitchAvailableWidth: CGFloat { isLandscape ? 120 : 80 }
+    private var pitchStatusWidth: CGFloat { isLandscape ? 164 : 74 }
+    private var pitchStatusHeaderWidth: CGFloat { isLandscape ? 180 : 82 }
 
     struct PitchingRow {
         let player: Player

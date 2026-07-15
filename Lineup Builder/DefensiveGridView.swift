@@ -6,6 +6,15 @@ struct DefensiveGridView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @State private var selectedInning: Int = 0
+
+    // Position-led By Inning selection. Tapping a position row (or a bench row)
+    // opens the player picker for that slot. Replaces the old player-led flow
+    // where tapping a player opened the position picker.
+    @State private var selectedSlot: SlotTarget? = nil
+
+    // Player-led picker for bench/absent chips on the diamond: tapping a chip
+    // opens PositionPickerView so the coach can move that player to a
+    // position, bench, or absent.
     @State private var selectedPlayer: Player? = nil
     @State private var showingWarnings = false
     @State private var showingSummary = false
@@ -74,14 +83,19 @@ struct DefensiveGridView: View {
                     if isReadOnly { ReadOnlyBanner() }
 
                     if showingSummary {
-                        LineupStatusStrip(
-                            status: store.lineup.status,
-                            isReadOnly: isReadOnly,
-                            lastFinalizedBy: store.lineup.lastFinalizedBy,
-                            lastFinalizedAt: store.lineup.lastFinalizedAt,
-                            onFinalize: { store.finalizeLineup() },
-                            onReopen: { store.reopenLineup() }
-                        )
+                        // Landscape folds the status/finalize row into the
+                        // summary's collapsed top bar -- a standalone strip
+                        // would cost a full row of scarce vertical space.
+                        if verticalSizeClass != .compact {
+                            LineupStatusStrip(
+                                status: store.lineup.status,
+                                isReadOnly: isReadOnly,
+                                lastFinalizedBy: store.lineup.lastFinalizedBy,
+                                lastFinalizedAt: store.lineup.lastFinalizedAt,
+                                onFinalize: { store.finalizeLineup() },
+                                onReopen: { store.reopenLineup() }
+                            )
+                        }
 
                         PositionSummaryView(
                             onAutoFill: {
@@ -103,8 +117,12 @@ struct DefensiveGridView: View {
                             if isShowing { prepareNLService() } else { teardownNLService() }
                         }
 
-                        // Summary view — clear all only, straight to confirm alert
-                        if !isReadOnly { clearPositionsButton(isSummary: true) }
+                        // Summary view — clear all only, straight to confirm
+                        // alert. In landscape this moves into the shared
+                        // one-row footer alongside Save as Template.
+                        if !isReadOnly && verticalSizeClass != .compact {
+                            clearPositionsButton(isSummary: true)
+                        }
 
                     } else {
                         if verticalSizeClass == .compact {
@@ -164,19 +182,7 @@ struct DefensiveGridView: View {
                                     )
                                 } else {
                                     VStack(spacing: 0) {
-                                        List {
-                                            ForEach(displayPlayers) { player in
-                                                PlayerInningRow(
-                                                    player: player,
-                                                    inning: selectedInning,
-                                                    onTap: isReadOnly ? {} : {
-                                                        selectedPlayer = player
-                                                        showingUndo = false
-                                                    }
-                                                )
-                                            }
-                                        }
-                                        .listStyle(.plain)
+                                        diamondBodyLandscape
 
                                         // Inning view — popover with two scope options
                                         if !isReadOnly { clearPositionsButton(isSummary: false) }
@@ -237,19 +243,7 @@ struct DefensiveGridView: View {
                                     description: Text("Add players on the Players tab first.")
                                 )
                             } else {
-                                List {
-                                    ForEach(displayPlayers) { player in
-                                        PlayerInningRow(
-                                            player: player,
-                                            inning: selectedInning,
-                                            onTap: isReadOnly ? {} : {
-                                                selectedPlayer = player
-                                                showingUndo = false
-                                            }
-                                        )
-                                    }
-                                }
-                                .listStyle(.plain)
+                                diamondBodyPortrait
 
                                 // Inning view — popover with two scope options
                                 if !isReadOnly { clearPositionsButton(isSummary: false) }
@@ -326,11 +320,21 @@ struct DefensiveGridView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if !isReadOnly {
-                    saveAsTemplateBanner
+                    if showingSummary && verticalSizeClass == .compact {
+                        summaryLandscapeFooter
+                    } else {
+                        saveAsTemplateBanner
+                    }
                 }
+            }
+            .sheet(item: $selectedSlot) { slot in
+                PlayerPickerView(position: slot.position, benchSlotOccupant: slot.benchOccupant, inning: selectedInning)
+                    .environmentObject(store)
+                    .environmentObject(purchaseManager)
             }
             .sheet(item: $selectedPlayer) { player in
                 PositionPickerView(player: player, inning: selectedInning)
+                    .environmentObject(store)
             }
             .sheet(isPresented: $showingWarnings) {
                 WarningsView(inning: selectedInning)
@@ -433,15 +437,37 @@ struct DefensiveGridView: View {
     @ViewBuilder
     func clearPositionsButton(isSummary: Bool) -> some View {
         let hasAnyAssignments = store.lineup.innings.contains { !$0.assignments.isEmpty }
-        if hasAnyAssignments {
+        if hasAnyAssignments, isSummary {
+            // Summary footer -- full-width soft-red pill per the Position
+            // Summary redesign, straight to the confirm alert.
+            Button {
+                showingClearAllConfirm = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Clear positions")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundColor(Color(red: 0.89, green: 0.29, blue: 0.29))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .background(Color(red: 0.99, green: 0.92, blue: 0.92))
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color(red: 0.94, green: 0.58, blue: 0.58), lineWidth: 0.5)
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(.systemGroupedBackground))
+        } else if hasAnyAssignments {
             HStack {
                 Spacer()
                 Button {
-                    if isSummary {
-                        showingClearAllConfirm = true
-                    } else {
-                        showingClearPopover = true
-                    }
+                    showingClearPopover = true
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "xmark.circle")
@@ -516,9 +542,9 @@ struct DefensiveGridView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "square.and.arrow.down")
-                    .font(.subheadline.bold())
+                    .font(.subheadline.weight(.semibold))
                 Text("Save as Template")
-                    .font(.subheadline.bold())
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
                 if !store.lineupTemplates.isEmpty && !purchaseManager.isPro {
                     ProBadge()
@@ -532,6 +558,71 @@ struct DefensiveGridView: View {
             .padding(.vertical, 12)
         }
         .buttonStyle(.plain)
+        .background(Color(.systemBackground))
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(Color(.separator)),
+            alignment: .top
+        )
+    }
+
+    // MARK: - Summary Landscape Footer
+    // Landscape puts Clear positions and Save as Template on one shared row
+    // instead of the portrait stack -- height is the scarce axis there.
+
+    @ViewBuilder
+    var summaryLandscapeFooter: some View {
+        let hasAnyAssignments = store.lineup.innings.contains { !$0.assignments.isEmpty }
+        HStack(spacing: 16) {
+            if hasAnyAssignments {
+                Button {
+                    showingClearAllConfirm = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "xmark.circle")
+                        Text("Clear positions")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color(red: 0.89, green: 0.29, blue: 0.29))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Color(red: 0.99, green: 0.92, blue: 0.92))
+                    .cornerRadius(9)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9)
+                            .strokeBorder(Color(red: 0.94, green: 0.58, blue: 0.58), lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+
+            Button {
+                if store.lineupTemplates.isEmpty || purchaseManager.isPro {
+                    showingSaveTemplate = true
+                } else {
+                    showingTemplatePaywall = true
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.arrow.down")
+                    Text("Save as Template")
+                    if !store.lineupTemplates.isEmpty && !purchaseManager.isPro {
+                        ProBadge()
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.bold())
+                        .foregroundColor(Color(.tertiaryLabel))
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.blue)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(Color(.systemBackground))
         .overlay(
             Rectangle()
@@ -946,6 +1037,398 @@ struct DefensiveGridView: View {
                 .foregroundColor(.green)
         } else {
             Circle().fill(Color.gray.opacity(0.3)).frame(width: 6, height: 6)
+        }
+    }
+
+    // MARK: - Position-Led Inning List
+
+    /// Identifies the slot a coach tapped in the By Inning list. A field position
+    /// carries a nil occupant. A bench row carries the player currently in that
+    /// bench slot (nil for the "add to bench" row) so the picker knows whether it
+    /// is reassigning that player or benching a new one.
+    struct SlotTarget: Identifiable {
+        let id = UUID()
+        let position: FieldPosition
+        let benchOccupant: Player?
+    }
+
+    /// Players sitting on the bench this inning, in batting-order display order.
+    private var benchedPlayers: [Player] {
+        displayPlayers.filter { store.lineup.innings[selectedInning].position(for: $0) == .bench }
+    }
+
+    /// Players marked absent (late arrival / early departure) for this inning.
+    /// Distinct from lineup-level absentPlayerIDs, which removes a player from
+    /// displayPlayers entirely — this is the per-inning FieldPosition.absent slot.
+    private var absentPlayersThisInning: [Player] {
+        displayPlayers.filter { store.lineup.innings[selectedInning].position(for: $0) == .absent }
+    }
+
+    // MARK: - Diamond Body
+
+    /// First names that appear more than once in the lineup. Computed across the
+    /// full lineup (not per inning) so a player's field label never changes
+    /// between innings.
+    private var collidingFirstNames: Set<String> {
+        var counts: [String: Int] = [:]
+        for player in displayPlayers { counts[player.firstName, default: 0] += 1 }
+        return Set(counts.filter { $0.value > 1 }.keys)
+    }
+
+    /// Field-slot display name: first name only, adding a last initial
+    /// ("Cameron T.") when two lineup players share a first name.
+    private func diamondDisplayName(_ player: Player) -> String {
+        collidingFirstNames.contains(player.firstName) ? player.shortName : player.firstName
+    }
+
+    /// Slot placement as percentages of the field box, from the design spec.
+    /// LCF/RCF aren't in the design (it assumes 3 outfielders) — under
+    /// 4-outfielder configs they sit on the outfield arc where CF was.
+    private func diamondCoordinates(for pos: FieldPosition) -> CGPoint? {
+        switch pos {
+        case .centerField:      return CGPoint(x: 50, y: 13)
+        case .leftField:        return CGPoint(x: 19, y: 24)
+        case .rightField:       return CGPoint(x: 81, y: 24)
+        case .leftCenterField:  return CGPoint(x: 36, y: 15)
+        case .rightCenterField: return CGPoint(x: 64, y: 15)
+        case .shortstop:        return CGPoint(x: 36, y: 45)
+        case .secondBase:       return CGPoint(x: 64, y: 45)
+        case .thirdBase:        return CGPoint(x: 23, y: 60)
+        case .firstBase:        return CGPoint(x: 77, y: 60)
+        case .pitcher:          return CGPoint(x: 50, y: 61)
+        case .catcher:          return CGPoint(x: 50, y: 87)
+        case .bench, .absent:   return nil
+        }
+    }
+
+    /// Portrait: field over Bench and Absent chip groups, vertically scrollable.
+    private var diamondBodyPortrait: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                diamondField
+                    .aspectRatio(1 / 0.82, contentMode: .fit)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 2)
+
+                chipGroupHeader("Bench")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
+                    .padding(.bottom, 6)
+                benchChipRail
+                    .padding(.horizontal, 16)
+
+                chipGroupHeader("Late arrival / early departure")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
+                    .padding(.bottom, 6)
+                absentChipRail
+                    .padding(.horizontal, 16)
+            }
+            .padding(.bottom, 20)
+        }
+    }
+
+    /// Landscape: field on the left (~56% width, full height), scrollable
+    /// Bench + Absent chip panel on the right.
+    private var diamondBodyLandscape: some View {
+        GeometryReader { geo in
+            HStack(alignment: .top, spacing: 10) {
+                diamondField
+                    .frame(width: geo.size.width * 0.56, height: geo.size.height)
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        chipGroupHeader("Bench")
+                            .padding(.top, 10)
+                            .padding(.bottom, 6)
+                        benchChipRail
+
+                        chipGroupHeader("Late arrival / early departure")
+                            .padding(.top, 14)
+                            .padding(.bottom, 6)
+                        absentChipRail
+                    }
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 10)
+                }
+            }
+            .padding(.leading, 8)
+        }
+    }
+
+    /// The schematic field: outfield fan + infield diamond drawn in the design's
+    /// 0–100 coordinate space, with position slots placed on top.
+    private var diamondField: some View {
+        GeometryReader { geo in
+            ZStack {
+                OutfieldFanShape()
+                    .fill(Color.green.opacity(0.07))
+                OutfieldFanShape()
+                    .stroke(Color(.separator), lineWidth: 0.5)
+                InfieldDiamondShape()
+                    .fill(Color.blue.opacity(0.09))
+                InfieldDiamondShape()
+                    .stroke(Color(.separator), lineWidth: 0.5)
+
+                ForEach(store.lineup.activeFieldPositions(config: store.fairPlayConfig), id: \.self) { pos in
+                    if let coord = diamondCoordinates(for: pos) {
+                        fieldSlot(pos)
+                            .position(
+                                x: geo.size.width * coord.x / 100,
+                                y: geo.size.height * coord.y / 100
+                            )
+                    }
+                }
+            }
+        }
+    }
+
+    /// One field slot: position badge over the occupant's name chip ("Open" when
+    /// empty). Carries the same duplicate and pitch-eligibility flags as the old
+    /// list rows. Tapping opens the player picker for the slot.
+    @ViewBuilder
+    private func fieldSlot(_ pos: FieldPosition) -> some View {
+        let occupant = store.lineup.innings[selectedInning].player(at: pos, in: store.players)
+        let isDuplicate = store.lineup.duplicatePositionErrors(inning: selectedInning).contains(pos)
+        let pitchWarning: Bool = {
+            guard pos == .pitcher, let occupant, store.pitchingConfig.rulesEnabled else { return false }
+            return PitchEligibilityEngine.status(
+                for: occupant, gameLogs: store.gameLogs, config: store.pitchingConfig,
+                referenceDate: store.lineup.gameDate
+            ).blocksAssignment
+        }()
+
+        Button {
+            guard !isReadOnly else { return }
+            selectedSlot = SlotTarget(position: pos, benchOccupant: nil)
+            showingUndo = false
+        } label: {
+            VStack(spacing: 3) {
+                diamondBadge(pos, occupant: occupant)
+
+                HStack(spacing: 3) {
+                    Text(occupant.map { diamondDisplayName($0) } ?? "Open")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(occupant == nil ? Color(.systemGray) : .primary)
+                        .lineLimit(1)
+                    if pitchWarning {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.red)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(isDuplicate ? Color.red.opacity(0.08) : Color.clear)
+                .background(Color(.systemBackground))
+                .cornerRadius(7)
+                .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1)
+            }
+            .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .disabled(isReadOnly)
+    }
+
+    /// Solid position badge for a field slot, with the Emergency/Never preference
+    /// border when the current occupant has a preference set (Pro).
+    @ViewBuilder
+    private func diamondBadge(_ pos: FieldPosition, occupant: Player?) -> some View {
+        let prefTier: PositionPreferenceTier? = (purchaseManager.isPro && !pos.isAbsent)
+            ? occupant?.positionPreferences[pos]
+            : nil
+        let showBorder = prefTier == .emergency || prefTier == .never
+
+        Text(pos.rawValue)
+            .font(.caption.bold())
+            .foregroundColor(.white)
+            .padding(.horizontal, 7)
+            .frame(minWidth: 34, minHeight: 24)
+            .background(pos.badgeColor)
+            .cornerRadius(6)
+            .overlay {
+                if showBorder, let tier = prefTier {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(tier.color, lineWidth: 2)
+                }
+            }
+    }
+
+    // MARK: - Bench / Absent Chip Rails
+
+    @ViewBuilder
+    private func chipGroupHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundColor(.secondary)
+    }
+
+    private var benchChipRail: some View {
+        ChipFlowLayout(spacing: 8) {
+            ForEach(benchedPlayers) { player in
+                playerChip(player, badge: "BN", badgeColor: FieldPosition.bench.badgeColor)
+            }
+            if !isReadOnly {
+                addChip("+ Bench", target: .bench)
+            }
+        }
+    }
+
+    private var absentChipRail: some View {
+        ChipFlowLayout(spacing: 8) {
+            ForEach(absentPlayersThisInning) { player in
+                playerChip(player, badge: "ABS", badgeColor: FieldPosition.absent.badgeColor)
+            }
+            if !isReadOnly {
+                addChip("+ Absent", target: .absent)
+            }
+        }
+    }
+
+    /// One bench/absent chip. Tapping opens the player-led position picker so
+    /// the coach can move that player onto the field. Bench chips carry the
+    /// back-to-back-bench flag from the old list rows.
+    @ViewBuilder
+    private func playerChip(_ player: Player, badge: String, badgeColor: Color) -> some View {
+        let backToBackBench: Bool = {
+            guard badge == "BN" else { return false }
+            let innings = store.lineup.innings
+            let prev = selectedInning > 0 && innings[selectedInning - 1].position(for: player) == .bench
+            let next = selectedInning < innings.count - 1 && innings[selectedInning + 1].position(for: player) == .bench
+            return prev || next
+        }()
+
+        Button {
+            guard !isReadOnly else { return }
+            selectedPlayer = player
+            showingUndo = false
+        } label: {
+            HStack(spacing: 6) {
+                Text(badge)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(minWidth: 28, minHeight: 20)
+                    .background(badgeColor)
+                    .cornerRadius(5)
+                Text(player.displayName)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(badge == "ABS" ? .primary.opacity(0.9) : .primary)
+                if backToBackBench {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                }
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 12)
+            .padding(.vertical, 6)
+            .background(Color(.systemBackground))
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.06), radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(isReadOnly)
+    }
+
+    /// Dashed "+ Bench" / "+ Absent" chip — opens the picker targeting that slot.
+    private func addChip(_ label: String, target: FieldPosition) -> some View {
+        Button {
+            selectedSlot = SlotTarget(position: target, benchOccupant: nil)
+            showingUndo = false
+        } label: {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.blue)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color(.systemGray3), style: StrokeStyle(lineWidth: 1.5, dash: [4]))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Field Shapes
+// Drawn in the design's 0–100 viewBox and scaled to the container, so the
+// field keeps its proportions at any size (portrait width-fit, landscape
+// height-fill).
+
+/// Outfield fan: home plate bottom-center, both foul lines out to the arc.
+/// Stroking this shape draws the foul lines and the outfield arc; filling it
+/// gives the grass wash.
+private struct OutfieldFanShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + rect.width * x / 100, y: rect.minY + rect.height * y / 100)
+        }
+        var path = Path()
+        path.move(to: pt(50, 90))
+        path.addLine(to: pt(6, 30))
+        path.addQuadCurve(to: pt(94, 30), control: pt(50, -6))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Infield diamond centered under the pitcher's mound slot.
+private struct InfieldDiamondShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + rect.width * x / 100, y: rect.minY + rect.height * y / 100)
+        }
+        var path = Path()
+        path.move(to: pt(50, 88))
+        path.addLine(to: pt(74, 60))
+        path.addLine(to: pt(50, 40))
+        path.addLine(to: pt(26, 60))
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Chip Flow Layout
+// Left-aligned wrapping layout for the bench/absent chip rails.
+
+private struct ChipFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 0
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > width, currentX > 0 {
+                currentY += lineHeight + spacing
+                currentX = 0
+                lineHeight = 0
+            }
+            currentX += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return CGSize(width: width, height: currentY + lineHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var currentX = bounds.minX
+        var currentY = bounds.minY
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > bounds.maxX, currentX > bounds.minX {
+                currentY += lineHeight + spacing
+                currentX = bounds.minX
+                lineHeight = 0
+            }
+            subview.place(at: CGPoint(x: currentX, y: currentY), proposal: ProposedViewSize(size))
+            currentX += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
         }
     }
 }
@@ -1790,6 +2273,219 @@ struct PositionPickerView: View {
 
     private func commitAssignment(_ pos: FieldPosition) {
         store.assignPosition(player: player, inning: inning, position: pos)
+        dismiss()
+    }
+}
+
+// MARK: - Player Picker Sheet (position-led)
+
+/// Picks which player fills a given position for one inning. This is the inverse
+/// of PositionPickerView: the position is fixed and the coach chooses the player.
+/// Used by the position-led By Inning list. Warning and assignment semantics
+/// mirror PositionPickerView so both flows behave identically.
+struct PlayerPickerView: View {
+    @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
+    @Environment(\.dismiss) var dismiss
+
+    let position: FieldPosition
+    /// For a bench row: the player currently in that bench slot (nil when adding
+    /// a new player to the bench). Ignored for field positions.
+    let benchSlotOccupant: Player?
+    let inning: Int
+
+    @State private var showingConsecutiveBenchWarning = false
+    @State private var showingPitchEligibilityWarning = false
+    @State private var showingNeverPositionWarning = false
+    @State private var pendingPlayer: Player? = nil
+
+    /// Player currently in this position this inning (field positions only).
+    /// Bench and absent slots hold multiple players, so the occupant is whoever
+    /// was tapped (nil when adding via "+ Bench" / "+ Absent").
+    private var currentOccupant: Player? {
+        position.isNonFielding
+            ? benchSlotOccupant
+            : store.lineup.innings[inning].player(at: position, in: store.players)
+    }
+
+    /// Candidates for this slot: all active (present) players in display order.
+    /// The row annotates where each one currently is this inning so the coach can
+    /// see the trade before making it.
+    private var candidates: [Player] {
+        let displayed = store.lineup.displayPlayers(from: store.players)
+        return displayed.filter { !store.lineup.isAbsent($0) }
+    }
+
+    private func pitchWarning(for player: Player) -> PitchEligibilityStatus? {
+        guard position == .pitcher, store.pitchingConfig.rulesEnabled else { return nil }
+        let status = PitchEligibilityEngine.status(
+            for: player, gameLogs: store.gameLogs, config: store.pitchingConfig,
+            referenceDate: store.lineup.gameDate
+        )
+        return status.blocksAssignment ? status : nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(candidates) { player in
+                        playerRow(player)
+                    }
+                } header: {
+                    Text(position.isNonFielding ? "Choose a player" : "Choose a player for \(position.displayName)")
+                }
+
+                if let occupant = currentOccupant {
+                    Section {
+                        Button(role: .destructive) {
+                            store.removeAssignment(player: occupant, inning: inning)
+                            dismiss()
+                        } label: {
+                            Label(position.isBench ? "Remove from Bench" : "Clear Position", systemImage: "xmark.circle")
+                        }
+                    }
+                }
+            }
+            .navigationTitle(position.isBench ? "Bench – Inning \(inning + 1)" : "\(position.displayName) – Inning \(inning + 1)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .alert("Back-to-Back Bench Warning", isPresented: $showingConsecutiveBenchWarning) {
+                Button("Assign Bench Anyway", role: .destructive) {
+                    if let player = pendingPlayer { commitAssignment(player) }
+                }
+                Button("Cancel", role: .cancel) { pendingPlayer = nil }
+            } message: {
+                if let player = pendingPlayer {
+                    Text("\(player.firstName) would be on the bench for two consecutive innings. You can still assign bench if needed.")
+                }
+            }
+            .alert("Pitch Eligibility Warning", isPresented: $showingPitchEligibilityWarning) {
+                Button("Assign Pitcher Anyway", role: .destructive) {
+                    if let player = pendingPlayer { commitAssignment(player) }
+                }
+                Button("Cancel", role: .cancel) { pendingPlayer = nil }
+            } message: {
+                if let player = pendingPlayer, let status = pitchWarning(for: player) {
+                    Text("\(player.firstName) may not be eligible to pitch. \(status.displayLabel). You can still assign this position if needed.")
+                }
+            }
+            .alert("Position Preference Warning", isPresented: $showingNeverPositionWarning) {
+                Button("Assign Anyway", role: .destructive) {
+                    if let player = pendingPlayer { commitAssignment(player) }
+                }
+                Button("Cancel", role: .cancel) { pendingPlayer = nil }
+            } message: {
+                if let player = pendingPlayer {
+                    Text("\(player.firstName) is marked Never for \(position.displayName). You can still assign this position if needed.")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func playerRow(_ player: Player) -> some View {
+        let currentPos = store.lineup.innings[inning].position(for: player)
+        let isHere = position.isBench
+            ? (currentPos == .bench && player.id == benchSlotOccupant?.id)
+            : (currentPos == position)
+        let prefTier = purchaseManager.isPro ? player.positionPreferences[position] : nil
+        // Never-tier players are shown, not hidden, and flagged red like other
+        // overridable warnings so the coach can still emergency-assign them.
+        let isNeverHere = purchaseManager.isPro && !position.isBench && prefTier == .never
+        let warning = pitchWarning(for: player)
+
+        Button {
+            assign(player)
+        } label: {
+            HStack(spacing: 10) {
+                if !player.number.isEmpty {
+                    Text("#\(player.number)")
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                        .frame(width: 34, alignment: .leading)
+                } else {
+                    Text("—")
+                        .font(.caption.bold())
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 34, alignment: .leading)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(player.displayName)
+                            .foregroundColor(.primary)
+                        if let prefTier, prefTier == .emergency || prefTier == .never {
+                            Circle()
+                                .fill(prefTier.color)
+                                .frame(width: 7, height: 7)
+                        }
+                        if isNeverHere || warning != nil {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+                    if let currentPos, !isHere {
+                        Text("Currently: \(currentPos.rawValue)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    if isNeverHere {
+                        Text("Marked Never for \(position.displayName)")
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
+                    if let warning {
+                        Text(warning.displayLabel)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
+                }
+
+                Spacer()
+
+                if isHere {
+                    Image(systemName: "checkmark").foregroundColor(.blue)
+                }
+            }
+        }
+        .listRowBackground(isNeverHere || warning != nil ? Color.red.opacity(0.06) : nil)
+    }
+
+    private func assign(_ player: Player) {
+        // Bench with the no-consecutive-bench rule on: warn first.
+        if position == .bench
+            && store.fairPlayConfig.noConsecutiveBench
+            && store.lineup.hasConsecutiveBench(player: player, assigningBenchToInning: inning) {
+            pendingPlayer = player
+            showingConsecutiveBenchWarning = true
+            return
+        }
+        // Ineligible pitcher: warn but allow override.
+        if position == .pitcher, pitchWarning(for: player) != nil {
+            pendingPlayer = player
+            showingPitchEligibilityWarning = true
+            return
+        }
+        // Marked Never for this position: warn but allow override.
+        if purchaseManager.isPro,
+           !position.isBench,
+           player.positionPreferences[position] == .never {
+            pendingPlayer = player
+            showingNeverPositionWarning = true
+            return
+        }
+        commitAssignment(player)
+    }
+
+    private func commitAssignment(_ player: Player) {
+        store.assignPosition(player: player, inning: inning, position: position)
+        pendingPlayer = nil
         dismiss()
     }
 }

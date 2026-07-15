@@ -265,8 +265,8 @@ struct PlayersView: View {
             RosterActionButton(
                 icon: "text.alignleft",
                 iconColor: .gray,
-                title: "Paste List",
-                subtitle: "Bulk add"
+                title: "Bulk Add",
+                subtitle: "Add Multiple Players"
             ) { showingBulkAdd = true }
 
             Divider().frame(height: 36)
