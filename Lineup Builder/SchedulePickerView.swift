@@ -4,6 +4,10 @@ import SwiftUI
 // Full-screen sheet presenting the team's imported schedule as a scannable
 // list. Selecting a game pre-fills the active lineup's date and opponent
 // and dismisses back to LineupView.
+//
+// A coach who realizes the schedule is stale can update it without leaving:
+// the footer button opens the import sheet on top of the picker, and the
+// list refreshes in place once new games merge in.
 
 struct SchedulePickerView: View {
     @EnvironmentObject var store: LineupStore
@@ -11,12 +15,18 @@ struct SchedulePickerView: View {
 
     let onPick: (ScheduledGame) -> Void
 
+    @State private var showingScheduleImport = false
+
     private var upcomingGames: [ScheduledGame] {
         let startOfToday = Calendar.current.startOfDay(for: Date())
         return store.scheduledGames
             .filter { !$0.isCancelled && $0.date >= startOfToday && !ICalParser.isPractice($0.rawSummary) }
             .sorted { $0.date < $1.date }
     }
+
+    /// Whether a schedule has already been imported. Drives the footer button
+    /// label (Add vs. Update).
+    private var hasSchedule: Bool { !store.scheduledGames.isEmpty }
 
     /// Returns the active lineup status if the lineup's game date matches
     /// this scheduled game's date (day-level comparison).
@@ -65,7 +75,45 @@ struct SchedulePickerView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            // Footer action to add or refresh the schedule without leaving.
+            .safeAreaInset(edge: .bottom) {
+                updateScheduleBar
+            }
         }
+        .sheet(isPresented: $showingScheduleImport) {
+            ScheduleImportView { games, urlString in
+                // Merge in place. The list reads store.scheduledGames
+                // reactively, so refreshed games appear once this returns.
+                _ = store.mergeScheduledGames(games)
+                if let url = urlString {
+                    store.setCalendarSubscriptionURL(url)
+                }
+            }
+            .environmentObject(store)
+        }
+    }
+
+    // MARK: - Update Schedule Bar
+
+    private var updateScheduleBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            Button {
+                showingScheduleImport = true
+                Analytics.signal("schedule.import.tapped", parameters: ["source": "picker"])
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar.badge.plus")
+                    Text(hasSchedule ? "Update Schedule" : "Add Schedule")
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.blue)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+            }
+            .buttonStyle(.plain)
+        }
+        .background(.bar)
     }
 
     // MARK: - Game List

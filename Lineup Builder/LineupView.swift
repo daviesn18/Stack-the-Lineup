@@ -20,6 +20,7 @@ struct LineupView: View {
     @State private var showingSchedulePicker = false
     @State private var scheduleImportToast: String? = nil
     @State private var showingTemplatePicker = false
+    @State private var showingGameInfoEditor = false
 
     var orderedPlayers: [Player] {
         store.lineup.orderedPlayers(from: store.players)
@@ -35,6 +36,45 @@ struct LineupView: View {
     }
 
     private var isReadOnly: Bool { store.activeTeam.isReadOnly }
+
+    // MARK: - Fair Play Summary (drives the inline header chip)
+    //
+    // Read-only summary of the defensive assignments that live on the
+    // Positions tab. If a coach wants the per-rule detail, they go to the
+    // Positions tab, which is where the assignments are actually changed.
+
+    /// True when a fair-play summary is meaningful — i.e. there are active
+    /// players and at least one inning has assignments to evaluate.
+    private var fairPlayEvaluable: Bool {
+        let activePlayers = store.lineup.activePlayers(from: store.players)
+        return !activePlayers.isEmpty
+            && store.lineup.innings.contains(where: { !$0.assignments.isEmpty })
+    }
+
+    /// Count of active players implicated in any fair-play warning.
+    private var fairPlayWarningCount: Int {
+        let config = store.fairPlayConfig
+        let activePlayers = store.lineup.activePlayers(from: store.players)
+
+        let noInfield = config.minimumInfieldInnings > 0
+            ? store.lineup.playersWithoutInfield(players: activePlayers) : []
+        let noOutfield = config.minimumOutfieldInnings > 0
+            ? store.lineup.playersWithoutOutfield(players: activePlayers) : []
+        let underMinimum = config.minimumFieldingInnings > 0
+            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings) : []
+        let backToBack = config.noConsecutiveBench
+            ? store.lineup.playersWithBackToBackBench(from: store.players) : []
+        let catcherToPitcher = store.lineup.playersViolatingCatcherToPitcher(
+            players: activePlayers, threshold: config.catcherToPitcherThreshold)
+        let pitcherToCatcher = store.lineup.playersViolatingPitcherToCatcher(
+            players: activePlayers, threshold: config.pitcherToCatcherThreshold)
+
+        let implicated = Set(
+            (noInfield + noOutfield + underMinimum + backToBack + catcherToPitcher + pitcherToCatcher)
+                .map { $0.id }
+        )
+        return implicated.count
+    }
 
     var body: some View {
         if horizontalSizeClass == .regular {
@@ -69,93 +109,23 @@ struct LineupView: View {
                 }
             }
 
-            // MARK: - Game Info
+            // MARK: - Compact Game Card
+            // Summary row (tap to edit date / opponent / status) plus a
+            // Schedule / Template split-button row beneath a hairline.
             Section {
-                // Pick from schedule — shown only when a schedule has been imported
-                if !store.scheduledGames.isEmpty && !isReadOnly {
-                    Button {
-                        showingSchedulePicker = true
-                    } label: {
-                        HStack {
-                            Label("Pick from Schedule", systemImage: "calendar")
-                                .foregroundColor(.blue)
-                            Spacer()
-                            let startOfToday = Calendar.current.startOfDay(for: Date())
-                            let upcoming = store.scheduledGames.filter { game in
-                                !game.isCancelled
-                                && game.date >= startOfToday
-                                && !ICalParser.isPractice(game.rawSummary)
-                            }.count
-                            Text("\(upcoming) game\(upcoming == 1 ? "" : "s")")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            Image(systemName: "chevron.right")
-                                .font(.caption.bold())
-                                .foregroundColor(Color(.tertiaryLabel))
-                        }
-                    }
-                }
-                if !isReadOnly {
-                    Button {
-                        showingTemplatePicker = true
-                    } label: {
-                        HStack {
-                            Label("Apply Template", systemImage: "square.grid.2x2")
-                                .foregroundColor(.blue)
-                            Spacer()
-                            Text(store.lineupTemplates.isEmpty ? "None yet" : "\(store.lineupTemplates.count) saved")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            Image(systemName: "chevron.right")
-                                .font(.caption.bold())
-                                .foregroundColor(Color(.tertiaryLabel))
-                        }
-                    }
-                }
-                DatePicker("Game Date", selection: Binding(
-                    get: { store.lineup.gameDate },
-                    set: { store.updateGameDate($0) }
-                ), displayedComponents: .date)
-                .disabled(isReadOnly)
-                HStack {
-                    Text("Opponent")
-                    Spacer()
-                    TextField("Opponent Name", text: Binding(
-                        get: { store.lineup.opponent },
-                        set: { store.updateOpponent($0) }
-                    ))
-                    .multilineTextAlignment(.trailing)
-                    .autocorrectionDisabled()
-                    .disabled(isReadOnly)
-                }
-
-                // Read-only status indicator — changes are made on the Positions tab
-                HStack {
-                    Text("Status")
-                        .foregroundColor(.primary)
-                    Spacer()
-                    if store.lineup.status == .finalized {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.subheadline)
-                                .foregroundColor(.green)
-                            Text("Finalized")
-                                .font(.subheadline)
-                                .foregroundColor(.green)
-                        }
-                    } else {
-                        Text("Draft")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            } header: {
-                Text("Game Info")
-            } footer: {
-                if store.lineup.status == .draft {
-                    Text("Finalize your lineup from the Positions tab when it's ready.")
-                        .foregroundColor(.secondary)
-                }
+                GameSummaryCard(
+                    gameDate: store.lineup.gameDate,
+                    opponent: store.lineup.opponent,
+                    isFinalized: store.lineup.status == .finalized,
+                    showSchedule: !isReadOnly,
+                    showTemplate: !isReadOnly,
+                    onTapSummary: { showingGameInfoEditor = true },
+                    onTapSchedule: { showingSchedulePicker = true },
+                    onTapTemplate: { showingTemplatePicker = true }
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
 
             // MARK: - PDF Export Context Tip
@@ -216,8 +186,12 @@ struct LineupView: View {
                 }
 
             } header: {
-                HStack {
-                    Text("Batting Order & Availability")
+                HStack(spacing: 8) {
+                    Text("Batting Order")
+                    FairPlayChip(
+                        evaluable: fairPlayEvaluable,
+                        warningCount: fairPlayWarningCount
+                    )
                     Spacer()
                     if !orderedPlayers.isEmpty && !isReadOnly {
                         EditButton()
@@ -229,52 +203,6 @@ struct LineupView: View {
                     Text("Tap + to add players to the batting order, then drag to reorder.")
                 } else if !store.players.isEmpty && orderedPlayers.isEmpty {
                     Text("Tap + next to each player above to add them to the batting order.")
-                }
-            }
-
-            // MARK: - Fair Play Rules
-            complianceSection
-
-            // MARK: - Exports
-            Section {
-                Button {
-                    let doc = PDFGenerator.generate(
-                        type: .battingOrder,
-                        lineup: store.lineup,
-                        players: store.players,
-                        teamName: store.teamName,
-                        teamColor: store.teamColor
-                    )
-                    generatedPDF = doc
-                    Analytics.signal("pdf.exported", parameters: ["type": "battingOrder"])
-                } label: {
-                    Label("Export Batting Order PDF", systemImage: "doc.text")
-                }
-
-                Button {
-                    let doc = PDFGenerator.generate(
-                        type: .coachesGuide,
-                        lineup: store.lineup,
-                        players: store.players,
-                        teamName: store.teamName,
-                        teamColor: store.teamColor,
-                        gameLogs: store.gameLogs,
-                        pitchingConfig: store.pitchingConfig
-                    )
-                    if purchaseManager.isPro {
-                        generatedPDF = doc
-                        Analytics.signal("pdf.exported", parameters: ["type": "coachesGuide"])
-                    } else {
-                        lockedPDF = doc
-                    }
-                } label: {
-                    HStack {
-                        Label("Export Coaches Guide PDF", systemImage: "doc.richtext")
-                        Spacer()
-                        if !purchaseManager.isPro {
-                            ProBadge()
-                        }
-                    }
                 }
             }
         }
@@ -293,6 +221,10 @@ struct LineupView: View {
         }
         .sheet(isPresented: $showingTips) {
             PageTipsView(page: .lineup)
+        }
+        .sheet(isPresented: $showingGameInfoEditor) {
+            GameInfoEditorView()
+                .environmentObject(store)
         }
         .onAppear {
             // Show PDF export tip once to free users who have 3+ players
@@ -342,18 +274,26 @@ struct LineupView: View {
             TemplatePickerView()
                 .environmentObject(store)
         }
+        // Pinned export bar — always one tap from the batting order.
+        // Content scrolls underneath it; the schedule-import toast floats above.
         .safeAreaInset(edge: .bottom) {
-            if let toast = scheduleImportToast {
-                Text(toast)
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color(.label)))
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.spring(duration: 0.35), value: scheduleImportToast)
-                    .padding(.bottom, 8)
+            VStack(spacing: 8) {
+                if let toast = scheduleImportToast {
+                    Text(toast)
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color(.label)))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                ExportBar(
+                    isPro: purchaseManager.isPro,
+                    onExportBattingOrder: exportBattingOrder,
+                    onExportCoachesGuide: exportCoachesGuide
+                )
             }
+            .animation(.spring(duration: 0.35), value: scheduleImportToast)
         }
         .navigationTitle("Lineup Builder")
         .navigationBarTitleDisplayMode(verticalSizeClass == .compact ? .inline : .large)
@@ -377,7 +317,9 @@ struct LineupView: View {
                 }
             }
         }
-        // Drag-to-reorder tip — fires on first Lineup tab visit
+        // Drag-to-reorder tip — fires on first Lineup tab visit.
+        // Target sits on the Edit button in the Batting Order header, which now
+        // sits higher on screen because Game Info collapsed to a compact card.
         .overlay {
             if showingDragTip {
                 TabFirstTipOverlay(
@@ -386,7 +328,7 @@ struct LineupView: View {
                         title: "Drag to set your batting order",
                         body: "Tap Edit in the section header, then press and hold the lines on the right side of any row and drag up or down.",
                         accentColor: .green,
-                        targetRect: CGRect(x: 340, y: 390, width: 36, height: 36),
+                        targetRect: CGRect(x: 330, y: 250, width: 52, height: 30),
                         targetCornerRadius: 8,
                         arrowDirection: .up
                     ),
@@ -402,7 +344,8 @@ struct LineupView: View {
                 .transition(.opacity)
             }
         }
-        // Archive tip — fires on the visit after the drag tip is dismissed
+        // Archive tip — fires on the visit after the drag tip is dismissed.
+        // Target sits on the archive icon in the trailing toolbar.
         .overlay {
             if showingArchiveTip {
                 TabFirstTipOverlay(
@@ -429,110 +372,293 @@ struct LineupView: View {
         }
     }
 
-    // MARK: - Fair Play Rules Section
+    // MARK: - Export Actions
 
-    @ViewBuilder
-    var complianceSection: some View {
-        let config = store.fairPlayConfig
-        let activePlayers = store.lineup.activePlayers(from: store.players)
-        let noInfield = config.minimumInfieldInnings > 0
-            ? store.lineup.playersWithoutInfield(players: activePlayers) : []
-        let noOutfield = config.minimumOutfieldInnings > 0
-            ? store.lineup.playersWithoutOutfield(players: activePlayers) : []
-        let underMinimum = config.minimumFieldingInnings > 0
-            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings) : []
-        let backToBack = config.noConsecutiveBench
-            ? store.lineup.playersWithBackToBackBench(from: store.players) : []
-        let catcherToPitcher = store.lineup.playersViolatingCatcherToPitcher(
-            players: activePlayers, threshold: config.catcherToPitcherThreshold)
-        let pitcherToCatcher = store.lineup.playersViolatingPitcherToCatcher(
-            players: activePlayers, threshold: config.pitcherToCatcherThreshold)
+    private func exportBattingOrder() {
+        let doc = PDFGenerator.generate(
+            type: .battingOrder,
+            lineup: store.lineup,
+            players: store.players,
+            teamName: store.teamName,
+            teamColor: store.teamColor
+        )
+        generatedPDF = doc
+        Analytics.signal("pdf.exported", parameters: ["type": "battingOrder"])
+    }
 
-        let hasWarnings = !noInfield.isEmpty || !noOutfield.isEmpty || !underMinimum.isEmpty
-            || !backToBack.isEmpty || !catcherToPitcher.isEmpty || !pitcherToCatcher.isEmpty
+    private func exportCoachesGuide() {
+        let doc = PDFGenerator.generate(
+            type: .coachesGuide,
+            lineup: store.lineup,
+            players: store.players,
+            teamName: store.teamName,
+            teamColor: store.teamColor,
+            gameLogs: store.gameLogs,
+            pitchingConfig: store.pitchingConfig
+        )
+        if purchaseManager.isPro {
+            generatedPDF = doc
+            Analytics.signal("pdf.exported", parameters: ["type": "coachesGuide"])
+        } else {
+            lockedPDF = doc
+        }
+    }
+}
 
-        if hasWarnings {
-            Section(header: ComplianceRulesHeader(title: "Fair Play Warnings")) {
-                if !noInfield.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Missing Infield Inning", systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.orange)
-                        ForEach(noInfield) { player in
-                            Text("• \(player.displayName)")
-                                .font(.callout)
-                                .foregroundColor(.secondary)
+// MARK: - Game Summary Card
+
+/// Compact game card: a tappable summary row (date · opponent · status) over a
+/// hairline, with a Schedule / Template split-button row beneath.
+struct GameSummaryCard: View {
+    let gameDate: Date
+    let opponent: String
+    let isFinalized: Bool
+    let showSchedule: Bool
+    let showTemplate: Bool
+    let onTapSummary: () -> Void
+    let onTapSchedule: () -> Void
+    let onTapTemplate: () -> Void
+
+    private var dateText: String {
+        gameDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Summary row
+            Button(action: onTapSummary) {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 20))
+                        .foregroundColor(.blue)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Line 1 — date + opponent. Trailing spacer pins the
+                        // text to the leading edge so it starts on the same
+                        // left margin as the pill below.
+                        HStack(spacing: 6) {
+                            Text(dateText)
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .fixedSize()
+
+                            if !opponent.isEmpty {
+                                Text("· \(opponent)")
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+
+                            Spacer(minLength: 0)
                         }
+
+                        // Line 2 — status pill, hugging its content at the
+                        // same leading edge.
+                        StatusPill(isFinalized: isFinalized)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Color(.tertiaryLabel))
                 }
-                if !noOutfield.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Missing Outfield Inning", systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.orange)
-                        ForEach(noOutfield) { player in
-                            Text("• \(player.displayName)")
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                        }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+
+            // Split-button row (only when at least one half is shown)
+            if showSchedule || showTemplate {
+                Divider()
+                    .padding(.leading, 16)
+
+                HStack(spacing: 0) {
+                    if showSchedule {
+                        SplitButton(
+                            systemImage: "calendar",
+                            title: "Schedule",
+                            action: onTapSchedule
+                        )
                     }
-                }
-                if !underMinimum.isEmpty {
-                    let min = config.minimumFieldingInnings
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Under \(min) Inning\(min == 1 ? "" : "s") Fielded", systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.orange)
-                        ForEach(underMinimum) { player in
-                            Text("• \(player.displayName)")
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                        }
+
+                    if showSchedule && showTemplate {
+                        Divider()
+                            .frame(height: 24)
                     }
-                }
-                if !backToBack.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Back-to-Back Bench", systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.red)
-                        ForEach(backToBack) { player in
-                            Text("• \(player.displayName)")
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                if !catcherToPitcher.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Catcher to Pitcher Violation", systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.red)
-                        ForEach(catcherToPitcher) { player in
-                            Text("• \(player.displayName)")
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                if !pitcherToCatcher.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Pitcher to Catcher Violation", systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.red)
-                        ForEach(pitcherToCatcher) { player in
-                            Text("• \(player.displayName)")
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                        }
+
+                    if showTemplate {
+                        SplitButton(
+                            systemImage: "square.grid.2x2",
+                            title: "Template",
+                            action: onTapTemplate
+                        )
                     }
                 }
             }
-        } else if !activePlayers.isEmpty && store.lineup.innings.contains(where: { !$0.assignments.isEmpty }) {
-            Section(header: ComplianceRulesHeader(title: "Fair Play Rules")) {
-                Label("All active players meet fair play requirements", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green)
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+    }
+}
+
+/// Draft / Finalized capsule pill for the summary row.
+struct StatusPill: View {
+    let isFinalized: Bool
+
+    var body: some View {
+        if isFinalized {
+            HStack(spacing: 3) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12))
+                Text("Done")
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .foregroundColor(.green)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.green.opacity(0.12)))
+        } else {
+            Text("Draft")
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color(.systemGray5)))
+        }
+    }
+}
+
+/// One half of the Schedule / Template split row.
+struct SplitButton: View {
+    let systemImage: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
                     .font(.subheadline)
+                Text(title)
+                    .font(.subheadline.weight(.medium))
             }
+            .foregroundColor(.blue)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Fair Play Chip
+
+/// Inline, non-tappable summary of fair-play status shown in the Batting Order
+/// header. Reflects the defensive assignments on the Positions tab; coaches
+/// make changes there.
+struct FairPlayChip: View {
+    let evaluable: Bool
+    let warningCount: Int
+
+    var body: some View {
+        if evaluable {
+            if warningCount == 0 {
+                HStack(spacing: 3) {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text("Fair play OK")
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(.green)
+                .textCase(nil)
+                .animation(.easeInOut(duration: 0.2), value: warningCount)
+            } else {
+                HStack(spacing: 3) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text("^[\(warningCount) warning](inflect: true)")
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(.orange)
+                .textCase(nil)
+                .animation(.easeInOut(duration: 0.2), value: warningCount)
+            }
+        }
+    }
+}
+
+// MARK: - Export Bar
+
+/// Pinned bottom bar with the two PDF export buttons. Sits above the tab bar,
+/// with content scrolling underneath.
+struct ExportBar: View {
+    let isPro: Bool
+    let onExportBattingOrder: () -> Void
+    let onExportCoachesGuide: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            // Primary — Batting Order
+            Button(action: onExportBattingOrder) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.text")
+                    Text("Batting Order")
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(Color.blue)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            // Secondary — Coaches Guide (Pro-gated).
+            // Matches the primary button's solid fill for clarity; the PRO
+            // badge is what distinguishes the gated export for non-Pro users.
+            Button(action: onExportCoachesGuide) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.richtext.fill")
+                    Text("Coaches Guide")
+                    if !isPro {
+                        ProBadge(inverted: true)
+                    }
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(Color.blue)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 14)
+        // Opaque base so scrolling list rows do not show through the bar.
+        .background(
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea(edges: .bottom)
+        )
+        // Short fade strip above the bar so rows dissolve into it rather than
+        // hard-cutting at the top edge.
+        .overlay(alignment: .top) {
+            LinearGradient(
+                colors: [
+                    Color(.systemGroupedBackground).opacity(0),
+                    Color(.systemGroupedBackground)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 18)
+            .offset(y: -18)
         }
     }
 }
@@ -635,13 +761,17 @@ Assign ABS to innings when a player arrives late or leaves early — they still 
 // MARK: - Pro Badge
 
 struct ProBadge: View {
+    /// When true, renders white-on-blue for placement on a solid blue surface.
+    /// Default is blue-on-white for placement on neutral backgrounds.
+    var inverted: Bool = false
+
     var body: some View {
         Text("PRO")
             .font(.system(size: 10, weight: .bold))
-            .foregroundColor(.white)
+            .foregroundColor(inverted ? .blue : .white)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color.blue)
+            .background(inverted ? Color.white : Color.blue)
             .cornerRadius(5)
     }
 }

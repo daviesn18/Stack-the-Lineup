@@ -21,6 +21,10 @@ struct PlayersView: View {
     // Bulk add flow
     @State private var showingBulkAdd = false
 
+    // Collapsible card disclosures (default closed, one-time setup)
+    @State private var teamOpen = false
+    @State private var addOpen = false
+
     // Tip overlay driven by parent iPhoneTabView
     @Binding var showingTabTip: Bool
 
@@ -149,7 +153,7 @@ struct PlayersView: View {
                         config: TabTipConfig(
                             tabName: "Players",
                             title: "Set position preferences",
-                            body: "Tap the pencil icon next to any player and tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to build smarter lineups.",
+                            body: "Tap any player to tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to build smarter lineups.",
                             accentColor: .blue,
                             targetRect: CGRect(x: 16, y: 238, width: 200, height: 44),
                             targetCornerRadius: 10,
@@ -183,11 +187,12 @@ struct PlayersView: View {
     private var teamCardSection: some View {
         Section {
             TeamCardView(
+                isOpen: $teamOpen,
                 onSettings: { showingEditTeam = true },
                 onSwitch: { showingTeamSwitcher = true },
                 onAddTeam: { showingAddTeam = true }
             )
-            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
 
@@ -197,21 +202,29 @@ struct PlayersView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             } else {
-                rosterActionsRow
+                addPlayersCard
             }
         }
     }
 
+    @ViewBuilder
     private var playerRowsSection: some View {
-        let deleteAction: ((IndexSet) -> Void)? = isReadOnly ? nil : { offsets in
-            store.deletePlayer(at: offsets)
-        }
-        return ForEach(store.players) { player in
-            PlayerRosterRow(player: player, isReadOnly: isReadOnly) {
-                playerToEdit = player
+        if !store.players.isEmpty {
+            let deleteAction: ((IndexSet) -> Void)? = isReadOnly ? nil : { offsets in
+                store.deletePlayer(at: offsets)
+            }
+            Section {
+                ForEach(store.players) { player in
+                    PlayerRosterRow(player: player, isReadOnly: isReadOnly) {
+                        playerToEdit = player
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 68 }
+                }
+                .onDelete(perform: deleteAction)
+            } header: {
+                Text("Roster · \(store.players.count) \(store.players.count == 1 ? "player" : "players")")
             }
         }
-        .onDelete(perform: deleteAction)
     }
 
     @ViewBuilder
@@ -251,40 +264,72 @@ struct PlayersView: View {
         }
     }
 
-    private var rosterActionsRow: some View {
-        HStack(spacing: 0) {
-            RosterActionButton(
-                icon: "plus.circle.fill",
-                iconColor: .blue,
-                title: "New Player",
-                subtitle: "Add Player"
-            ) { showingAddPlayer = true }
+    private var addPlayersCard: some View {
+        VStack(spacing: 0) {
+            // Header row — toggles the disclosure
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { addOpen.toggle() }
+            } label: {
+                HStack(spacing: 13) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.blue.opacity(0.12))
+                            .frame(width: 30, height: 30)
+                        Image(systemName: "person.badge.plus")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.blue)
+                    }
 
-            Divider().frame(height: 36)
+                    Text("Add players")
+                        .font(.body)
+                        .foregroundColor(.primary)
 
-            RosterActionButton(
-                icon: "text.alignleft",
-                iconColor: .gray,
-                title: "Bulk Add",
-                subtitle: "Add Multiple Players"
-            ) { showingBulkAdd = true }
+                    Spacer(minLength: 4)
 
-            Divider().frame(height: 36)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(.tertiaryLabel))
+                        .rotationEffect(.degrees(addOpen ? 180 : 0))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-            RosterActionButton(
-                icon: "square.and.arrow.down",
-                iconColor: .blue,
-                title: "GameChanger",
-                subtitle: "Import",
-                iconBackground: .blue
-            ) {
-                Analytics.signal("roster.import.started")
-                showingImportInstructions = true
+            // Expanded actions
+            if addOpen {
+                VStack(spacing: 8) {
+                    AddPlayerActionButton(
+                        icon: "person.badge.plus",
+                        title: "New Player",
+                        trailing: "Add one",
+                        style: .primary
+                    ) { showingAddPlayer = true }
+
+                    AddPlayerActionButton(
+                        icon: "list.bullet",
+                        title: "Bulk Add",
+                        trailing: "Paste a roster",
+                        style: .secondary
+                    ) { showingBulkAdd = true }
+
+                    AddPlayerActionButton(
+                        icon: "square.and.arrow.down",
+                        title: "GameChanger",
+                        trailing: "Import CSV",
+                        style: .secondary
+                    ) {
+                        Analytics.signal("roster.import.started")
+                        showingImportInstructions = true
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
         }
-        .padding(.vertical, 10)
         .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
@@ -403,6 +448,7 @@ struct PlayersView: View {
 private struct TeamCardView: View {
     @EnvironmentObject var store: LineupStore
 
+    @Binding var isOpen: Bool
     let onSettings: () -> Void
     let onSwitch: () -> Void
     let onAddTeam: () -> Void
@@ -455,15 +501,18 @@ private struct TeamCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Top row: circle + name + gear + switch
-            HStack(spacing: 10) {
+        VStack(spacing: 0) {
+            // Header row — swatch + name + gear + divider + switch, all on one line
+            HStack(spacing: 12) {
                 Circle()
                     .fill(store.teamColor)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 30, height: 30)
+                    .overlay(
+                        Circle().strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+                    )
 
                 Text(store.teamName.isEmpty ? "Unnamed Team" : store.teamName)
-                    .font(.title3.weight(.semibold))
+                    .font(.title3.weight(.bold))
                     .lineLimit(1)
 
                 Spacer(minLength: 4)
@@ -471,47 +520,70 @@ private struct TeamCardView: View {
                 // Settings gear — opens Edit Team sheet
                 Button(action: onSettings) {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .frame(width: 30, height: 30)
-                        .background(Color(.systemGray5))
-                        .clipShape(Circle())
+                        .font(.system(size: 18))
+                        .foregroundColor(.blue)
                 }
                 .buttonStyle(.plain)
+
+                Divider()
+                    .frame(width: 0.5, height: 22)
 
                 // Add Team when solo, Switch when multiple teams exist
                 Button(action: store.teams.count > 1 ? onSwitch : onAddTeam) {
                     Text(store.teams.count > 1 ? "Switch" : "Add Team")
-                        .font(.caption.bold())
+                        .font(.subheadline.weight(.medium))
                         .foregroundColor(.blue)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.1))
-                        .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
-            // Pills row — gets the full card width so nothing truncates
-            HStack(spacing: 6) {
-                TeamInfoPill(
-                    label: "\(store.activeTeam.gameInningCount) innings",
-                    color: .blue
-                )
-                TeamInfoPill(
-                    label: "Fair play: \(fairPlayLabel)",
-                    color: fairPlayLabel == "Custom" ? .green : .secondary
-                )
-                TeamInfoPill(
-                    label: "Pitching: \(pitchingLabel)",
-                    color: pitchingLabel == "Off" ? .secondary : (pitchingLabel == "Custom" ? .orange : .secondary)
-                )
+            Divider()
+
+            // Team setup disclosure
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isOpen.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Team setup")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.secondary)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color(.tertiaryLabel))
+                        .rotationEffect(.degrees(isOpen ? 180 : 0))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // Expanded pills
+            if isOpen {
+                FlowPills(spacing: 6) {
+                    TeamInfoPill(
+                        label: "\(store.activeTeam.gameInningCount) innings",
+                        color: .blue
+                    )
+                    TeamInfoPill(
+                        label: "Fair play: \(fairPlayLabel)",
+                        color: fairPlayLabel == "Custom" ? .green : .secondary
+                    )
+                    TeamInfoPill(
+                        label: "Pitching: \(pitchingLabel)",
+                        color: pitchingLabel == "Off" ? .secondary : (pitchingLabel == "Custom" ? .orange : .secondary)
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
         .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -520,55 +592,130 @@ private struct TeamInfoPill: View {
     let label: String
     let color: Color
 
+    // Orange pills use a darker text tone so they stay legible on a light fill.
+    private var textColor: Color {
+        if color == .secondary { return .secondary }
+        if color == .orange { return Color(red: 0.78, green: 0.42, blue: 0.0) }
+        return color
+    }
+
     var body: some View {
         Text(label)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundColor(color == .secondary ? .secondary : color)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .font(.caption.weight(.semibold))
+            .foregroundColor(textColor)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
             .background(
                 color == .secondary
                     ? Color(.systemGray5)
-                    : color.opacity(0.12)
+                    : color.opacity(color == .green ? 0.15 : 0.12)
             )
             .clipShape(Capsule())
             .lineLimit(1)
+            .fixedSize()
     }
 }
 
-// MARK: - Roster Action Button
+// MARK: - Add Player Action Button
 
-private struct RosterActionButton: View {
+private struct AddPlayerActionButton: View {
+    enum Style { case primary, secondary }
+
     let icon: String
-    let iconColor: Color
     let title: String
-    let subtitle: String
-    var iconBackground: Color? = nil
+    let trailing: String
+    let style: Style
     let action: () -> Void
+
+    private var background: Color {
+        style == .primary ? .blue : Color(.systemGray5)
+    }
+    private var iconColor: Color {
+        style == .primary ? .white : .blue
+    }
+    private var titleColor: Color {
+        style == .primary ? .white : .primary
+    }
+    private var trailingColor: Color {
+        style == .primary ? Color.white.opacity(0.75) : .secondary
+    }
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(iconBackground != nil ? iconBackground!.opacity(1) : Color(.systemGray5))
-                        .frame(width: 38, height: 38)
-                    Image(systemName: icon)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(iconBackground != nil ? .white : iconColor)
-                }
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(iconColor)
+                    .frame(width: 22)
+
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    .font(.callout.weight(.semibold))
+                    .foregroundColor(titleColor)
+
+                Spacer(minLength: 8)
+
+                Text(trailing)
+                    .font(.footnote)
+                    .foregroundColor(trailingColor)
             }
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Flow Layout (wrapping pills)
+
+/// Wraps its subviews left-to-right, moving to a new line when the row is full.
+private struct FlowPills: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if rowWidth > 0, rowWidth + spacing + size.width > maxWidth {
+                totalHeight += rowHeight + spacing
+                totalWidth = max(totalWidth, rowWidth)
+                rowWidth = size.width
+                rowHeight = size.height
+            } else {
+                rowWidth += (rowWidth > 0 ? spacing : 0) + size.width
+                rowHeight = max(rowHeight, size.height)
+            }
+        }
+        totalHeight += rowHeight
+        totalWidth = max(totalWidth, rowWidth)
+        return CGSize(width: min(totalWidth, maxWidth), height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxWidth = bounds.width
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width - bounds.minX > maxWidth {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
@@ -1363,113 +1510,131 @@ struct PlayerRosterRow: View {
         return first + last
     }
 
-    // Preference pills — one pill per tier, listing all positions for that tier.
-    // e.g. "Never: C, RF" instead of separate "C Never" + "RF Never" pills.
-    // Ordered: Never, Strength, Capable, Emergency.
-    private var pills: [(String, Color, Color)] {
-        let order: [PositionPreferenceTier] = [.never, .strength, .capable, .emergency]
-        var result: [(String, Color, Color)] = []
-        for tier in order {
-            let positions = player.positionPreferences
-                .filter { $0.value == tier }
-                .map { $0.key.rawValue }
-                .sorted()
-            guard !positions.isEmpty else { continue }
-            let (bg, fg) = tierColors(tier)
-            let label = "\(tier.displayName): \(positions.joined(separator: ", "))"
-            result.append((label, bg, fg))
-        }
-        return result
+    // Positions for a tier, sorted, joined with ", ". Empty string if none.
+    private func positions(for tier: PositionPreferenceTier) -> String {
+        player.positionPreferences
+            .filter { $0.value == tier }
+            .map { $0.key.rawValue }
+            .sorted()
+            .joined(separator: ", ")
     }
 
-    private func tierColors(_ tier: PositionPreferenceTier) -> (Color, Color) {
-        switch tier {
-        case .never:     return (Color(red:0.99,green:0.92,blue:0.92), Color(red:0.64,green:0.18,blue:0.18))
-        case .strength:  return (Color(red:0.92,green:0.95,blue:0.87), Color(red:0.23,green:0.43,blue:0.07))
-        case .capable:   return (Color(red:0.90,green:0.95,blue:0.98), Color(red:0.09,green:0.37,blue:0.65))
-        case .emergency: return (Color(red:0.98,green:0.93,blue:0.85), Color(red:0.52,green:0.31,blue:0.04))
-        }
-    }
+    private var strengthPositions: String { positions(for: .strength) }
+    private var capablePositions:  String { positions(for: .capable) }
+    private var neverPositions:    String { positions(for: .never) }
+    private var emergencyPositions: String { positions(for: .emergency) }
+
+    private var hasPlays: Bool { !strengthPositions.isEmpty || !capablePositions.isEmpty }
+    private var hasAvoid: Bool { !neverPositions.isEmpty || !emergencyPositions.isEmpty }
+    private var hasAnyPreference: Bool { hasPlays || hasAvoid }
+
+    // Tier pill colors — green strength, blue capable, red never, orange emergency.
+    private let greenText = Color(red: 0.13, green: 0.63, blue: 0.24)   // ~#22A03D
+    private let blueText  = Color.blue
+    private let redText   = Color(red: 0.81, green: 0.23, blue: 0.20)   // ~#CF3B34
+    private let orangeText = Color(red: 0.78, green: 0.42, blue: 0.0)   // ~#C76B00
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             // Initials avatar
             ZStack {
                 Circle()
                     .fill(avatarColor)
                 Text(initials)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(avatarTextColor)
             }
-            .frame(width: 32, height: 32)
+            .frame(width: 40, height: 40)
 
-            // Name + jersey + pills
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
+            // Name + jersey + two-column preferences
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 7) {
                     Text(player.displayName)
                         .font(.body)
                         .lineLimit(1)
                     if !player.number.isEmpty {
                         Text("#\(player.number)")
-                            .font(.caption2)
+                            .font(.caption.weight(.medium))
                             .foregroundColor(.secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
                             .background(Color(.systemGray5))
-                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
                 }
-                if pills.isEmpty {
-                    Text("No preferences set")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .opacity(0.6)
-                } else {
-                    // Two-column grid — equal width columns so column 2 always aligns
-                    let left  = stride(from: 0, to: pills.count, by: 2).map { pills[$0] }
-                    let right = stride(from: 1, to: pills.count, by: 2).map { pills[$0] }
-                    HStack(alignment: .top, spacing: 6) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            ForEach(left, id: \.0) { label, bg, fg in
-                                pillView(label: label, bg: bg, fg: fg)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        if !right.isEmpty {
-                            VStack(alignment: .leading, spacing: 3) {
-                                ForEach(right, id: \.0) { label, bg, fg in
-                                    pillView(label: label, bg: bg, fg: fg)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+
+                if hasAnyPreference {
+                    HStack(alignment: .top, spacing: 18) {
+                        preferenceColumn(
+                            caption: "Plays",
+                            pills: [
+                                (strengthPositions, greenText, greenText.opacity(0.15)),
+                                (capablePositions,  blueText,  blueText.opacity(0.12))
+                            ]
+                        )
+                        preferenceColumn(
+                            caption: "Avoid",
+                            pills: [
+                                (neverPositions, redText, redText.opacity(0.12)),
+                                (emergencyPositions.isEmpty ? "" : "\(emergencyPositions)*",
+                                 orangeText, orangeText.opacity(0.15))
+                            ]
+                        )
                     }
+                } else {
+                    Text("No preferences set")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .opacity(0.7)
                 }
             }
 
             Spacer(minLength: 4)
 
-            // Edit button — hidden for read-only shared teams
             if !isReadOnly {
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
-                        .font(.subheadline)
-                        .foregroundColor(.blue)
-                }
-                .buttonStyle(.plain)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .padding(.top, 4)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !isReadOnly { onEdit() }
+        }
     }
 
-    private func pillView(label: String, bg: Color, fg: Color) -> some View {
+    // One PLAYS/AVOID column: uppercase caption over its stacked pills.
+    // Skips the whole column if it has no pills. Skips empty pills within it.
+    @ViewBuilder
+    private func preferenceColumn(
+        caption: String,
+        pills: [(String, Color, Color)]
+    ) -> some View {
+        let visible = pills.filter { !$0.0.isEmpty }
+        if !visible.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(caption.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .kerning(0.4)
+                ForEach(visible, id: \.0) { label, fg, bg in
+                    pillView(label: label, fg: fg, bg: bg)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func pillView(label: String, fg: Color, bg: Color) -> some View {
         Text(label)
-            .font(.system(size: 9, weight: .medium))
+            .font(.caption.weight(.semibold))
             .foregroundColor(fg)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
             .background(bg)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .lineLimit(1)
     }
 }

@@ -1135,7 +1135,7 @@ struct DetailPaneView: View {
                             onReopen: { store.reopenLineup() }
                         )
 
-                        PositionSummaryView(
+                        iPadPositionsPane(
                             onAutoFill: {
                                 showingAutoFillPopover = true
                             },
@@ -1222,5 +1222,783 @@ struct DetailPaneView: View {
         } message: {
             Text(autoFillConstraintNoticeMessage)
         }
+    }
+}
+
+// MARK: - Positions Pane Mode
+
+/// Segmented-control selection for the Positions tab detail pane.
+private enum PositionsPaneMode: String, CaseIterable {
+    case position = "By Position"
+    case inning   = "By Inning"
+    case pitching = "Pitching"
+
+    var title: String {
+        switch self {
+        case .position: return "Position Summary"
+        case .inning:   return "Inning by inning"
+        case .pitching: return "Pitching"
+        }
+    }
+}
+
+// MARK: - Positions Pane
+
+/// The Positions tab detail body: a segmented By Position matrix, the
+/// By Inning diamond (default), and a lightweight Pitching table. The diamond
+/// follows the DefensiveGridView field spec applied at iPad dashboard scale.
+private struct iPadPositionsPane: View {
+    @EnvironmentObject var store: LineupStore
+    @EnvironmentObject var purchaseManager: PurchaseManager
+
+    var onAutoFill: () -> Void
+    @Binding var showingAutoFillPopover: Bool
+    var onFillThrough: (Int) -> Void
+    var smartDefaultLastInning: Int
+    @Binding var autoFillPrompt: String
+    var isParsingAutoFillPrompt: Bool
+
+    @State private var mode: PositionsPaneMode = .inning
+    @State private var selectedInning: Int = 0
+
+    // Picker sheets — same targets as the iPhone diamond (DefensiveGridView).
+    @State private var selectedSlot: DefensiveGridView.SlotTarget? = nil
+    @State private var selectedPlayer: Player? = nil
+    @State private var quickSetTarget: QuickSetTarget? = nil
+    @State private var pitchingAssignmentPlayer: Player? = nil
+
+    struct QuickSetTarget: Identifiable {
+        let id = UUID()
+        let origin: QuickSetSheet.Origin
+        let inning: Int
+    }
+
+    // MARK: Derived Data
+
+    private var displayPlayers: [Player] {
+        store.lineup.displayPlayers(from: store.players)
+    }
+    private var activePlayers: [Player] {
+        store.lineup.activePlayers(from: store.players)
+    }
+    private var inningCount: Int { store.lineup.innings.count }
+    /// Guard against a stale selection when the inning count shrinks.
+    private var clampedInning: Int { min(selectedInning, max(0, inningCount - 1)) }
+    private var activePositions: [FieldPosition] {
+        store.lineup.activeFieldPositions(config: store.fairPlayConfig)
+    }
+
+    private let paneHorizontalPadding: CGFloat = 26
+
+    // MARK: Body
+
+    var body: some View {
+        if store.players.isEmpty {
+            ContentUnavailableView(
+                "No Players",
+                systemImage: "person.badge.plus",
+                description: Text("Add players on the Players tab first.")
+            )
+        } else if displayPlayers.isEmpty {
+            ContentUnavailableView(
+                "All Players Absent",
+                systemImage: "person.slash",
+                description: Text("Mark players as available on the Lineup tab.")
+            )
+        } else {
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(mode.title)
+                            .font(.largeTitle.bold())
+                            .padding(.bottom, 16)
+
+                        Picker("View", selection: $mode) {
+                            ForEach(PositionsPaneMode.allCases, id: \.self) { m in
+                                Text(m.rawValue).tag(m)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.bottom, 20)
+
+                        switch mode {
+                        case .position:
+                            byPositionMatrix(availableWidth: geo.size.width)
+                        case .inning:
+                            byInningDiamond
+                        case .pitching:
+                            pitchingTable
+                        }
+                    }
+                    .padding(.horizontal, paneHorizontalPadding)
+                    .padding(.top, 22)
+                    .padding(.bottom, 26)
+                }
+            }
+            .background(Color(.systemBackground))
+            .sheet(item: $selectedSlot) { slot in
+                PlayerPickerView(position: slot.position, benchSlotOccupant: slot.benchOccupant, inning: clampedInning)
+                    .environmentObject(store)
+                    .environmentObject(purchaseManager)
+            }
+            .sheet(item: $selectedPlayer) { player in
+                PositionPickerView(player: player, inning: clampedInning)
+                    .environmentObject(store)
+            }
+            .sheet(item: $quickSetTarget) { target in
+                QuickSetSheet(origin: target.origin, initialInning: target.inning)
+                    .environmentObject(store)
+            }
+            .sheet(item: $pitchingAssignmentPlayer) { player in
+                PitchingAssignmentSheet(player: player)
+                    .environmentObject(store)
+            }
+            .onChange(of: mode) { _, newMode in
+                Analytics.signal("ipad.positions.mode.changed", parameters: ["mode": newMode.rawValue])
+            }
+        }
+    }
+
+    // MARK: - By Position (position × inning matrix)
+
+    private let matrixLabelWidth: CGFloat = 152
+    private let matrixGap: CGFloat = 7
+
+    private func matrixColumnWidth(availableWidth: CGFloat) -> CGFloat {
+        let remaining = availableWidth - paneHorizontalPadding * 2 - matrixLabelWidth
+            - matrixGap * CGFloat(inningCount)
+        return max(56, remaining / CGFloat(inningCount))
+    }
+
+    @ViewBuilder
+    private func byPositionMatrix(availableWidth: CGFloat) -> some View {
+        let colWidth = matrixColumnWidth(availableWidth: availableWidth)
+
+        VStack(alignment: .leading, spacing: 0) {
+            // Header row
+            HStack(spacing: matrixGap) {
+                Text("Position")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .frame(width: matrixLabelWidth, alignment: .leading)
+                ForEach(0..<inningCount, id: \.self) { i in
+                    Text("Inn \(i + 1)")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .frame(width: colWidth)
+                }
+            }
+            .padding(.bottom, 4)
+
+            matrixGroupHeader("Infield", color: .blue)
+            ForEach(activePositions.filter { $0.isInfield }, id: \.self) { pos in
+                matrixRow(pos, colWidth: colWidth)
+            }
+
+            matrixGroupHeader("Outfield", color: .green)
+            ForEach(activePositions.filter { $0.isOutfield }, id: \.self) { pos in
+                matrixRow(pos, colWidth: colWidth)
+            }
+
+            matrixGroupHeader("Bench", color: Color(.systemGray2))
+            benchMatrixRow(colWidth: colWidth)
+
+            matrixFairPlayFooter
+                .padding(.top, 18)
+        }
+    }
+
+    private func matrixGroupHeader(_ label: String, color: Color) -> some View {
+        HStack(spacing: 7) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .kerning(0.5)
+        }
+        .padding(.top, 15)
+        .padding(.bottom, 8)
+        .padding(.leading, 2)
+    }
+
+    private func matrixRow(_ pos: FieldPosition, colWidth: CGFloat) -> some View {
+        HStack(spacing: matrixGap) {
+            HStack(spacing: 8) {
+                Text(pos.rawValue)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 7)
+                    .frame(minWidth: 32, minHeight: 22)
+                    .background(pos.badgeColor)
+                    .cornerRadius(6)
+                Text(pos.displayName)
+                    .font(.system(size: 12.5))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(width: matrixLabelWidth, alignment: .leading)
+
+            ForEach(0..<inningCount, id: \.self) { inning in
+                matrixCell(pos, inning: inning, colWidth: colWidth)
+            }
+        }
+        .padding(.bottom, matrixGap)
+    }
+
+    private func matrixCell(_ pos: FieldPosition, inning: Int, colWidth: CGFloat) -> some View {
+        let player = store.lineup.innings[inning].player(at: pos, in: store.players)
+        let tint: Color = pos.isOutfield ? Color.green.opacity(0.13) : Color.blue.opacity(0.12)
+
+        return Button {
+            quickSetTarget = QuickSetTarget(origin: .position(pos, benchIndex: nil), inning: inning)
+        } label: {
+            Group {
+                if let player {
+                    Text(player.firstName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                } else {
+                    Text("+")
+                        .font(.system(size: 20, weight: .light))
+                        .foregroundColor(Color(.systemGray3))
+                }
+            }
+            .padding(.horizontal, 6)
+            .frame(width: colWidth, height: 40)
+            .background(player != nil ? tint : Color(.systemBackground))
+            .cornerRadius(9)
+            .overlay {
+                if player == nil {
+                    RoundedRectangle(cornerRadius: 9)
+                        .strokeBorder(Color(.separator).opacity(0.4), lineWidth: 1)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// One gray well per inning holding a chip for each benched player.
+    private func benchMatrixRow(colWidth: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: matrixGap) {
+            Color.clear
+                .frame(width: matrixLabelWidth, height: 1)
+
+            ForEach(0..<inningCount, id: \.self) { inning in
+                let benched = displayPlayers.filter {
+                    store.lineup.innings[inning].position(for: $0) == .bench
+                }
+                VStack(spacing: 4) {
+                    ForEach(benched) { player in
+                        Button {
+                            quickSetTarget = QuickSetTarget(origin: .player(player), inning: inning)
+                        } label: {
+                            Text(player.firstName)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 6)
+                                .background(Color(.systemBackground))
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(5)
+                .frame(width: colWidth, alignment: .top)
+                .frame(minHeight: 44, alignment: .top)
+                .background(Color(.systemGray6))
+                .cornerRadius(9)
+            }
+        }
+    }
+
+    /// Green all-clear line under the matrix. Violations themselves live in
+    /// the always-on Fair Play rail, so no warning list is duplicated here.
+    @ViewBuilder
+    private var matrixFairPlayFooter: some View {
+        let config = store.fairPlayConfig
+        let hasAssignments = store.lineup.innings.contains { !$0.assignments.isEmpty }
+        let noInfield = config.minimumInfieldInnings > 0
+            ? store.lineup.playersWithoutInfield(players: activePlayers) : []
+        let noOutfield = config.minimumOutfieldInnings > 0
+            ? store.lineup.playersWithoutOutfield(players: activePlayers) : []
+        let underMin = config.minimumFieldingInnings > 0
+            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings) : []
+        let backToBack = config.noConsecutiveBench
+            ? store.lineup.playersWithBackToBackBench(from: store.players) : []
+        let allClear = noInfield.isEmpty && noOutfield.isEmpty && underMin.isEmpty && backToBack.isEmpty
+
+        if hasAssignments && allClear {
+            HStack(spacing: 7) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.green)
+                Text("All players meet fair play requirements")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.green)
+            }
+        }
+    }
+
+    // MARK: - By Inning (diamond)
+
+    private var byInningDiamond: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: inning title + fill status + Auto-Fill
+            HStack(spacing: 12) {
+                Text("Inning \(clampedInning + 1)")
+                    .font(.title2.bold())
+                fillStatusLabel
+                Spacer()
+                autoFillButton
+            }
+            .padding(.bottom, 16)
+
+            HStack(alignment: .top, spacing: 22) {
+                inningRail
+
+                // Field — the primary element; dominates the remaining width.
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    diamondField
+                        .aspectRatio(1 / 0.82, contentMode: .fit)
+                        .frame(maxWidth: 720)
+                        .padding(.top, 20)
+                    Spacer(minLength: 0)
+                }
+            }
+
+            // Bench + Absent side by side, aligned past the inning rail.
+            HStack(alignment: .top, spacing: 40) {
+                chipGroup("Bench") { benchChips }
+                chipGroup("Late arrival / early departure") { absentChips }
+            }
+            .padding(.leading, 78)
+            .padding(.top, 24)
+        }
+    }
+
+    private var fillStatusLabel: some View {
+        let openCount = store.lineup.openPositions(
+            inning: clampedInning, players: activePlayers, config: store.fairPlayConfig
+        ).count
+        return Text(openCount == 0 ? "Field set" : "\(openCount) \(openCount == 1 ? "spot" : "spots") open")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(openCount == 0 ? .green : .orange)
+    }
+
+    private var autoFillButton: some View {
+        Button { onAutoFill() } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "bolt.fill")
+                Text("Auto-Fill Open Positions")
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 11)
+            .background(purchaseManager.isPro ? Color.blue : Color(.systemGray3))
+            .cornerRadius(10)
+            .shadow(color: purchaseManager.isPro ? Color.blue.opacity(0.35) : .clear, radius: 3, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Auto-Fill Open Positions")
+        .popover(isPresented: $showingAutoFillPopover, arrowEdge: .top) {
+            AutoFillPopover(
+                isSummary: true,
+                smartDefaultLastInning: smartDefaultLastInning,
+                inningCount: inningCount,
+                prompt: $autoFillPrompt,
+                isParsingPrompt: isParsingAutoFillPrompt
+            ) { scope in
+                if case .through(let last) = scope { onFillThrough(last) }
+            }
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var inningRail: some View {
+        VStack(spacing: 8) {
+            ForEach(0..<inningCount, id: \.self) { inning in
+                let isSelected = clampedInning == inning
+                Button {
+                    selectedInning = inning
+                } label: {
+                    VStack(spacing: 3) {
+                        Text("\(inning + 1)")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(isSelected ? .white : .primary)
+                        railStatusGlyph(inning: inning, isSelected: isSelected)
+                    }
+                    .frame(width: 56)
+                    .padding(.vertical, 9)
+                    .background(isSelected ? Color.blue : Color(.systemGray5))
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: 56)
+    }
+
+    @ViewBuilder
+    private func railStatusGlyph(inning: Int, isSelected: Bool) -> some View {
+        let openPos = store.lineup.openPositions(inning: inning, players: activePlayers, config: store.fairPlayConfig)
+        let dupPos = store.lineup.duplicatePositionErrors(inning: inning)
+        let hasAny = !store.lineup.innings[inning].assignments.isEmpty
+
+        if !dupPos.isEmpty {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(isSelected ? .white : .red)
+        } else if !openPos.isEmpty && hasAny {
+            Image(systemName: "minus")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(isSelected ? .white : .orange)
+        } else if openPos.isEmpty && hasAny {
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(isSelected ? .white : .green)
+        } else {
+            Circle()
+                .fill(isSelected ? Color.white.opacity(0.7) : Color.gray.opacity(0.35))
+                .frame(width: 6, height: 6)
+                .frame(height: 12)
+        }
+    }
+
+    /// The schematic field: outfield fan + infield diamond drawn in the design's
+    /// 0–100 coordinate space (shared shapes), with position slots on top.
+    private var diamondField: some View {
+        GeometryReader { geo in
+            ZStack {
+                OutfieldFanShape()
+                    .fill(Color.green.opacity(0.07))
+                OutfieldFanShape()
+                    .stroke(Color(.separator), lineWidth: 0.5)
+                InfieldDiamondShape()
+                    .fill(Color.blue.opacity(0.09))
+                InfieldDiamondShape()
+                    .stroke(Color(.separator), lineWidth: 0.5)
+
+                ForEach(activePositions, id: \.self) { pos in
+                    if let coord = diamondCoordinate(for: pos) {
+                        fieldSlot(pos)
+                            .position(
+                                x: geo.size.width * coord.x / 100,
+                                y: geo.size.height * coord.y / 100
+                            )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Slot placement as percentages of the field box, from the design spec.
+    /// LCF/RCF aren't in the design (it assumes 3 outfielders) — under
+    /// 4-outfielder configs they sit on the outfield arc where CF was.
+    private func diamondCoordinate(for pos: FieldPosition) -> CGPoint? {
+        switch pos {
+        case .centerField:      return CGPoint(x: 50, y: 13)
+        case .leftField:        return CGPoint(x: 19, y: 24)
+        case .rightField:       return CGPoint(x: 81, y: 24)
+        case .leftCenterField:  return CGPoint(x: 36, y: 15)
+        case .rightCenterField: return CGPoint(x: 64, y: 15)
+        case .shortstop:        return CGPoint(x: 36, y: 45)
+        case .secondBase:       return CGPoint(x: 64, y: 45)
+        case .thirdBase:        return CGPoint(x: 23, y: 60)
+        case .firstBase:        return CGPoint(x: 77, y: 60)
+        case .pitcher:          return CGPoint(x: 50, y: 61)
+        case .catcher:          return CGPoint(x: 50, y: 87)
+        case .bench, .absent:   return nil
+        }
+    }
+
+    /// One field slot: position badge over the occupant's name chip ("Open"
+    /// when empty). Tapping opens the player picker for the slot.
+    @ViewBuilder
+    private func fieldSlot(_ pos: FieldPosition) -> some View {
+        let occupant = store.lineup.innings[clampedInning].player(at: pos, in: store.players)
+        let isDuplicate = store.lineup.duplicatePositionErrors(inning: clampedInning).contains(pos)
+        let pitchWarning: Bool = {
+            guard pos == .pitcher, let occupant, store.pitchingConfig.rulesEnabled else { return false }
+            return PitchEligibilityEngine.status(
+                for: occupant, gameLogs: store.gameLogs, config: store.pitchingConfig,
+                referenceDate: store.lineup.gameDate
+            ).blocksAssignment
+        }()
+
+        Button {
+            selectedSlot = DefensiveGridView.SlotTarget(position: pos, benchOccupant: nil)
+        } label: {
+            VStack(spacing: 4) {
+                slotBadge(pos, occupant: occupant)
+
+                HStack(spacing: 3) {
+                    Text(occupant.map { diamondDisplayName($0) } ?? "Open")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(occupant == nil ? Color(.systemGray) : .primary)
+                        .lineLimit(1)
+                    if pitchWarning {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.red)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(isDuplicate ? Color.red.opacity(0.08) : Color.clear)
+                .background(Color(.systemBackground))
+                .cornerRadius(8)
+                .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1)
+            }
+            .fixedSize()
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Solid position badge for a field slot, with the Emergency/Never
+    /// preference border when the occupant has a preference set (Pro).
+    @ViewBuilder
+    private func slotBadge(_ pos: FieldPosition, occupant: Player?) -> some View {
+        let prefTier: PositionPreferenceTier? = purchaseManager.isPro
+            ? occupant?.positionPreferences[pos]
+            : nil
+        let showBorder = prefTier == .emergency || prefTier == .never
+
+        Text(pos.rawValue)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 9)
+            .frame(minWidth: 40, minHeight: 27)
+            .background(pos.badgeColor)
+            .cornerRadius(7)
+            .shadow(color: .black.opacity(0.20), radius: 3, x: 0, y: 1)
+            .overlay {
+                if showBorder, let tier = prefTier {
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(tier.color, lineWidth: 2)
+                }
+            }
+    }
+
+    // MARK: Diamond display names
+
+    /// First names that appear more than once in the lineup — computed across
+    /// the full lineup so a player's field label never changes between innings.
+    private var collidingFirstNames: Set<String> {
+        var counts: [String: Int] = [:]
+        for player in displayPlayers { counts[player.firstName, default: 0] += 1 }
+        return Set(counts.filter { $0.value > 1 }.keys)
+    }
+
+    /// Field-slot display name: first name only, adding a last initial
+    /// ("Cameron T.") when two lineup players share a first name.
+    private func diamondDisplayName(_ player: Player) -> String {
+        collidingFirstNames.contains(player.firstName) ? player.shortName : player.firstName
+    }
+
+    // MARK: Bench / Absent chip groups
+
+    private var benchedPlayers: [Player] {
+        displayPlayers.filter { store.lineup.innings[clampedInning].position(for: $0) == .bench }
+    }
+
+    private var absentPlayersThisInning: [Player] {
+        displayPlayers.filter { store.lineup.innings[clampedInning].position(for: $0) == .absent }
+    }
+
+    private func chipGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundColor(.secondary)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var benchChips: some View {
+        ChipFlowLayout(spacing: 9) {
+            ForEach(benchedPlayers) { player in
+                playerChip(player, badge: "BN", badgeColor: FieldPosition.bench.badgeColor)
+            }
+            addChip("+ Bench", target: .bench)
+        }
+    }
+
+    private var absentChips: some View {
+        ChipFlowLayout(spacing: 9) {
+            ForEach(absentPlayersThisInning) { player in
+                playerChip(player, badge: "ABS", badgeColor: FieldPosition.absent.badgeColor)
+            }
+            addChip("+ Absent", target: .absent)
+        }
+    }
+
+    /// One bench/absent chip. Tapping opens the player-led position picker so
+    /// the coach can move that player onto the field. Bench chips carry the
+    /// back-to-back-bench flag.
+    @ViewBuilder
+    private func playerChip(_ player: Player, badge: String, badgeColor: Color) -> some View {
+        let backToBackBench: Bool = {
+            guard badge == "BN" else { return false }
+            let innings = store.lineup.innings
+            let prev = clampedInning > 0 && innings[clampedInning - 1].position(for: player) == .bench
+            let next = clampedInning < innings.count - 1 && innings[clampedInning + 1].position(for: player) == .bench
+            return prev || next
+        }()
+
+        Button {
+            selectedPlayer = player
+        } label: {
+            HStack(spacing: 7) {
+                Text(badge)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(minWidth: 28, minHeight: 18)
+                    .background(badgeColor)
+                    .cornerRadius(5)
+                Text(player.displayName)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(badge == "ABS" ? .primary.opacity(0.9) : .primary)
+                if backToBackBench {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                }
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 12)
+            .padding(.vertical, 6)
+            .background(Color(.systemBackground))
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.06), radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Dashed "+ Bench" / "+ Absent" chip — opens the picker targeting that slot.
+    private func addChip(_ label: String, target: FieldPosition) -> some View {
+        Button {
+            selectedSlot = DefensiveGridView.SlotTarget(position: target, benchOccupant: nil)
+        } label: {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.blue)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color(.systemGray3), style: StrokeStyle(lineWidth: 1.5, dash: [4]))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Pitching
+
+    /// Lightweight PITCHER · INNINGS · REST table. Tapping a row opens the
+    /// existing pitching assignment sheet.
+    private var pitchingTable: some View {
+        let rows: [(player: Player, innings: Int, rest: String)] = displayPlayers
+            .filter { $0.positionPreferences[.pitcher] != .never }
+            .map { player in
+                let innings = store.lineup.innings.filter { $0.assignments[player.id] == .pitcher }.count
+                let rest: String = {
+                    guard store.pitchingConfig.rulesEnabled else { return "—" }
+                    let status = PitchEligibilityEngine.status(
+                        for: player, gameLogs: store.gameLogs, config: store.pitchingConfig,
+                        referenceDate: store.lineup.gameDate
+                    )
+                    if case .eligible = status { return "—" }
+                    return status.displayLabel
+                }()
+                return (player, innings, rest)
+            }
+            .sorted { a, b in
+                if a.innings != b.innings { return a.innings > b.innings }
+                return a.player.displayName < b.player.displayName
+            }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("PITCHER")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("INNINGS")
+                        .frame(width: 90, alignment: .trailing)
+                    Text("REST")
+                        .frame(width: 110, alignment: .trailing)
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.secondary)
+                .kerning(0.4)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+
+                Divider()
+
+                if rows.isEmpty {
+                    Text("No players have Pitcher as an available position preference.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ForEach(rows, id: \.player.id) { row in
+                        Button {
+                            pitchingAssignmentPlayer = row.player
+                        } label: {
+                            HStack {
+                                Text(row.player.displayName)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text("\(row.innings)")
+                                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                                    .foregroundColor(.primary)
+                                    .frame(width: 90, alignment: .trailing)
+                                Text(row.rest)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .frame(width: 110, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if row.player.id != rows.last?.player.id {
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                }
+            }
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 0.5)
+            )
+
+            if !store.pitchingConfig.rulesEnabled {
+                Text("Pitch tracking is off for this game. Turn it on in team settings to log pitch counts and enforce rest days.")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: 560, alignment: .leading)
     }
 }

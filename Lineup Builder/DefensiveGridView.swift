@@ -1128,15 +1128,18 @@ struct DefensiveGridView: View {
         }
     }
 
-    /// Landscape: field on the left (~56% width, full height), scrollable
-    /// Bench + Absent chip panel on the right.
+    /// Landscape: field on the left (~56% width), Bench + Absent chip panel on
+    /// the right. The field keeps its aspect ratio from its width rather than
+    /// squashing into the short landscape viewport, so the whole body scrolls
+    /// vertically when it runs past the fold.
     private var diamondBodyLandscape: some View {
         GeometryReader { geo in
-            HStack(alignment: .top, spacing: 10) {
-                diamondField
-                    .frame(width: geo.size.width * 0.56, height: geo.size.height)
+            ScrollView(showsIndicators: false) {
+                HStack(alignment: .top, spacing: 10) {
+                    diamondField
+                        .aspectRatio(1 / 0.82, contentMode: .fit)
+                        .frame(width: geo.size.width * 0.56)
 
-                ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         chipGroupHeader("Bench")
                             .padding(.top, 10)
@@ -1149,10 +1152,11 @@ struct DefensiveGridView: View {
                         absentChipRail
                     }
                     .padding(.trailing, 12)
-                    .padding(.bottom, 10)
                 }
+                .padding(.leading, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 12)
             }
-            .padding(.leading, 8)
         }
     }
 
@@ -1358,8 +1362,8 @@ struct DefensiveGridView: View {
 
 /// Outfield fan: home plate bottom-center, both foul lines out to the arc.
 /// Stroking this shape draws the foul lines and the outfield arc; filling it
-/// gives the grass wash.
-private struct OutfieldFanShape: Shape {
+/// gives the grass wash. Shared with the iPad dashboard's By Inning diamond.
+struct OutfieldFanShape: Shape {
     func path(in rect: CGRect) -> Path {
         func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: rect.minX + rect.width * x / 100, y: rect.minY + rect.height * y / 100)
@@ -1374,7 +1378,7 @@ private struct OutfieldFanShape: Shape {
 }
 
 /// Infield diamond centered under the pitcher's mound slot.
-private struct InfieldDiamondShape: Shape {
+struct InfieldDiamondShape: Shape {
     func path(in rect: CGRect) -> Path {
         func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: rect.minX + rect.width * x / 100, y: rect.minY + rect.height * y / 100)
@@ -1390,9 +1394,10 @@ private struct InfieldDiamondShape: Shape {
 }
 
 // MARK: - Chip Flow Layout
-// Left-aligned wrapping layout for the bench/absent chip rails.
+// Left-aligned wrapping layout for the bench/absent chip rails. Shared with
+// the iPad dashboard's By Inning diamond.
 
-private struct ChipFlowLayout: Layout {
+struct ChipFlowLayout: Layout {
     var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
