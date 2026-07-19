@@ -336,31 +336,57 @@ enum DebugDataSeeder {
     }
 
     // MARK: - Assignment Grid
-    // Intentionally leaves gaps and gives Marcus heavy bench time so all
-    // UI states are visible in the Players tab.
+    //
+    // Every inning here is a *valid* defensive alignment: each of the nine
+    // field positions is filled exactly once, and the tenth player sits. Read
+    // any column top to bottom and you get P, C, 1B, 2B, 3B, SS, LF, CF, RF
+    // plus one bench — no position is ever double-filled.
+    //
+    // This matters beyond looking right in the History tab: seeded games get
+    // applied to real lineups via History → Apply, and a grid with two
+    // pitchers in an inning produces a lineup the app's own editing rules
+    // would never allow. GameLogReuseTests.testSeededGameLogsAreValidLineups
+    // guards the invariant.
+    //
+    // Within that constraint the rotation still leaves the gaps and Never
+    // stripes the Players tab needs: nobody plays every position, and no
+    // player is ever assigned a position they've marked Never.
+    //
+    // Bench time is necessarily thin — ten players against nine positions is
+    // exactly one bench slot per inning, so seven slots across the game. They
+    // are spread unevenly (Nate sits twice; Jake, Connor, Leo and Cam never
+    // sit) so the bench-distribution UI still has something to show, and no
+    // player sits in back-to-back innings.
+
+    /// The seeded grid, built against the standard fake roster. Exists so the
+    /// tests can assert the alignment invariant without seeding a whole team.
+    static func debugAssignmentGrid() -> [InningAssignment] {
+        makeAssignments(snapshots: fakePlayers.map { PlayerSnapshot(from: $0) })
+    }
 
     private static func makeAssignments(snapshots: [PlayerSnapshot]) -> [InningAssignment] {
+        // One row per player, in fakePlayers order. Seven innings per row.
         let sequences: [[FieldPosition]] = [
-            // Jake Rivera — pitcher-heavy, never catches, gaps at SS/3B
-            [.pitcher, .firstBase, .pitcher, .secondBase, .pitcher, .bench, .leftField],
-            // Connor Walsh — SS/3B specialist, some outfield
-            [.shortstop, .thirdBase, .secondBase, .shortstop, .centerField, .thirdBase, .bench],
-            // Tyler Nguyen — catcher-heavy, gap at LF/CF (Never RF so shouldn't show)
-            [.catcher, .firstBase, .catcher, .bench, .catcher, .firstBase, .catcher],
-            // Marcus Bell — pure outfielder, heavy bench (sitting-more state)
-            [.leftField, .bench, .centerField, .bench, .leftField, .bench, .centerField],
-            // Drew Santos — 1B/3B, occasional pitcher, gap at SS/2B
-            [.firstBase, .pitcher, .thirdBase, .firstBase, .bench, .pitcher, .thirdBase],
-            // Eli Park — 2B/SS focus, gap at outfield
-            [.secondBase, .shortstop, .secondBase, .thirdBase, .secondBase, .shortstop, .bench],
-            // Owen Fischer — CF/RF only, gap at infield (Never C so shouldn't show)
-            [.centerField, .rightField, .centerField, .leftField, .rightField, .centerField, .bench],
-            // Nate Coleman — pitcher/SS, some 1B, gap at outfield
-            [.pitcher, .shortstop, .firstBase, .pitcher, .shortstop, .bench, .pitcher],
-            // Leo Huang — 3B/2B, some LF, gap at RF (Never P so P shouldn't show)
-            [.thirdBase, .secondBase, .thirdBase, .bench, .thirdBase, .leftField, .secondBase],
-            // Cam Torres — RF/CF/1B, gap at SS/2B/3B (Never P/C so those shouldn't show)
-            [.rightField, .firstBase, .centerField, .rightField, .bench, .rightField, .centerField],
+            // Jake Rivera — pitcher-heavy. Never C. Gaps at SS/3B/CF/RF.
+            [.pitcher, .firstBase, .leftField, .pitcher, .secondBase, .pitcher, .firstBase],
+            // Connor Walsh — SS/3B specialist, one inning in center.
+            [.shortstop, .thirdBase, .shortstop, .centerField, .thirdBase, .shortstop, .thirdBase],
+            // Tyler Nguyen — everyday catcher. Gaps at LF/CF (Never RF shouldn't show).
+            [.catcher, .catcher, .catcher, .catcher, .catcher, .catcher, .bench],
+            // Marcus Bell — pure outfielder. Never P/C. Gap at CF.
+            [.leftField, .leftField, .bench, .leftField, .rightField, .rightField, .leftField],
+            // Drew Santos — 1B/3B, spot starts on the mound, backup catcher.
+            [.firstBase, .bench, .pitcher, .thirdBase, .firstBase, .centerField, .catcher],
+            // Eli Park — 2B/SS focus. Never C. Gap at outfield.
+            [.secondBase, .shortstop, .secondBase, .bench, .shortstop, .secondBase, .shortstop],
+            // Owen Fischer — outfield only. Never C. Gap at infield.
+            [.centerField, .centerField, .centerField, .rightField, .bench, .leftField, .centerField],
+            // Nate Coleman — pitcher/SS, some 1B. Gap at outfield. Sits twice.
+            [.bench, .pitcher, .firstBase, .shortstop, .pitcher, .bench, .pitcher],
+            // Leo Huang — 3B/2B, one inning in left. Never P. Gap at RF.
+            [.thirdBase, .secondBase, .thirdBase, .secondBase, .leftField, .thirdBase, .secondBase],
+            // Cam Torres — RF/CF/1B. Never P/C. Gaps at SS/2B/3B.
+            [.rightField, .rightField, .rightField, .firstBase, .centerField, .firstBase, .rightField],
         ]
 
         var result: [InningAssignment] = (0..<7).map { _ in InningAssignment() }

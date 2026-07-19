@@ -478,6 +478,50 @@ struct InningAssignment: Codable, Sendable {
         guard let pid = assignments.first(where: { $0.value == position })?.key else { return nil }
         return players.first(where: { $0.id == pid })
     }
+
+    /// Enforces the invariant that at most one player holds any given fielding
+    /// position in an inning. Bench and ABS are exempt — any number of players
+    /// may share those.
+    ///
+    /// `assign(player:position:)` deliberately does not evict the current
+    /// occupant (LineupStore.assignPosition handles eviction for interactive
+    /// edits), so any path that builds an InningAssignment by replaying stored
+    /// assignments in bulk — applying an archived game or a template — has to
+    /// normalize afterwards or it can surface two pitchers in one inning.
+    ///
+    /// On conflict the player appearing earliest in `preferenceOrder` (the
+    /// batting order) keeps the position; the others are left *unassigned*
+    /// rather than benched. An open cell is visible and fixable in the grid,
+    /// and it lets AutoFill fill the gap — silently benching someone would
+    /// quietly change their playing time instead.
+    nonisolated func deduplicatingFieldingPositions(preferring preferenceOrder: [UUID]) -> InningAssignment {
+        var seenPositions: Set<FieldPosition> = []
+        var result: [UUID: FieldPosition] = [:]
+
+        let rank: (UUID) -> Int = { id in
+            preferenceOrder.firstIndex(of: id) ?? Int.max
+        }
+        // Ties (both unranked) break on UUID so the result is stable rather
+        // than dependent on dictionary iteration order.
+        let ordered = assignments.sorted { lhs, rhs in
+            let (l, r) = (rank(lhs.key), rank(rhs.key))
+            return l == r ? lhs.key.uuidString < rhs.key.uuidString : l < r
+        }
+
+        for (playerID, position) in ordered {
+            if position.isNonFielding {
+                result[playerID] = position
+            } else if !seenPositions.contains(position) {
+                seenPositions.insert(position)
+                result[playerID] = position
+            }
+            // else: duplicate holder of an already-taken position — cell stays open
+        }
+
+        var deduped = InningAssignment()
+        deduped.assignments = result
+        return deduped
+    }
 }
 
 // MARK: - Lineup Status
@@ -1063,6 +1107,17 @@ class LineupStore: ObservableObject {
     /// CSV/.stlroster file via .onOpenURL. ContentView observes this and presents
     /// the team-picker and preview chain.
     @Published var pendingRosterImport: PendingRosterImport = .none
+    /// Opponent of the archived game the current lineup was copied from, or nil
+    /// if it wasn't copied. Drives two things: ContentView switches to the
+    /// Lineup tab when this becomes non-nil, and LineupView shows the "Copied
+    /// from…" banner while it stays non-nil. Not persisted — it describes this
+    /// session's navigation, not the lineup itself.
+    @Published var copiedFromGameOpponent: String?
+    /// Transient confirmation for the reuse actions, rendered by ContentView
+    /// above the tab bar. Lives here rather than in the History screen because
+    /// copying switches tabs — a toast owned by the screen that triggered it
+    /// would animate in off screen.
+    @Published var reuseToast: String?
 
     // MARK: - Active Team Accessor
     var activeTeam: Team {
@@ -1547,6 +1602,9 @@ class LineupStore: ObservableObject {
     /// and will automatically revert back to draft.
     func finalizeLineup() {
         activeTeam.lineup.status = .finalized
+        // The banner asks the coach to review and finalize; finalizing is them
+        // doing it, so it has nothing left to say.
+        copiedFromGameOpponent = nil
         let name = activeTeam.coachName.trimmingCharacters(in: .whitespaces)
         activeTeam.lineup.lastFinalizedBy = name.isEmpty ? nil : name
         activeTeam.lineup.lastFinalizedAt = Date()
@@ -1600,6 +1658,8 @@ class LineupStore: ObservableObject {
         }
 
         clearPositions()
+        // The game the banner referred to has been played and archived.
+        copiedFromGameOpponent = nil
         save()
         return log.id
     }
@@ -1969,9 +2029,78 @@ class LineupStore: ObservableObject {
             }
         }
 
+        // Two locks can name the same position in the same inning (nothing in
+        // the lock editor prevents saving a template built from a grid that
+        // already had a conflict), so normalize before this becomes the
+        // coach's live lineup.
+        let preference = newLineup.battingOrder
+        newLineup.innings = newLineup.innings.map {
+            $0.deduplicatingFieldingPositions(preferring: preference)
+        }
+
         activeTeam.lineup = newLineup
         Analytics.signal("template.applied", parameters: ["templateName": template.name])
         save()
+    }
+
+    // MARK: - Reusing Archived Games
+
+    /// Copies an archived game's batting order and defensive assignments onto
+    /// the active lineup, keeping the current game's date and opponent — the
+    /// coach is reusing the shape of an old game for today's game, not
+    /// re-importing the old game itself.
+    ///
+    /// Mirrors applyTemplate's roster handling: any player no longer on the
+    /// active roster is skipped silently, both in the batting order (which
+    /// compresses rather than leaving a gap) and in the grid (that cell stays
+    /// open). Innings are resized to the team's current game length, so a
+    /// 7-inning log applied to a 6-inning team drops the trailing inning.
+    ///
+    /// ABS assignments are deliberately not carried over — absence is specific
+    /// to the game it was recorded in, so those cells come back open. Bench
+    /// assignments are copied, since they're part of the rotation being reused.
+    func applyGameLog(_ log: GameLog) {
+        revertToDraftIfFinalized()
+        activeTeam.lineup = lineupFromGameLog(log)
+        copiedFromGameOpponent = log.opponent.isEmpty ? "a past game" : "vs \(log.opponent)"
+        Analytics.signal("history.lineup.applied", parameters: [
+            "inningsPlayed": "\(log.inningsPlayed)"
+        ])
+        save()
+    }
+
+    /// True when the current game already has something worth warning about
+    /// before a copy overwrites it. Drives whether the History screen shows the
+    /// overwrite alert or copies straight through.
+    var currentGameHasLineup: Bool {
+        !activeTeam.lineup.battingOrder.isEmpty
+            || activeTeam.lineup.innings.contains { !$0.assignments.isEmpty }
+    }
+
+    /// Builds — but does not apply — the Lineup an archived game maps onto for
+    /// the active team's current roster and game length. Shared by
+    /// applyGameLog and by TemplateLockEditorView, so the grid the coach picks
+    /// locks from is exactly the grid applying the log would produce.
+    func lineupFromGameLog(_ log: GameLog) -> Lineup {
+        let activeIDs = Set(activeTeam.players.map { $0.id })
+        var newLineup = Lineup()
+        newLineup.gameDate = activeTeam.lineup.gameDate
+        newLineup.opponent = activeTeam.lineup.opponent
+        newLineup.battingOrder = log.battingOrder.filter { activeIDs.contains($0) }
+
+        let inningCount = activeTeam.gameInningCount
+        let preference = newLineup.battingOrder
+        newLineup.innings = (0..<inningCount).map { index in
+            guard index < log.innings.count else { return InningAssignment() }
+            var assignment = InningAssignment()
+            assignment.assignments = log.innings[index].assignments.filter { playerID, position in
+                activeIDs.contains(playerID) && !position.isAbsent
+            }
+            // Archived grids are trusted but not guaranteed clean — normalize
+            // so a duplicate in old data can't become a duplicate in today's game.
+            return assignment.deduplicatingFieldingPositions(preferring: preference)
+        }
+        return newLineup
     }
 
     // MARK: - Team Management

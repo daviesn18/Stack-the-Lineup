@@ -96,6 +96,19 @@ struct LineupView: View {
                 }
             }
 
+            // MARK: - Copied-From-History Banner
+            // Set when the coach copies an archived game from History. Stays
+            // up until they finalize (or archive), since "review and finalize"
+            // is the thing it's asking for.
+            if let source = store.copiedFromGameOpponent {
+                Section {
+                    CopiedFromGameBanner(source: source)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
             // MARK: - First Game Checklist
             // Shown until the coach completes all 4 steps or manually dismisses.
             // Rendered as a card inside a clear-background section so it sits
@@ -405,6 +418,35 @@ struct LineupView: View {
     }
 }
 
+// MARK: - Copied From Game Banner
+
+/// Shown at the top of the Lineup tab after the coach copies an archived game
+/// from History. Green rather than the orange used for read-only: this is a
+/// successful action landing, not a restriction.
+struct CopiedFromGameBanner: View {
+    /// Already formatted for the sentence, e.g. "vs Eagles".
+    let source: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+            Text("Copied from \(source). Review and finalize for game day.")
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.green.opacity(0.12))
+        )
+    }
+}
+
 // MARK: - Game Summary Card
 
 /// Compact game card: a tappable summary row (date · opponent · status) over a
@@ -443,13 +485,13 @@ struct GameSummaryCard: View {
                                 .lineLimit(1)
                                 .fixedSize()
 
-                            if !opponent.isEmpty {
-                                Text("· \(opponent)")
-                                    .font(.body)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
+                            // Placeholder when no opponent is set, so the row
+                            // reads as editable rather than looking empty.
+                            Text(opponent.isEmpty ? "· Add opponent" : "· \(opponent)")
+                                .font(.body)
+                                .foregroundColor(opponent.isEmpty ? Color(.tertiaryLabel) : .secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
                             Spacer(minLength: 0)
                         }
@@ -468,6 +510,9 @@ struct GameSummaryCard: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 13)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // Make the whole row hit-testable, not just the text/glyphs.
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 

@@ -66,6 +66,23 @@ struct ContentView: View {
         }
         .environmentObject(store)
         .tint(.blue)
+        // Reuse confirmations ("Copied to current game" / "Template saved").
+        // Owned here because copying switches tabs out from under the screen
+        // that triggered it.
+        .overlay(alignment: .bottom) {
+            if let toast = store.reuseToast {
+                GameLogToast(text: toast)
+                    // Clears the tab bar *and* the Lineup tab's export bar,
+                    // which is where the copy flow lands.
+                    .padding(.bottom, 104)
+            }
+        }
+        .animation(.spring(duration: 0.35), value: store.reuseToast)
+        .onChange(of: store.copiedFromGameOpponent) { _, opponent in
+            // Copying from History lands the coach on the Lineup tab, where
+            // the copied order is waiting under the "Copied from…" banner.
+            if opponent != nil { selectedTab = 1 }
+        }
         .onAppear {
             Analytics.signal("app.opened", parameters: [
                 "playerCount": "\(store.players.count)"

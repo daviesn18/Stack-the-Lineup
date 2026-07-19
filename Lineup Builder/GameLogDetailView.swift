@@ -12,6 +12,9 @@ struct GameLogDetailView: View {
 
     @State private var showingPitchCountEdit = false
     @State private var showingNotesEdit = false
+    @State private var showingOverwriteAlert = false
+    @State private var showingSaveTemplate = false
+    @State private var showingTemplatePaywall = false
 
     private var archivedAtString: String {
         let f = DateFormatter()
@@ -203,12 +206,20 @@ struct GameLogDetailView: View {
                     }
                 }
                 .padding(.horizontal)
-                .padding(.bottom, 32)
+
+                reuseSection
+                    .padding(.bottom, 32)
             }
         }
         .navigationTitle(log.opponent.isEmpty ? "Game Log" : "vs. \(log.opponent)")
         .navigationBarTitleDisplayMode(.inline)
         .background(Color(.systemGroupedBackground))
+        .alert("Overwrite current game?", isPresented: $showingOverwriteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Copy") { copyToCurrentGame() }
+        } message: {
+            Text(overwriteMessage)
+        }
         .sheet(isPresented: $showingPitchCountEdit) {
             RetroactivePitchCountSheet(log: log)
                 .environmentObject(store)
@@ -216,6 +227,98 @@ struct GameLogDetailView: View {
         .sheet(isPresented: $showingNotesEdit) {
             NotesEditSheet(log: log)
                 .environmentObject(store)
+        }
+        .sheet(isPresented: $showingSaveTemplate) {
+            TemplateLockEditorView(sourceLog: log, onSaved: { showToast("Template saved") })
+                .environmentObject(store)
+                .environmentObject(purchaseManager)
+        }
+        .sheet(isPresented: $showingTemplatePaywall) {
+            PaywallView(source: "lineup_template")
+                .environmentObject(purchaseManager)
+        }
+    }
+
+    // MARK: - Reuse This Game
+
+    /// The two reuse actions, pinned below the read-only game detail. A
+    /// grouped section rather than a toolbar menu: it's the only place these
+    /// actions exist, so they have to be visible without being hunted for.
+    private var reuseSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Reuse this game")
+                .font(.subheadline)
+                .textCase(.uppercase)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+                .padding(.top, 24)
+
+            GroupBox {
+                VStack(spacing: 0) {
+                    reuseRow(title: "Copy to current game", systemImage: "doc.on.doc") {
+                        // Nothing to overwrite means nothing to warn about.
+                        if store.currentGameHasLineup {
+                            showingOverwriteAlert = true
+                        } else {
+                            copyToCurrentGame()
+                        }
+                    }
+                    Divider().padding(.vertical, 4)
+                    reuseRow(title: "Save as template", systemImage: "bookmark") {
+                        attemptSaveAsTemplate()
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private func reuseRow(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                Text(title)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Spelled out because copying overwrites whatever is in the current
+    /// lineup. Players who have left the roster since this game are dropped
+    /// silently, so the alert is the only place that's mentioned.
+    private var overwriteMessage: String {
+        let current = store.lineup.opponent
+        let currentLabel = current.isEmpty ? "Your current game" : "Your current game vs \(current)"
+        let sourceLabel = log.opponent.isEmpty ? "this game" : "vs \(log.opponent)"
+        return "\(currentLabel) already has a batting order and positions. Copying from \(sourceLabel) replaces them. Players no longer on your roster are skipped."
+    }
+
+    private func copyToCurrentGame() {
+        // applyGameLog sets copiedFromGameOpponent, which ContentView watches
+        // to switch to the Lineup tab. The toast is owned by ContentView for
+        // the same reason — this screen is on its way off.
+        store.applyGameLog(log)
+        showToast("Copied to current game")
+    }
+
+    private func showToast(_ text: String) {
+        store.reuseToast = text
+        Task {
+            try? await Task.sleep(for: .seconds(2.8))
+            store.reuseToast = nil
+        }
+    }
+
+    /// Same gate as the lineup's own Save as Template action: first template
+    /// is free, additional templates are Pro.
+    private func attemptSaveAsTemplate() {
+        if store.lineupTemplates.isEmpty || purchaseManager.isPro {
+            showingSaveTemplate = true
+        } else {
+            showingTemplatePaywall = true
         }
     }
 
@@ -230,6 +333,24 @@ struct GameLogDetailView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.trailing)
         }
+    }
+}
+
+// MARK: - Game Log Toast
+// Matches the schedule-import toast in LineupView. Shared by GameLogDetailView
+// and the History list's swipe action so both confirm the same way.
+
+struct GameLogToast: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline.bold())
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(Color(.label)))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
 
