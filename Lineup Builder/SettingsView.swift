@@ -15,6 +15,10 @@ struct SettingsView: View {
     @State private var showingResetTipsConfirmation = false
     @State private var showingResetTipsDoneAlert = false
 
+    // Version-row tap counter for the debug data seeder. See the Version row below.
+    @State private var versionTapCount = 0
+    @State private var lastVersionTapAt: Date?
+
     var body: some View {
         NavigationStack {
             List {
@@ -107,7 +111,17 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    // Long-press 1.5s to reveal debug data seeder
+                    // Tap 7 times to reveal the debug data seeder.
+                    //
+                    // Deliberately not a long-press: press-and-hold on a version
+                    // string is how iOS users select and copy text, so a real
+                    // coach can reach it by accident. Seeding is additive (it
+                    // adds "Test Team" and leaves every other team alone), but
+                    // the new team syncs to their other devices, which is a
+                    // confusing thing to happen unprompted.
+                    //
+                    // Taps must be within 2s of each other, so a stray tap while
+                    // scrolling never accumulates toward the threshold.
                     HStack {
                         Text("Version")
                         Spacer()
@@ -115,8 +129,20 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 1.5) {
-                        showingSeedConfirmation = true
+                    .onTapGesture {
+                        let now = Date()
+                        if let last = lastVersionTapAt, now.timeIntervalSince(last) > 2 {
+                            versionTapCount = 1
+                        } else {
+                            versionTapCount += 1
+                        }
+                        lastVersionTapAt = now
+
+                        if versionTapCount >= 7 {
+                            versionTapCount = 0
+                            lastVersionTapAt = nil
+                            showingSeedConfirmation = true
+                        }
                     }
 
                     // Long-press 1.5s to reset welcome cards and contextual tips
