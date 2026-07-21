@@ -16,8 +16,10 @@ struct PaywallView: View {
     @Environment(\.dismiss) var dismiss
     let source: String
 
-    private let termsURL = URL(string: "https://stackthelineup.com/terms.html")!
-    private let privacyURL = URL(string: "https://stackthelineup.com/privacy.html")!
+    // Must include www — the apex domain has no valid TLS certificate, so
+    // links without it fail to load. See CNAME in the website repo.
+    private let termsURL = URL(string: "https://www.stackthelineup.com/terms.html")!
+    private let privacyURL = URL(string: "https://www.stackthelineup.com/privacy.html")!
 
     var body: some View {
         NavigationStack {
