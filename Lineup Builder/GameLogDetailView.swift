@@ -233,9 +233,11 @@ struct GameLogDetailView: View {
                 .environmentObject(store)
                 .environmentObject(purchaseManager)
         }
-        .sheet(isPresented: $showingTemplatePaywall) {
-            PaywallView(source: "lineup_template")
-                .environmentObject(purchaseManager)
+        .fullScreenCover(isPresented: $showingTemplatePaywall) {
+            ProGate(source: "lineup_template", navTitle: "Lineup Templates") {
+                TemplateLockPreviewView()
+            }
+            .environmentObject(purchaseManager)
         }
     }
 

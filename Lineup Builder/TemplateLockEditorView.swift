@@ -29,6 +29,7 @@ struct TemplateLockEditorView: View {
     @State private var snapshot: Lineup = Lineup()
     @State private var roster: [Player] = []
     @State private var showingPaywall = false
+    @State private var makeDefault = false
 
     private struct PositionInningKey: Hashable {
         let position: FieldPosition
@@ -50,6 +51,25 @@ struct TemplateLockEditorView: View {
                     Text("Template name")
                 } footer: {
                     Text(nameFooter)
+                }
+
+                Section {
+                    Toggle(isOn: $makeDefault) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Use for every new game")
+                            Text("Only one template can be your default")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    // A template with nothing locked would auto-apply an empty
+                    // grid, so there's nothing to make default yet.
+                    .disabled(lockedCells.isEmpty)
+                    .onChange(of: lockedCells.isEmpty) { _, isEmpty in
+                        if isEmpty { makeDefault = false }
+                    }
+                } footer: {
+                    Text(defaultFooter)
                 }
 
                 Section("Position locks") {
@@ -76,9 +96,11 @@ struct TemplateLockEditorView: View {
                 }
             }
             .onAppear { loadSnapshot() }
-            .sheet(isPresented: $showingPaywall) {
-                PaywallView(source: "lineup_template")
-                    .environmentObject(purchaseManager)
+            .fullScreenCover(isPresented: $showingPaywall) {
+                ProGate(source: "lineup_template", navTitle: "Lineup Templates") {
+                    TemplateLockPreviewView()
+                }
+                .environmentObject(purchaseManager)
             }
         }
     }
@@ -113,6 +135,21 @@ struct TemplateLockEditorView: View {
         sourceLog == nil
             ? "Tap a filled cell to lock it into the template, or tap All, a position, or an inning header to lock a whole group at once. Everything else stays open for you to fill in manually or with Auto-Fill next time."
             : "Templates appear when you start a new game, so you can drop in this batting order and defensive plan in one tap. Tap a filled cell below to unlock it if you'd rather leave that spot open — or tap None, a position, or an inning header to unlock a whole group at once."
+    }
+
+    /// Names the template being displaced, so turning the toggle on is never a
+    /// silent swap of a default the coach set up earlier.
+    private var defaultFooter: String {
+        guard !lockedCells.isEmpty else {
+            return "Lock at least one cell below to use this template for every new game."
+        }
+        guard makeDefault else {
+            return "Turn this on to have these locked assignments filled in automatically whenever you start a new game. You can still change any of them game by game."
+        }
+        if let current = store.defaultTemplate, current.name != name.trimmingCharacters(in: .whitespaces) {
+            return "These locked assignments will fill in automatically when you start a new game, replacing “\(current.name)” as your default template."
+        }
+        return "These locked assignments will fill in automatically when you start a new game. Your batting order carries over from the previous game as usual."
     }
 
     /// Every cell in the snapshot that has a player in it, across the
@@ -307,6 +344,9 @@ struct TemplateLockEditorView: View {
             positionLocks: locks
         )
         store.saveTemplate(template)
+        if makeDefault {
+            store.setDefaultTemplate(id: template.id)
+        }
         dismiss()
         onSaved?()
     }

@@ -26,7 +26,6 @@ struct PlayersView: View {
     @State private var addOpen = false
 
     // Tip overlay driven by parent iPhoneTabView
-    @Binding var showingTabTip: Bool
 
     // Roster import flow
     @State private var showingImportInstructions = false
@@ -146,30 +145,6 @@ struct PlayersView: View {
             }
             .sheet(item: $exportShareItem) { item in
                 ShareSheet(items: [item.data], filename: item.filename)
-            }
-            .overlay {
-                if showingTabTip {
-                    TabFirstTipOverlay(
-                        config: TabTipConfig(
-                            tabName: "Players",
-                            title: "Set position preferences",
-                            body: "Tap any player to tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to build smarter lineups.",
-                            accentColor: .blue,
-                            targetRect: CGRect(x: 16, y: 238, width: 200, height: 44),
-                            targetCornerRadius: 10,
-                            arrowDirection: .up
-                        ),
-                        onDismiss: {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                showingTabTip = false
-                                UserDefaults.standard.set(true, forKey: "hasSeenPlayersTabTip")
-                            }
-                        }
-                    )
-                    .ignoresSafeArea()
-                    .zIndex(100)
-                    .transition(.opacity)
-                }
             }
         }
     }
@@ -811,7 +786,7 @@ struct TeamFormView: View {
     @State private var showingTeamFilePicker = false
     @State private var pendingTeamImport: TeamImporter.ImportedTeam? = nil
     @State private var teamImportError: String? = nil
-    @State private var showingPaywallForTransfer = false
+    @State private var showingSharedTeamsPaywall = false
     @State private var cloudKitShareItem: CloudKitShareItem? = nil
     @State private var isPreparingShare = false
     @State private var sharePreparationError: String? = nil
@@ -927,11 +902,7 @@ struct TeamFormView: View {
                 if isEditing, case .edit(let id) = mode {
                     Section {
                         Button {
-                            if purchaseManager.isPro {
-                                exportTeamFile(id: id)
-                            } else {
-                                showingPaywallForTransfer = true
-                            }
+                            exportTeamFile(id: id)
                         } label: {
                             HStack {
                                 Label("Export Team File", systemImage: "square.and.arrow.up")
@@ -941,11 +912,7 @@ struct TeamFormView: View {
                         }
 
                         Button {
-                            if purchaseManager.isPro {
-                                showingTeamFilePicker = true
-                            } else {
-                                showingPaywallForTransfer = true
-                            }
+                            showingTeamFilePicker = true
                         } label: {
                             HStack {
                                 Label("Import Team File", systemImage: "square.and.arrow.down")
@@ -984,7 +951,7 @@ struct TeamFormView: View {
                                     isPreparingShare = false
                                 }
                             } else {
-                                showingPaywallForTransfer = true
+                                showingSharedTeamsPaywall = true
                             }
                         } label: {
                             HStack {
@@ -1025,7 +992,7 @@ struct TeamFormView: View {
                                         isPreparingManage = false
                                     }
                                 } else {
-                                    showingPaywallForTransfer = true
+                                    showingSharedTeamsPaywall = true
                                 }
                             } label: {
                                 HStack {
@@ -1126,8 +1093,9 @@ struct TeamFormView: View {
             } message: {
                 Text(teamImportError ?? "")
             }
-            .sheet(isPresented: $showingPaywallForTransfer) {
-                PaywallView(source: "team_export")
+            .fullScreenCover(isPresented: $showingSharedTeamsPaywall) {
+                ProGate(source: "shared_teams", navTitle: "Shared Teams")
+                    .environmentObject(purchaseManager)
             }
             .alert("Couldn't Prepare Share", isPresented: .constant(sharePreparationError != nil)) {
                 Button("OK") { sharePreparationError = nil }
@@ -1291,8 +1259,11 @@ struct PlayerFormView: View {
             } message: {
                 Text(validationMessage)
             }
-            .sheet(isPresented: $showingPaywall) {
-                PaywallView(source: "player_preferences")
+            .fullScreenCover(isPresented: $showingPaywall) {
+                ProGate(source: "player_preferences", navTitle: "Position Preferences") {
+                    PreferencesPreviewView()
+                }
+                .environmentObject(purchaseManager)
             }
             .onAppear {
                 if case .edit(let player) = mode {

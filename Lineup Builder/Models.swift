@@ -459,7 +459,7 @@ struct Player: Identifiable, Codable, Equatable, Sendable {
 
 // MARK: - Inning Assignment
 
-struct InningAssignment: Codable, Sendable {
+nonisolated struct InningAssignment: Codable, Sendable {
     var assignments: [UUID: FieldPosition] = [:]
 
     mutating func assign(player: Player, position: FieldPosition) {
@@ -557,6 +557,13 @@ struct Lineup: Codable, Sendable {
     var lastFinalizedBy: String? = nil
     /// Timestamp of the most recent finalization. Nil for pre-v3.0 lineups.
     var lastFinalizedAt: Date? = nil
+    /// ID of the team's default template, when that template's locks are what
+    /// populated this lineup's grid. Drives the "you're overriding your default
+    /// template" confirmation in the position pickers: a cell counts as
+    /// default-assigned only while it still holds the player the template put
+    /// there, so once the coach confirms an override that cell stops matching
+    /// and never prompts again. Nil when no default template fed this lineup.
+    var defaultTemplateID: UUID? = nil
 
     // Explicit memberwise init so views can construct a Lineup() directly.
     init(
@@ -567,16 +574,18 @@ struct Lineup: Codable, Sendable {
         absentPlayerIDs: Set<UUID> = [],
         status: LineupStatus = .draft,
         lastFinalizedBy: String? = nil,
-        lastFinalizedAt: Date? = nil
+        lastFinalizedAt: Date? = nil,
+        defaultTemplateID: UUID? = nil
     ) {
-        self.gameDate        = gameDate
-        self.opponent        = opponent
-        self.battingOrder    = battingOrder
-        self.innings         = innings
-        self.absentPlayerIDs = absentPlayerIDs
-        self.status          = status
-        self.lastFinalizedBy = lastFinalizedBy
-        self.lastFinalizedAt = lastFinalizedAt
+        self.gameDate          = gameDate
+        self.opponent          = opponent
+        self.battingOrder      = battingOrder
+        self.innings           = innings
+        self.absentPlayerIDs   = absentPlayerIDs
+        self.status            = status
+        self.lastFinalizedBy   = lastFinalizedBy
+        self.lastFinalizedAt   = lastFinalizedAt
+        self.defaultTemplateID = defaultTemplateID
     }
 
     // Custom decode: every field uses decodeIfPresent with a safe default so
@@ -594,6 +603,8 @@ struct Lineup: Codable, Sendable {
         // lastFinalizedBy and lastFinalizedAt are new in v3.0 — nil for older lineups
         lastFinalizedBy = try? c.decode(String.self,              forKey: .lastFinalizedBy)
         lastFinalizedAt = try? c.decode(Date.self,                forKey: .lastFinalizedAt)
+        // defaultTemplateID is new — nil for lineups saved before default templates
+        defaultTemplateID = try? c.decode(UUID.self,              forKey: .defaultTemplateID)
     }
 
     mutating func toggleAbsent(player: Player) {
@@ -673,25 +684,39 @@ struct Lineup: Codable, Sendable {
         return activeFieldPositions(config: config).filter { !filledPositions.contains($0) }
     }
 
-    /// Players who have caught at least `threshold` innings in this lineup AND
-    /// are also assigned Pitcher in any inning. Returns [] when threshold == 0 (rule off).
+    /// True if `player` reaches `threshold` innings at `from` before ever being
+    /// assigned `to`. Order matters: innings at `from` that come after the `to`
+    /// inning don't count, since the rule is about what the player did *before*
+    /// taking the second position.
+    private nonisolated func crossesBatteryTransition(
+        player: Player, from: FieldPosition, to: FieldPosition, threshold: Int
+    ) -> Bool {
+        var priorInnings = 0
+        for inning in innings {
+            switch inning.position(for: player) {
+            case to where priorInnings >= threshold: return true
+            case from: priorInnings += 1
+            default: break
+            }
+        }
+        return false
+    }
+
+    /// Players who caught at least `threshold` innings and *then* pitched.
+    /// Returns [] when threshold == 0 (rule off).
     nonisolated func playersViolatingCatcherToPitcher(players: [Player], threshold: Int) -> [Player] {
         guard threshold > 0 else { return [] }
-        return activePlayers(from: players).filter { player in
-            let catcherInnings = innings.filter { $0.position(for: player) == .catcher }.count
-            let hasPitcherInning = innings.contains { $0.position(for: player) == .pitcher }
-            return catcherInnings >= threshold && hasPitcherInning
+        return activePlayers(from: players).filter {
+            crossesBatteryTransition(player: $0, from: .catcher, to: .pitcher, threshold: threshold)
         }
     }
 
-    /// Players who have pitched at least `threshold` innings in this lineup AND
-    /// are also assigned Catcher in any inning. Returns [] when threshold == 0 (rule off).
+    /// Players who pitched at least `threshold` innings and *then* caught.
+    /// Returns [] when threshold == 0 (rule off).
     nonisolated func playersViolatingPitcherToCatcher(players: [Player], threshold: Int) -> [Player] {
         guard threshold > 0 else { return [] }
-        return activePlayers(from: players).filter { player in
-            let pitcherInnings = innings.filter { $0.position(for: player) == .pitcher }.count
-            let hasCatcherInning = innings.contains { $0.position(for: player) == .catcher }
-            return pitcherInnings >= threshold && hasCatcherInning
+        return activePlayers(from: players).filter {
+            crossesBatteryTransition(player: $0, from: .pitcher, to: .catcher, threshold: threshold)
         }
     }
 
@@ -1004,6 +1029,10 @@ struct Team: Identifiable, Codable {
     /// templates are Pro-gated (checked at the UI layer via purchaseManager.isPro,
     /// same pattern as Multiple Teams).
     var lineupTemplates: [LineupTemplate] = []
+    /// The one template, if any, that auto-fills the grid at the start of every
+    /// new game. At most one template per team can hold this — setting a new
+    /// default replaces the old one rather than adding to a list.
+    var defaultTemplateID: UUID? = nil
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -1029,7 +1058,8 @@ struct Team: Identifiable, Codable {
         ckRecordName: String? = nil,
         isReadOnly: Bool = false,
         isSharedParticipant: Bool = false,
-        lineupTemplates: [LineupTemplate] = []
+        lineupTemplates: [LineupTemplate] = [],
+        defaultTemplateID: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -1048,6 +1078,7 @@ struct Team: Identifiable, Codable {
         self.isReadOnly = isReadOnly
         self.isSharedParticipant = isSharedParticipant
         self.lineupTemplates = lineupTemplates
+        self.defaultTemplateID = defaultTemplateID
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -1080,6 +1111,9 @@ struct Team: Identifiable, Codable {
         isSharedParticipant      = false
         // lineupTemplates is new in this release — older Team blobs won't include it.
         lineupTemplates          = (try? c.decode([LineupTemplate].self, forKey: .lineupTemplates)) ?? []
+        // defaultTemplateID is new in this release — nil means no default template,
+        // which is the pre-upgrade behavior for every existing team.
+        defaultTemplateID        = try? c.decode(UUID.self,              forKey: .defaultTemplateID)
     }
 }
 
@@ -1658,6 +1692,10 @@ class LineupStore: ObservableObject {
         }
 
         clearPositions()
+        // Archiving is the app's only "new game starts now" moment, so this is
+        // where a default template earns its keep — the next game opens with
+        // the coach's standing assignments already in the grid.
+        applyDefaultTemplatePositions()
         // The game the banner referred to has been played and archived.
         copiedFromGameOpponent = nil
         save()
@@ -1759,6 +1797,10 @@ class LineupStore: ObservableObject {
     func clearPositions() {
         revertToDraftIfFinalized()
         activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: activeTeam.gameInningCount)
+        // Nothing from the default template survives an explicit clear, so the
+        // grid stops being attributable to it. (archiveCurrentLineup re-applies
+        // the default immediately after calling this, which re-sets the link.)
+        activeTeam.lineup.defaultTemplateID = nil
         save()
     }
 
@@ -1772,6 +1814,7 @@ class LineupStore: ObservableObject {
         revertToDraftIfFinalized()
         activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: activeTeam.gameInningCount)
         activeTeam.lineup.battingOrder = []
+        activeTeam.lineup.defaultTemplateID = nil
         save()
     }
 
@@ -1973,9 +2016,14 @@ class LineupStore: ObservableObject {
 
     // MARK: - Lineup Templates
 
-    /// Templates saved for the active team, most recent first.
+    /// Templates saved for the active team: the default first so it's visible
+    /// without scrolling, then the rest most recent first.
     var lineupTemplates: [LineupTemplate] {
-        activeTeam.lineupTemplates.sorted { $0.createdAt > $1.createdAt }
+        let defaultID = activeTeam.defaultTemplateID
+        return activeTeam.lineupTemplates.sorted { lhs, rhs in
+            if (lhs.id == defaultID) != (rhs.id == defaultID) { return lhs.id == defaultID }
+            return lhs.createdAt > rhs.createdAt
+        }
     }
 
     /// Saves a new template to the active team. Pro-gating (first template
@@ -1991,9 +2039,112 @@ class LineupStore: ObservableObject {
 
     func deleteTemplate(id: UUID) {
         activeTeam.lineupTemplates.removeAll { $0.id == id }
+        // A deleted template can't stay the default, and any grid it populated
+        // is no longer traceable back to it — drop both references.
+        if activeTeam.defaultTemplateID == id {
+            activeTeam.defaultTemplateID = nil
+        }
+        if activeTeam.lineup.defaultTemplateID == id {
+            activeTeam.lineup.defaultTemplateID = nil
+        }
         Analytics.signal("template.deleted")
         save()
     }
+
+    // MARK: - Default Template
+
+    /// The template that auto-fills the grid at the start of every new game,
+    /// or nil when the coach hasn't chosen one.
+    var defaultTemplate: LineupTemplate? {
+        guard let id = activeTeam.defaultTemplateID else { return nil }
+        return activeTeam.lineupTemplates.first { $0.id == id }
+    }
+
+    func isDefaultTemplate(_ id: UUID) -> Bool {
+        activeTeam.defaultTemplateID == id
+    }
+
+    /// Promotes a template to the team's default, or clears the default when
+    /// passed nil. Only one template can be the default, so this replaces any
+    /// previous choice rather than adding to a set.
+    func setDefaultTemplate(id: UUID?) {
+        guard activeTeam.defaultTemplateID != id else { return }
+        activeTeam.defaultTemplateID = id
+        // The current grid was not built from the incoming default, so it must
+        // not start claiming those cells as default-assigned.
+        activeTeam.lineup.defaultTemplateID = nil
+        Analytics.signal(id == nil ? "template.default.cleared" : "template.default.set")
+        save()
+    }
+
+    /// Fills the (already empty) grid from the default template's position
+    /// locks, leaving the batting order alone. Called at the start of a new
+    /// game — archiving clears positions but deliberately keeps the batting
+    /// order, and the default template follows that same split.
+    ///
+    /// No-op when there's no default template, so teams that never set one
+    /// see exactly the pre-existing behavior.
+    private func applyDefaultTemplatePositions() {
+        guard let template = defaultTemplate else { return }
+
+        let inningCount = activeTeam.gameInningCount
+        var innings = Array(repeating: InningAssignment(), count: inningCount)
+
+        for lock in template.positionLocks {
+            // Player left the roster since the template was saved — skip
+            // silently, matching applyTemplate. That cell stays open.
+            guard let player = activeTeam.players.first(where: { $0.id == lock.playerID }) else { continue }
+            for inningIndex in lock.innings where inningIndex >= 0 && inningIndex < inningCount {
+                innings[inningIndex].assign(player: player, position: lock.position)
+            }
+        }
+
+        let preference = activeTeam.lineup.battingOrder
+        activeTeam.lineup.innings = innings.map { $0.deduplicatingFieldingPositions(preferring: preference) }
+        activeTeam.lineup.defaultTemplateID = template.id
+        Analytics.signal("template.default.autoApplied")
+    }
+
+    /// The player the default template placed at this cell, if that template
+    /// fed the current grid and the cell still holds that exact player. Returns
+    /// nil once the coach has overridden the cell, which is what keeps the
+    /// override confirmation from firing twice on the same slot.
+    func defaultTemplatePlayer(inning: Int, position: FieldPosition) -> Player? {
+        guard let templateID = activeTeam.lineup.defaultTemplateID,
+              let template = activeTeam.lineupTemplates.first(where: { $0.id == templateID }),
+              inning >= 0, inning < activeTeam.lineup.innings.count
+        else { return nil }
+
+        let lockedPlayerIDs = template.positionLocks
+            .filter { $0.position == position && $0.innings.contains(inning) }
+            .map { $0.playerID }
+        guard !lockedPlayerIDs.isEmpty else { return nil }
+
+        guard let occupant = activeTeam.lineup.innings[inning].player(at: position, in: activeTeam.players),
+              lockedPlayerIDs.contains(occupant.id)
+        else { return nil }
+
+        return occupant
+    }
+
+    /// True when this cell is still exactly as the default template left it,
+    /// so changing or clearing it overrides the coach's default.
+    func isDefaultTemplateAssignment(inning: Int, position: FieldPosition) -> Bool {
+        defaultTemplatePlayer(inning: inning, position: position) != nil
+    }
+
+    /// True when moving this player within this inning would pull them out of a
+    /// cell the default template assigned them to. Used by the player-led
+    /// picker, where the coach picks a new position rather than a new player.
+    func isDefaultTemplateAssignment(player: Player, inning: Int) -> Bool {
+        guard inning >= 0, inning < activeTeam.lineup.innings.count,
+              let position = activeTeam.lineup.innings[inning].position(for: player)
+        else { return false }
+        return defaultTemplatePlayer(inning: inning, position: position)?.id == player.id
+    }
+
+    /// Name of the default template, for use in override copy.
+    var defaultTemplateName: String? { defaultTemplate?.name }
 
     /// Builds a fresh Lineup from a template, scoped to the active team's
     /// current roster. Any locked player no longer on the active roster is
@@ -2037,6 +2188,11 @@ class LineupStore: ObservableObject {
         newLineup.innings = newLineup.innings.map {
             $0.deduplicatingFieldingPositions(preferring: preference)
         }
+
+        // Applying the default template by hand produces the same grid the new-game
+        // auto-apply would, so those cells get the same override protection.
+        // Any other template's cells are a deliberate one-off and stay unguarded.
+        newLineup.defaultTemplateID = (template.id == activeTeam.defaultTemplateID) ? template.id : nil
 
         activeTeam.lineup = newLineup
         Analytics.signal("template.applied", parameters: ["templateName": template.name])

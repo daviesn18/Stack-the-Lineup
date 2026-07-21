@@ -7,14 +7,12 @@ import SwiftUI
 
 struct TeamImportView: View {
     @EnvironmentObject var store: LineupStore
-    @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
 
     let imported: TeamImporter.ImportedTeam
     /// Called after a successful import with a short confirmation string for a toast.
     let onComplete: (String) -> Void
 
-    @State private var showingPaywall = false
     @State private var showingReplaceConfirmation = false
 
     private var currentTeamName: String {
@@ -82,21 +80,6 @@ struct TeamImportView: View {
                         .background(Color(.secondarySystemBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .padding(.horizontal, 24)
-
-                        // MARK: Pro gate nudge
-                        if !purchaseManager.isPro {
-                            HStack(spacing: 12) {
-                                Image(systemName: "lock.fill")
-                                    .foregroundColor(.orange)
-                                Text("Team file import is a Pro feature.")
-                                    .font(.subheadline)
-                            }
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.orange.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .padding(.horizontal, 24)
-                        }
                     }
                     .padding(.horizontal, 4)
                     .padding(.bottom, 16)
@@ -104,42 +87,28 @@ struct TeamImportView: View {
 
                 // MARK: Action Buttons
                 VStack(spacing: 12) {
-                    if purchaseManager.isPro {
-                        Button {
-                            showingReplaceConfirmation = true
-                        } label: {
-                            Label("Replace \"\(currentTeamName)\"", systemImage: "arrow.triangle.2.circlepath")
-                                .font(.body.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
+                    Button {
+                        showingReplaceConfirmation = true
+                    } label: {
+                        Label("Replace \"\(currentTeamName)\"", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.body.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
 
-                        Button {
-                            commitAsNewTeam()
-                        } label: {
-                            Label("Start New Team", systemImage: "plus.circle")
-                                .font(.body.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Color(.secondarySystemBackground))
-                                .foregroundColor(.blue)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                    } else {
-                        Button {
-                            showingPaywall = true
-                        } label: {
-                            Text("Unlock Pro to Import")
-                                .font(.body.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
+                    Button {
+                        commitAsNewTeam()
+                    } label: {
+                        Label("Start New Team", systemImage: "plus.circle")
+                            .font(.body.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color(.secondarySystemBackground))
+                            .foregroundColor(.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
                     Button {
@@ -169,9 +138,6 @@ struct TeamImportView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This replaces all players, history, and settings for \"\(currentTeamName)\" with the imported data. Your current lineup will be cleared. This cannot be undone.")
-            }
-            .sheet(isPresented: $showingPaywall) {
-                PaywallView(source: "team_import")
             }
         }
     }

@@ -29,6 +29,12 @@ struct PositionSummaryView: View {
     // handled inside the sheet itself (see QuickSetSheet).
     @State private var quickSetTarget: QuickSetTarget? = nil
 
+    // Horizontal offset of each grid's inning ScrollView, mirrored onto the
+    // pinned inning-number header so it tracks the body left/right while
+    // staying put vertically. One per tab so switching modes doesn't cross-talk.
+    @State private var byPlayerHOffset: CGFloat = 0
+    @State private var byPositionHOffset: CGFloat = 0
+
     struct QuickSetTarget: Identifiable {
         let id = UUID()
         let origin: QuickSetSheet.Origin
@@ -358,68 +364,102 @@ struct PositionSummaryView: View {
         }
     }
 
+    // MARK: - Pinned Grid Header
+
+    /// The inning-number header row, lifted out of the vertical ScrollView so it
+    /// stays visible while the grid scrolls up and down — the vertical twin of
+    /// the frozen label column. It is not itself scrollable: it mirrors the
+    /// body's horizontal content offset and clips to the same viewport, so the
+    /// numbers still track the columns when scrolling left and right.
+    private func gridHeader(title: String, labelWidth: CGFloat, colWidth: CGFloat,
+                            containerWidth: CGFloat, hOffset: CGFloat) -> some View {
+        let totalInningWidth = CGFloat(inningCount) * colWidth + CGFloat(inningCount - 1) * columnGap
+        let viewportWidth = max(0, containerWidth - gridPadding * 2 - labelWidth - columnGap)
+
+        return VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: columnGap) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: labelWidth, height: 30, alignment: .leading)
+
+                HStack(spacing: columnGap) {
+                    ForEach(0..<inningCount, id: \.self) { i in
+                        Text("\(i + 1)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: colWidth, height: 30)
+                    }
+                }
+                .frame(width: totalInningWidth, alignment: .leading)
+                .offset(x: -hOffset)
+                .frame(width: min(viewportWidth, totalInningWidth), height: 30, alignment: .leading)
+                .clipped()
+            }
+            .padding(.horizontal, gridPadding)
+            Divider()
+        }
+        // Opaque so rows pass underneath the header rather than through it.
+        .background(Color(.systemGroupedBackground))
+    }
+
     // MARK: - By Player Table
 
     private func byPlayerTable(colWidth: CGFloat, containerWidth: CGFloat) -> some View {
         let totalInningWidth = CGFloat(inningCount) * colWidth + CGFloat(inningCount - 1) * columnGap
         let needsHScroll = totalInningWidth > containerWidth - gridPadding * 2 - playerColumnWidth
 
-        return ScrollView(.vertical) {
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: columnGap) {
+        return VStack(spacing: 0) {
+            gridHeader(title: "Player", labelWidth: playerColumnWidth, colWidth: colWidth,
+                       containerWidth: containerWidth, hOffset: byPlayerHOffset)
 
-                    // Frozen player name column
-                    VStack(spacing: 0) {
-                        Text("Player")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-                            .frame(width: playerColumnWidth, height: 30, alignment: .leading)
-                        Divider()
-                        ForEach(displayPlayers) { player in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(player.firstName)
-                                    .font(.system(size: 13, weight: .bold))
-                                    .lineLimit(1)
-                                Text(player.lastName)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                            .frame(width: playerColumnWidth, height: rowHeight, alignment: .leading)
-                            Divider()
-                        }
-                    }
-                    .frame(width: playerColumnWidth)
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    HStack(alignment: .top, spacing: columnGap) {
 
-                    // Scrollable inning columns. Header and rows share one
-                    // container so they stay in lockstep, and use the same
-                    // column gap so every column lines up with its header.
-                    ScrollView(.horizontal, showsIndicators: needsHScroll) {
+                        // Frozen player name column
                         VStack(spacing: 0) {
-                            HStack(spacing: columnGap) {
-                                ForEach(0..<inningCount, id: \.self) { i in
-                                    Text("\(i + 1)")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundColor(.secondary)
-                                        .frame(width: colWidth, height: 30)
-                                }
-                            }
-                            Divider()
                             ForEach(displayPlayers) { player in
-                                HStack(spacing: columnGap) {
-                                    ForEach(0..<inningCount, id: \.self) { inning in
-                                        playerPositionCell(player: player, inning: inning, colWidth: colWidth)
-                                    }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(player.firstName)
+                                        .font(.system(size: 13, weight: .bold))
+                                        .lineLimit(1)
+                                    Text(player.lastName)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
                                 }
-                                .padding(.vertical, rowVerticalPadding)
+                                .frame(width: playerColumnWidth, height: rowHeight, alignment: .leading)
                                 Divider()
                             }
                         }
-                        .frame(width: totalInningWidth)
+                        .frame(width: playerColumnWidth)
+
+                        // Scrollable inning columns, on the identical cell-width
+                        // + gap rhythm as the pinned header row above.
+                        ScrollView(.horizontal, showsIndicators: needsHScroll) {
+                            VStack(spacing: 0) {
+                                ForEach(displayPlayers) { player in
+                                    HStack(spacing: columnGap) {
+                                        ForEach(0..<inningCount, id: \.self) { inning in
+                                            playerPositionCell(player: player, inning: inning, colWidth: colWidth)
+                                        }
+                                    }
+                                    .padding(.vertical, rowVerticalPadding)
+                                    Divider()
+                                }
+                            }
+                            .frame(width: totalInningWidth)
+                        }
+                        .onScrollGeometryChange(for: CGFloat.self) { geo in
+                            geo.contentOffset.x + geo.contentInsets.leading
+                        } action: { _, newValue in
+                            byPlayerHOffset = newValue
+                        }
                     }
+                    .padding(.horizontal, gridPadding)
+                    fairPlaySection
                 }
-                .padding(.horizontal, gridPadding)
-                fairPlaySection
             }
         }
     }
@@ -430,70 +470,65 @@ struct PositionSummaryView: View {
         let totalInningWidth = CGFloat(inningCount) * colWidth + CGFloat(inningCount - 1) * columnGap
         let needsHScroll = totalInningWidth > containerWidth - gridPadding * 2 - positionLabelWidth
 
-        return ScrollView(.vertical) {
-            VStack(spacing: 0) {
+        return VStack(spacing: 0) {
+            gridHeader(title: "Position", labelWidth: positionLabelWidth, colWidth: colWidth,
+                       containerWidth: containerWidth, hOffset: byPositionHOffset)
 
-                HStack(alignment: .top, spacing: columnGap) {
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
 
-                    // Frozen position label column (acronym only, stays pinned)
-                    VStack(spacing: 0) {
-                        Text("Position")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-                            .frame(width: positionLabelWidth, height: 30, alignment: .leading)
-                        Divider()
-                        ForEach(activeInfieldPositions, id: \.self) { pos in
-                            positionLabelCell(pos.rawValue)
-                            Divider()
-                        }
-                        ForEach(activeOutfieldPositions, id: \.self) { pos in
-                            positionLabelCell(pos.rawValue)
-                            Divider()
-                        }
-                        positionSectionHeader("BENCH")
-                        ForEach(0..<benchRowCount, id: \.self) { i in
-                            positionLabelCell(benchRowCount == 1 ? "BN" : "BN \(i + 1)")
-                            Divider()
-                        }
-                    }
-                    .frame(width: positionLabelWidth)
+                    HStack(alignment: .top, spacing: columnGap) {
 
-                    // Scrollable inning columns. Header and rows share this one
-                    // container so they scroll in lockstep, on the identical
-                    // cell-width + gap rhythm as the header row.
-                    ScrollView(.horizontal, showsIndicators: needsHScroll) {
+                        // Frozen position label column (acronym only, stays pinned)
                         VStack(spacing: 0) {
-                            HStack(spacing: columnGap) {
-                                ForEach(0..<inningCount, id: \.self) { i in
-                                    Text("\(i + 1)")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundColor(.secondary)
-                                        .frame(width: colWidth, height: 30)
-                                }
-                            }
-                            Divider()
                             ForEach(activeInfieldPositions, id: \.self) { pos in
-                                inningCellRow(position: pos, benchIndex: nil, colWidth: colWidth)
+                                positionLabelCell(pos.rawValue)
                                 Divider()
                             }
                             ForEach(activeOutfieldPositions, id: \.self) { pos in
-                                inningCellRow(position: pos, benchIndex: nil, colWidth: colWidth)
+                                positionLabelCell(pos.rawValue)
                                 Divider()
                             }
-                            // Bench separator
-                            Color.clear
-                                .frame(width: totalInningWidth, height: 22)
-                                .background(Color(.systemGray5).opacity(0.8))
+                            positionSectionHeader("BENCH")
                             ForEach(0..<benchRowCount, id: \.self) { i in
-                                inningCellRow(position: .bench, benchIndex: i, colWidth: colWidth)
+                                positionLabelCell(benchRowCount == 1 ? "BN" : "BN \(i + 1)")
                                 Divider()
                             }
                         }
-                        .frame(width: totalInningWidth)
+                        .frame(width: positionLabelWidth)
+
+                        // Scrollable inning columns, on the identical cell-width
+                        // + gap rhythm as the pinned header row above.
+                        ScrollView(.horizontal, showsIndicators: needsHScroll) {
+                            VStack(spacing: 0) {
+                                ForEach(activeInfieldPositions, id: \.self) { pos in
+                                    inningCellRow(position: pos, benchIndex: nil, colWidth: colWidth)
+                                    Divider()
+                                }
+                                ForEach(activeOutfieldPositions, id: \.self) { pos in
+                                    inningCellRow(position: pos, benchIndex: nil, colWidth: colWidth)
+                                    Divider()
+                                }
+                                // Bench separator
+                                Color.clear
+                                    .frame(width: totalInningWidth, height: 22)
+                                    .background(Color(.systemGray5).opacity(0.8))
+                                ForEach(0..<benchRowCount, id: \.self) { i in
+                                    inningCellRow(position: .bench, benchIndex: i, colWidth: colWidth)
+                                    Divider()
+                                }
+                            }
+                            .frame(width: totalInningWidth)
+                        }
+                        .onScrollGeometryChange(for: CGFloat.self) { geo in
+                            geo.contentOffset.x + geo.contentInsets.leading
+                        } action: { _, newValue in
+                            byPositionHOffset = newValue
+                        }
                     }
+                    .padding(.horizontal, gridPadding)
+                    fairPlaySection
                 }
-                .padding(.horizontal, gridPadding)
-                fairPlaySection
             }
         }
     }

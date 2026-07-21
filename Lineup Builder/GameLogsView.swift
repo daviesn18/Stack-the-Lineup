@@ -24,9 +24,12 @@ struct GameLogsView: View {
     @State private var showingTips = false
     @State private var showingPaywall = false
     @State private var showingArchive = false
+    // Auto-opens the Pro gate the first time a free coach lands on History this
+    // session. After they dismiss it, the blurred teaser stays with its own
+    // unlock button, so it never re-throws the modal on every tab switch.
+    @State private var hasAutoOpenedHistoryGate = false
 
     // Tip overlay driven by parent iPhoneTabView
-    @Binding var showingTabTip: Bool
 
     enum HistoryTab { case players, games, team }
 
@@ -55,6 +58,14 @@ struct GameLogsView: View {
                     archivedCount: store.gameLogs.count
                 )
                 .environmentObject(purchaseManager)
+                .onAppear {
+                    guard !hasAutoOpenedHistoryGate else { return }
+                    hasAutoOpenedHistoryGate = true
+                    // Defer so the tab finishes appearing before we present.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        if !purchaseManager.isPro { showingPaywall = true }
+                    }
+                }
             } else if store.gameLogs.isEmpty && !readyToArchiveLineup {
                 emptyState
             } else {
@@ -73,9 +84,11 @@ struct GameLogsView: View {
         .sheet(isPresented: $showingTips) {
             PageTipsView(page: .history)
         }
-        .sheet(isPresented: $showingPaywall) {
-            PaywallView(source: "game_history")
-                .environmentObject(purchaseManager)
+        .fullScreenCover(isPresented: $showingPaywall) {
+            ProGate(source: "game_history", navTitle: "Game History") {
+                HistoryGhostView(teamColor: store.teamColor, archivedCount: store.gameLogs.count)
+            }
+            .environmentObject(purchaseManager)
         }
         .sheet(isPresented: $showingArchive) {
             ArchiveGameSheet()
@@ -103,31 +116,6 @@ struct GameLogsView: View {
         }
         .onChange(of: purchaseManager.isPro) { _, newValue in
             if newValue { insightsService.loadIfNeeded(logs: store.gameLogs) }
-        }
-        // History tab first-visit tip — full-screen dim overlay
-        .overlay {
-            if showingTabTip {
-                TabFirstTipOverlay(
-                    config: TabTipConfig(
-                        tabName: "History",
-                        title: "Coaching Insights unlock at 2 games",
-                        body: "Keep archiving after each game and the app starts analyzing bench time, infield/outfield balance, and playing time across your season.",
-                        accentColor: .purple,
-                        targetRect: CGRect(x: 16, y: 170, width: 370, height: 90),
-                        targetCornerRadius: 12,
-                        arrowDirection: .up
-                    ),
-                    onDismiss: {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            showingTabTip = false
-                            UserDefaults.standard.set(true, forKey: "hasSeenHistoryTabTip")
-                        }
-                    }
-                )
-                .ignoresSafeArea()
-                .zIndex(100)
-                .transition(.opacity)
-            }
         }
     }
 
@@ -1014,7 +1002,7 @@ struct EmptyStateFeatureRow: View {
 // MARK: - Preview
 
 #Preview {
-    GameLogsView(showingTabTip: .constant(false))
+    GameLogsView()
         .environmentObject(LineupStore())
         .environmentObject(PurchaseManager())
 }

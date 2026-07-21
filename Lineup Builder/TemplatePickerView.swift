@@ -10,6 +10,10 @@ struct TemplatePickerView: View {
     @EnvironmentObject var store: LineupStore
     @Environment(\.dismiss) var dismiss
 
+    /// Set when a tapped template needs confirmation before it overwrites the
+    /// current game. Nil means no alert is pending.
+    @State private var pendingTemplate: LineupTemplate?
+
     var body: some View {
         NavigationStack {
             Group {
@@ -26,28 +30,106 @@ struct TemplatePickerView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .alert(
+                "Replace current game?",
+                isPresented: Binding(
+                    get: { pendingTemplate != nil },
+                    set: { if !$0 { pendingTemplate = nil } }
+                ),
+                presenting: pendingTemplate
+            ) { template in
+                Button("Cancel", role: .cancel) { pendingTemplate = nil }
+                Button("Apply Template", role: .destructive) { apply(template) }
+            } message: { template in
+                Text(overwriteMessage(for: template))
+            }
         }
+    }
+
+    /// Applying a template rebuilds the lineup from scratch, so anything the
+    /// coach has already set up is lost. Warn only when there is actually
+    /// something to lose — on an untouched game this would just be a speed bump.
+    private func handleTap(_ template: LineupTemplate) {
+        if store.currentGameHasLineup {
+            pendingTemplate = template
+        } else {
+            apply(template)
+        }
+    }
+
+    private func apply(_ template: LineupTemplate) {
+        pendingTemplate = nil
+        store.applyTemplate(template)
+        dismiss()
+    }
+
+    /// Names what specifically gets wiped, since a coach mid-way through a grid
+    /// has more to lose than one who has only set a batting order. Players who
+    /// have left the roster are dropped silently, so this is the only mention.
+    private func overwriteMessage(for template: LineupTemplate) -> String {
+        let hasPositions = store.lineup.innings.contains { !$0.assignments.isEmpty }
+        let existing = hasPositions
+            ? "Your current game already has a batting order and players assigned to positions."
+            : "Your current game already has a batting order."
+        let replaced = hasPositions
+            ? "Applying “\(template.name)” clears every position you've assigned and replaces the batting order."
+            : "Applying “\(template.name)” replaces it."
+        return "\(existing) \(replaced) Only the template's locked assignments are filled in — the rest of the field is unassigned."
     }
 
     // MARK: - Template List
 
     private var templateList: some View {
         List {
-            ForEach(store.lineupTemplates) { template in
-                Button {
-                    store.applyTemplate(template)
-                    dismiss()
-                } label: {
-                    templateRow(template)
+            Section {
+                ForEach(store.lineupTemplates) { template in
+                    Button {
+                        handleTap(template)
+                    } label: {
+                        templateRow(template)
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        defaultSwipeAction(template)
+                    }
                 }
-            }
-            .onDelete { offsets in
-                for index in offsets {
-                    store.deleteTemplate(id: store.lineupTemplates[index].id)
+                .onDelete { offsets in
+                    for index in offsets {
+                        store.deleteTemplate(id: store.lineupTemplates[index].id)
+                    }
                 }
+            } footer: {
+                Text(defaultFooter)
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    /// Setting the default lives on a leading swipe rather than a row tap,
+    /// since tapping a row already means "apply this template right now".
+    @ViewBuilder
+    private func defaultSwipeAction(_ template: LineupTemplate) -> some View {
+        if store.isDefaultTemplate(template.id) {
+            Button {
+                store.setDefaultTemplate(id: nil)
+            } label: {
+                Label("Remove Default", systemImage: "star.slash")
+            }
+            .tint(.gray)
+        } else {
+            Button {
+                store.setDefaultTemplate(id: template.id)
+            } label: {
+                Label("Make Default", systemImage: "star")
+            }
+            .tint(.orange)
+        }
+    }
+
+    private var defaultFooter: String {
+        if let name = store.defaultTemplateName {
+            return "“\(name)” fills in automatically when you start a new game. Swipe right on a template to change or remove your default."
+        }
+        return "Swipe right on a template to use it for every new game."
     }
 
     @ViewBuilder
@@ -57,6 +139,16 @@ struct TemplatePickerView: View {
                 Text(template.name)
                     .font(.headline)
                     .foregroundColor(.primary)
+                if store.isDefaultTemplate(template.id) {
+                    Label("Default", systemImage: "star.fill")
+                        .font(.caption2.bold())
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.orange.opacity(0.12))
+                        .clipShape(Capsule())
+                        .accessibilityLabel("Default template, applied to every new game")
+                }
                 Spacer()
                 if !template.positionLocks.isEmpty {
                     Text("\(template.positionLocks.count) lock\(template.positionLocks.count == 1 ? "" : "s")")

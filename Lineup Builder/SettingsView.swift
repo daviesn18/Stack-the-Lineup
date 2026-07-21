@@ -6,7 +6,6 @@ struct SettingsView: View {
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
-    @State private var showingTutorial = false
     @State private var showingQuickTips = false
     @State private var showingResetConfirmation = false
     @State private var showingPaywall = false
@@ -89,12 +88,6 @@ struct SettingsView: View {
 
                 // MARK: - Help
                 Section("Help & Support") {
-                    Button {
-                        showingTutorial = true
-                    } label: {
-                        Label("View Tutorial", systemImage: "play.circle.fill")
-                    }
-
                     Button {
                         showingQuickTips = true
                     } label: {
@@ -192,14 +185,11 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showingTutorial) {
-                WelcomeView()
-            }
             .sheet(isPresented: $showingQuickTips) {
                 QuickTipsView()
             }
-            .sheet(isPresented: $showingPaywall) {
-                PaywallView(source: "settings")
+            .fullScreenCover(isPresented: $showingPaywall) {
+                ProGate(source: "settings", navTitle: "Stack the Lineup Pro")
                     .environmentObject(purchaseManager)
             }
             .confirmationDialog("Reset All Data?", isPresented: $showingResetConfirmation, titleVisibility: .visible) {
@@ -231,12 +221,12 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Resets the welcome cards and all contextual tips so they appear again on next launch. Your data is not affected.")
+                Text("Resets the welcome cards, the getting-started checklist, and the Auto-Fill and PDF tips so they appear again. Your data is not affected.")
             }
             .alert("Onboarding Reset", isPresented: $showingResetTipsDoneAlert) {
                 Button("OK") {}
             } message: {
-                Text("Close and reopen the app to see the welcome cards. Visit each tab to trigger the contextual tips.")
+                Text("Close and reopen the app to see the welcome cards again.")
             }
         }
     }
@@ -253,12 +243,6 @@ struct SettingsView: View {
         let keys = [
             "hasCompletedTutorial",
             "hasCompletedChecklist",
-            "hasRunTabTipGrandfathering",
-            "hasSeenPlayersTabTip",
-            "hasSeenLineupDragTip",
-            "hasSeenArchiveTip",
-            "hasSeenPositionsTabTip",
-            "hasSeenHistoryTabTip",
             "hasSeenAutoFillTip",
             "hasSeenPDFExportTip",
             "hasSeenScheduleImportTip",

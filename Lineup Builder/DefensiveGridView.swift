@@ -50,13 +50,18 @@ struct DefensiveGridView: View {
     @State private var showingClearPopover = false     // inning view: anchored popover
     @State private var showingClearAllConfirm = false  // confirm alert for clearing all innings
 
+    // Bench-the-leftovers prompt. Offered the moment the last open field slot in
+    // the current inning gets filled and players are still sitting with no slot
+    // at all. By Inning only — the Summary grid edits many innings at once, so
+    // an alert per completed inning would be noise.
+    @State private var showingBenchLeftoverPrompt = false
+
     // One-time Auto-Fill context tip — shown the first time a Pro user opens
     // the Positions tab with at least one player in the roster.
     @AppStorage("hasSeenAutoFillTip") private var hasSeenAutoFillTip = false
     @State private var showingAutoFillTip = false
 
     // Tip overlay driven by parent iPhoneTabView
-    @Binding var showingTabTip: Bool
 
     private var isReadOnly: Bool { store.activeTeam.isReadOnly }
 
@@ -341,8 +346,8 @@ struct DefensiveGridView: View {
             .sheet(isPresented: $showingTips) {
                 PageTipsView(page: .positions)
             }
-            .sheet(isPresented: $showingPaywall) {
-                PaywallView(source: "autofill")
+            .fullScreenCover(isPresented: $showingPaywall) {
+                ProGate(source: "autofill", navTitle: "Auto-Fill")
                     .environmentObject(purchaseManager)
             }
             .sheet(isPresented: $showingSaveTemplate) {
@@ -350,9 +355,11 @@ struct DefensiveGridView: View {
                     .environmentObject(store)
                     .environmentObject(purchaseManager)
             }
-            .sheet(isPresented: $showingTemplatePaywall) {
-                PaywallView(source: "lineup_template")
-                    .environmentObject(purchaseManager)
+            .fullScreenCover(isPresented: $showingTemplatePaywall) {
+                ProGate(source: "lineup_template", navTitle: "Lineup Templates") {
+                    TemplateLockPreviewView()
+                }
+                .environmentObject(purchaseManager)
             }
             // Confirmation alert for clearing all innings — used by both
             // the summary view path and the "Clear all innings" branch in the popover
@@ -370,6 +377,16 @@ struct DefensiveGridView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(autoFillIncompleteMessage)
+            }
+            // Offers to bench whoever is left over once the inning's field is full.
+            .onChange(of: benchPromptSignal) { old, new in
+                evaluateBenchLeftoverPrompt(from: old, to: new)
+            }
+            .alert("Bench remaining players?", isPresented: $showingBenchLeftoverPrompt) {
+                Button("Bench All") { benchLeftoverPlayers() }
+                Button("Not Now", role: .cancel) {}
+            } message: {
+                Text(benchLeftoverPromptMessage)
             }
             // Shown when the NL prompt was honored but bypassed a Fair Play
             // soft constraint, or couldn't be honored at all.
@@ -401,31 +418,6 @@ struct DefensiveGridView: View {
                     .zIndex(10)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .animation(.easeOut(duration: 0.25), value: showingAutoFillTip)
-                }
-            }
-            // Positions tab first-visit tip — full-screen dim overlay
-            .overlay {
-                if showingTabTip {
-                    TabFirstTipOverlay(
-                        config: TabTipConfig(
-                            tabName: "Positions",
-                            title: "Tap the bolt to auto-fill",
-                            body: "The app fills open spots while checking every fair play rule. Set position preferences on the Players tab first for the best results.",
-                            accentColor: .orange,
-                            targetRect: CGRect(x: 160, y: 56, width: 36, height: 36),
-                            targetCornerRadius: 8,
-                            arrowDirection: .down
-                        ),
-                        onDismiss: {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                showingTabTip = false
-                                UserDefaults.standard.set(true, forKey: "hasSeenPositionsTabTip")
-                            }
-                        }
-                    )
-                    .ignoresSafeArea()
-                    .zIndex(100)
-                    .transition(.opacity)
                 }
             }
         }
@@ -1061,6 +1053,81 @@ struct DefensiveGridView: View {
     /// displayPlayers entirely — this is the per-inning FieldPosition.absent slot.
     private var absentPlayersThisInning: [Player] {
         displayPlayers.filter { store.lineup.innings[selectedInning].position(for: $0) == .absent }
+    }
+
+    // MARK: - Bench Leftovers Prompt
+
+    /// Carries the inning index alongside its assignments so the observer can
+    /// tell an edit apart from a plain inning switch (which also changes the
+    /// assignments being watched, but must never prompt).
+    private struct BenchPromptSignal: Equatable {
+        let inning: Int
+        let assignments: [UUID: FieldPosition]
+    }
+
+    private var benchPromptSignal: BenchPromptSignal {
+        BenchPromptSignal(
+            inning: selectedInning,
+            assignments: store.lineup.innings.indices.contains(selectedInning)
+                ? store.lineup.innings[selectedInning].assignments
+                : [:]
+        )
+    }
+
+    /// Players with no slot at all in the given inning — not on the field, not
+    /// benched, not marked absent. These are the ones the prompt offers to bench.
+    private func unslottedPlayers(in assignment: InningAssignment) -> [Player] {
+        displayPlayers.filter { assignment.position(for: $0) == nil }
+    }
+
+    /// True when every field position active under the current ruleset has an
+    /// occupant. ABS doesn't fill a slot, matching Lineup.openPositions.
+    private func allFieldPositionsFilled(in assignment: InningAssignment) -> Bool {
+        let filled = Set(assignment.assignments.values.filter { !$0.isAbsent })
+        return store.lineup.activeFieldPositions(config: store.fairPlayConfig)
+            .allSatisfy { filled.contains($0) }
+    }
+
+    /// Fires on the edit that completes the inning's field — not on every edit
+    /// made while it happens to be complete, so reassigning players afterwards
+    /// doesn't re-prompt.
+    private func evaluateBenchLeftoverPrompt(from old: BenchPromptSignal, to new: BenchPromptSignal) {
+        guard !isReadOnly, !showingSummary else { return }
+        guard old.inning == new.inning else { return }
+        let before = InningAssignment(assignments: old.assignments)
+        let after = InningAssignment(assignments: new.assignments)
+        guard !allFieldPositionsFilled(in: before) else { return }
+        guard allFieldPositionsFilled(in: after), !unslottedPlayers(in: after).isEmpty else { return }
+
+        // The picker sheet assigns and dismisses in one gesture, so the change
+        // lands mid-dismissal. Presenting the alert now gets it swallowed —
+        // wait for the sheet to finish leaving, then re-check that the state
+        // that earned the prompt still holds.
+        let inning = new.inning
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            guard selectedInning == inning,
+                  !isReadOnly, !showingSummary,
+                  store.lineup.innings.indices.contains(inning) else { return }
+            let current = store.lineup.innings[inning]
+            guard allFieldPositionsFilled(in: current), !unslottedPlayers(in: current).isEmpty else { return }
+            showingBenchLeftoverPrompt = true
+        }
+    }
+
+    /// Names the leftovers so the coach can spot anyone who should be marked
+    /// absent instead of benched.
+    private var benchLeftoverPromptMessage: String {
+        guard store.lineup.innings.indices.contains(selectedInning) else { return "" }
+        let leftovers = unslottedPlayers(in: store.lineup.innings[selectedInning])
+        let names = leftovers.map(\.displayName).formatted(.list(type: .and))
+        let subject = leftovers.count == 1 ? "isn't" : "aren't"
+        return "\(names) \(subject) in inning \(selectedInning + 1) yet. Put them on the bench?"
+    }
+
+    private func benchLeftoverPlayers() {
+        for player in unslottedPlayers(in: store.lineup.innings[selectedInning]) {
+            store.assignPosition(player: player, inning: selectedInning, position: .bench)
+        }
     }
 
     // MARK: - Diamond Body
@@ -1815,13 +1882,13 @@ struct WarningsView: View {
         let c2p = config.catcherToPitcherThreshold
         if c2p > 0 {
             for player in store.lineup.playersViolatingCatcherToPitcher(players: active, threshold: c2p) {
-                warnings.append("\(player.displayName): caught \(c2p)+ innings and is pitching (C to P restriction)")
+                warnings.append("\(player.displayName): caught \(c2p)+ innings before pitching (C to P restriction)")
             }
         }
         let p2c = config.pitcherToCatcherThreshold
         if p2c > 0 {
             for player in store.lineup.playersViolatingPitcherToCatcher(players: active, threshold: p2c) {
-                warnings.append("\(player.displayName): pitched \(p2c)+ innings and is catching (P to C restriction)")
+                warnings.append("\(player.displayName): pitched \(p2c)+ innings before catching (P to C restriction)")
             }
         }
         return warnings
@@ -1878,6 +1945,11 @@ struct PositionPickerView: View {
     @State private var showingConsecutiveBenchWarning = false
     @State private var pendingPosition: FieldPosition? = nil
     @State private var showingPitchEligibilityWarning = false
+    @State private var showingDefaultTemplateWarning = false
+    /// Set when the coach confirms the override, so the follow-on rule warnings
+    /// (bench, pitch eligibility) still get their turn instead of being skipped.
+    @State private var defaultOverrideConfirmed = false
+    @State private var showingRemoveDefaultWarning = false
 
     /// Non-nil when pitching rules are on and this player is ineligible or
     /// their age is unknown. Computed once per picker open.
@@ -2032,8 +2104,13 @@ struct PositionPickerView: View {
                 if store.lineup.innings[inning].position(for: player) != nil {
                     Section {
                         Button(role: .destructive) {
-                            store.removeAssignment(player: player, inning: inning)
-                            dismiss()
+                            // Clearing a template-assigned cell is an override too.
+                            if store.isDefaultTemplateAssignment(player: player, inning: inning) {
+                                showingRemoveDefaultWarning = true
+                            } else {
+                                store.removeAssignment(player: player, inning: inning)
+                                dismiss()
+                            }
                         } label: {
                             Label("Remove Assignment", systemImage: "xmark.circle")
                         }
@@ -2064,6 +2141,29 @@ struct PositionPickerView: View {
                 if let status = pitchEligibilityStatus {
                     Text("\(player.firstName) may not be eligible to pitch. \(status.displayLabel). You can still assign this position if needed.")
                 }
+            }
+            .alert("Override Default Template?", isPresented: $showingDefaultTemplateWarning) {
+                Button("Change Anyway", role: .destructive) {
+                    defaultOverrideConfirmed = true
+                    let pos = pendingPosition
+                    // Deferred so this alert finishes dismissing before any
+                    // follow-on rule warning tries to present.
+                    DispatchQueue.main.async {
+                        if let pos { assignPosition(pos) }
+                    }
+                }
+                Button("Cancel", role: .cancel) { pendingPosition = nil }
+            } message: {
+                Text(defaultOverrideMessage)
+            }
+            .alert("Override Default Template?", isPresented: $showingRemoveDefaultWarning) {
+                Button("Remove Anyway", role: .destructive) {
+                    store.removeAssignment(player: player, inning: inning)
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("\(player.firstName) was assigned here by “\(store.defaultTemplateName ?? "your default template")”. Clearing this spot overrides your default template for this game. Continue?")
             }
         }
     }
@@ -2125,6 +2225,14 @@ struct PositionPickerView: View {
     }
 
     private func assignPosition(_ pos: FieldPosition) {
+        // Checked first: departing from the coach's standing plan is a bigger
+        // decision than the per-rule warnings, and confirming it still leaves
+        // those warnings to be answered on the way through.
+        if !defaultOverrideConfirmed, overridesDefaultTemplate(pos) {
+            pendingPosition = pos
+            showingDefaultTemplateWarning = true
+            return
+        }
         if pos == .bench
             && store.fairPlayConfig.noConsecutiveBench
             && store.lineup.hasConsecutiveBench(player: player, assigningBenchToInning: inning) {
@@ -2139,6 +2247,38 @@ struct PositionPickerView: View {
             return
         }
         commitAssignment(pos)
+    }
+
+    /// True when this move would undo something the default template set up —
+    /// either by moving this player out of their template cell, or by bumping
+    /// another player out of theirs. Bench and absent hold multiple players, so
+    /// they can't displace anyone.
+    private func overridesDefaultTemplate(_ pos: FieldPosition) -> Bool {
+        guard store.lineup.innings[inning].position(for: player) != pos else { return false }
+
+        if store.isDefaultTemplateAssignment(player: player, inning: inning) { return true }
+
+        if !pos.isNonFielding,
+           let occupant = store.lineup.innings[inning].player(at: pos, in: store.players),
+           occupant.id != player.id,
+           store.isDefaultTemplateAssignment(inning: inning, position: pos) {
+            return true
+        }
+        return false
+    }
+
+    private var defaultOverrideMessage: String {
+        let templateName = store.defaultTemplateName ?? "your default template"
+        guard let pos = pendingPosition else { return "" }
+
+        if store.isDefaultTemplateAssignment(player: player, inning: inning),
+           let current = store.lineup.innings[inning].position(for: player) {
+            return "“\(templateName)” has \(player.firstName) at \(current.displayName) for inning \(inning + 1). Moving them to \(pos.displayName) overrides your default template for this game. Continue?"
+        }
+        if let occupant = store.lineup.innings[inning].player(at: pos, in: store.players) {
+            return "“\(templateName)” has \(occupant.firstName) at \(pos.displayName) for inning \(inning + 1). Putting \(player.firstName) there overrides your default template for this game. Continue?"
+        }
+        return "This overrides “\(templateName)” for this game. Continue?"
     }
 
     private func commitAssignment(_ pos: FieldPosition) {
@@ -2168,6 +2308,11 @@ struct PlayerPickerView: View {
     @State private var showingPitchEligibilityWarning = false
     @State private var showingNeverPositionWarning = false
     @State private var pendingPlayer: Player? = nil
+    @State private var showingDefaultTemplateWarning = false
+    /// Set when the coach confirms the override, so the follow-on rule warnings
+    /// still get their turn instead of being skipped.
+    @State private var defaultOverrideConfirmed = false
+    @State private var showingRemoveDefaultWarning = false
 
     /// Player currently in this position this inning (field positions only).
     /// Bench and absent slots hold multiple players, so the occupant is whoever
@@ -2209,8 +2354,13 @@ struct PlayerPickerView: View {
                 if let occupant = currentOccupant {
                     Section {
                         Button(role: .destructive) {
-                            store.removeAssignment(player: occupant, inning: inning)
-                            dismiss()
+                            // Clearing a template-assigned cell is an override too.
+                            if store.isDefaultTemplateAssignment(player: occupant, inning: inning) {
+                                showingRemoveDefaultWarning = true
+                            } else {
+                                store.removeAssignment(player: occupant, inning: inning)
+                                dismiss()
+                            }
                         } label: {
                             Label(position.isBench ? "Remove from Bench" : "Clear Position", systemImage: "xmark.circle")
                         }
@@ -2253,6 +2403,31 @@ struct PlayerPickerView: View {
                 if let player = pendingPlayer {
                     Text("\(player.firstName) is marked Never for \(position.displayName). You can still assign this position if needed.")
                 }
+            }
+            .alert("Override Default Template?", isPresented: $showingDefaultTemplateWarning) {
+                Button("Change Anyway", role: .destructive) {
+                    defaultOverrideConfirmed = true
+                    let player = pendingPlayer
+                    // Deferred so this alert finishes dismissing before any
+                    // follow-on rule warning tries to present.
+                    DispatchQueue.main.async {
+                        if let player { assign(player) }
+                    }
+                }
+                Button("Cancel", role: .cancel) { pendingPlayer = nil }
+            } message: {
+                Text(defaultOverrideMessage)
+            }
+            .alert("Override Default Template?", isPresented: $showingRemoveDefaultWarning) {
+                Button("Remove Anyway", role: .destructive) {
+                    if let occupant = currentOccupant {
+                        store.removeAssignment(player: occupant, inning: inning)
+                    }
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("\(currentOccupant?.firstName ?? "This player") was assigned here by “\(store.defaultTemplateName ?? "your default template")”. Clearing this spot overrides your default template for this game. Continue?")
             }
         }
     }
@@ -2328,6 +2503,13 @@ struct PlayerPickerView: View {
     }
 
     private func assign(_ player: Player) {
+        // Checked first, for the same reason as in PositionPickerView: the
+        // standing plan outranks the per-rule warnings, which still run after.
+        if !defaultOverrideConfirmed, overridesDefaultTemplate(player) {
+            pendingPlayer = player
+            showingDefaultTemplateWarning = true
+            return
+        }
         // Bench with the no-consecutive-bench rule on: warn first.
         if position == .bench
             && store.fairPlayConfig.noConsecutiveBench
@@ -2351,6 +2533,39 @@ struct PlayerPickerView: View {
             return
         }
         commitAssignment(player)
+    }
+
+    /// True when filling this slot with `player` would undo the default
+    /// template — either by displacing whoever it put in this slot, or by
+    /// pulling `player` out of the slot it gave them elsewhere this inning.
+    private func overridesDefaultTemplate(_ player: Player) -> Bool {
+        guard store.lineup.innings[inning].position(for: player) != position else { return false }
+
+        if !position.isNonFielding,
+           let occupant = store.lineup.innings[inning].player(at: position, in: store.players),
+           occupant.id != player.id,
+           store.isDefaultTemplateAssignment(inning: inning, position: position) {
+            return true
+        }
+
+        if store.isDefaultTemplateAssignment(player: player, inning: inning) { return true }
+
+        return false
+    }
+
+    private var defaultOverrideMessage: String {
+        let templateName = store.defaultTemplateName ?? "your default template"
+        guard let player = pendingPlayer else { return "" }
+
+        if let occupant = store.lineup.innings[inning].player(at: position, in: store.players),
+           occupant.id != player.id,
+           store.isDefaultTemplateAssignment(inning: inning, position: position) {
+            return "“\(templateName)” has \(occupant.firstName) at \(position.displayName) for inning \(inning + 1). Putting \(player.firstName) there overrides your default template for this game. Continue?"
+        }
+        if let current = store.lineup.innings[inning].position(for: player) {
+            return "“\(templateName)” has \(player.firstName) at \(current.displayName) for inning \(inning + 1). Moving them to \(position.displayName) overrides your default template for this game. Continue?"
+        }
+        return "This overrides “\(templateName)” for this game. Continue?"
     }
 
     private func commitAssignment(_ player: Player) {

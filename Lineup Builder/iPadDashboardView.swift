@@ -1189,17 +1189,13 @@ struct DetailPaneView: View {
                     }
 
                 case .lineup:
-                    LineupView(
-                        showingArchive: $showingArchive,
-                        showingDragTip: .constant(false),
-                        showingArchiveTip: .constant(false)
-                    )
+                    LineupView(showingArchive: $showingArchive)
 
                 case .players:
-                    PlayersView(showingTabTip: .constant(false))
+                    PlayersView()
 
                 case .history:
-                    GameLogsView(showingTabTip: .constant(false))
+                    GameLogsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

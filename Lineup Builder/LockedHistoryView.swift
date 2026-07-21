@@ -1,19 +1,18 @@
 import SwiftUI
 import StoreKit
 
-// MARK: - LockedHistoryView
-// Shown in GameLogsView when the user hasn't purchased Pro.
-// When archivedCount == 0: shows fake ghost rows to tease what Pro unlocks.
-// When archivedCount > 0: replaces fake rows with a real count badge so coaches
-// know their actual data is waiting — stronger conversion signal than generic copy.
+// MARK: - HistoryGhostView
+// The teaser content for the History tab when the coach isn't Pro: a faded
+// Coaching Insights card plus either sample game rows (no data yet) or a real
+// count badge (games waiting). Rendered on its own here — callers add their own
+// blur/scrim. Reused as the ProGate backdrop so the tab teaser and the upsell
+// gate show the same thing.
 
-struct LockedHistoryView: View {
-    @EnvironmentObject var purchaseManager: PurchaseManager
+struct HistoryGhostView: View {
     let teamColor: Color
-    @Binding var showingPaywall: Bool
     let archivedCount: Int
 
-    // Fake game data — only shown when archivedCount == 0
+    // Sample game data — only shown when archivedCount == 0
     private let fakeGames: [(date: String, opponent: String, innings: Int)] = [
         ("Mon, Apr 7",  "Tigers",     6),
         ("Sat, Apr 12", "Blue Jays",  6),
@@ -22,29 +21,7 @@ struct LockedHistoryView: View {
     ]
 
     var body: some View {
-        ghostContent
-            .blur(radius: 1)
-            .allowsHitTesting(false)
-            .overlay(alignment: .bottom) {
-                // Fade gradient so ghost content dissolves into the paywall card
-                LinearGradient(
-                    colors: [.clear, Color(.systemGroupedBackground).opacity(0.6), Color(.systemGroupedBackground)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 340)
-                .allowsHitTesting(false)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                paywallCard
-            }
-    }
-
-    // MARK: - Ghost Content
-
-    private var ghostContent: some View {
         List {
-            // Fake insights card
             Section {
                 fakeInsightsCard
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -53,7 +30,6 @@ struct LockedHistoryView: View {
             }
 
             if archivedCount > 0 {
-                // Real count badge — replaces fake rows when actual games exist
                 Section(header: Text("\(archivedCount) \(archivedCount == 1 ? "Game" : "Games") Archived")) {
                     HStack(spacing: 14) {
                         Image(systemName: "archivebox.fill")
@@ -71,7 +47,6 @@ struct LockedHistoryView: View {
                     .padding(.vertical, 4)
                 }
             } else {
-                // Fake game rows — shown only when no real data exists yet
                 Section(header: Text("4 Games")) {
                     ForEach(fakeGames, id: \.date) { game in
                         FakeGameLogRow(date: game.date, opponent: game.opponent, innings: game.innings)
@@ -81,8 +56,6 @@ struct LockedHistoryView: View {
         }
         .listStyle(.insetGrouped)
     }
-
-    // MARK: - Fake Insights Card
 
     private var fakeInsightsCard: some View {
         ZStack(alignment: .topLeading) {
@@ -104,7 +77,6 @@ struct LockedHistoryView: View {
                     Spacer()
                 }
 
-                // Fake insight lines as greyed-out bars
                 VStack(alignment: .leading, spacing: 8) {
                     FakeTextLine(width: 260)
                     FakeTextLine(width: 220)
@@ -115,64 +87,70 @@ struct LockedHistoryView: View {
         }
         .frame(maxWidth: .infinity)
     }
+}
 
-    // MARK: - Paywall Card
+// MARK: - LockedHistoryView
+// The inline teaser shown in GameLogsView when the coach isn't Pro: the ghost
+// content blurred, with a compact unlock prompt at the bottom. Tapping the
+// prompt flips `showingPaywall`, which GameLogsView uses to present the full
+// ProGate upsell (same ghost, unblurred, behind the contextual paywall).
 
-    private var paywallCard: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 8) {
+struct LockedHistoryView: View {
+    let teamColor: Color
+    @Binding var showingPaywall: Bool
+    let archivedCount: Int
+
+    var body: some View {
+        HistoryGhostView(teamColor: teamColor, archivedCount: archivedCount)
+            .blur(radius: 1)
+            .allowsHitTesting(false)
+            .overlay(alignment: .bottom) {
+                // Fade so the ghost content dissolves into the prompt card
+                LinearGradient(
+                    colors: [.clear, Color(.systemGroupedBackground).opacity(0.6), Color(.systemGroupedBackground)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 340)
+                .allowsHitTesting(false)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                promptCard
+            }
+    }
+
+    // MARK: - Prompt Bar
+    // Compact re-entry to the Pro gate. The full pitch lives in the gate itself
+    // (ProGate + PaywallView), so this stays a single tappable bar — no second
+    // paywall card competing with it.
+
+    private var promptCard: some View {
+        Button {
+            showingPaywall = true
+        } label: {
+            HStack(spacing: 12) {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 36))
-                    .foregroundColor(.blue)
-
-                Text("Game History is a Pro Feature")
-                    .font(.title3.bold())
-                    .multilineTextAlignment(.center)
-
-                // Copy adapts based on whether the coach has real archived data
-                if archivedCount > 0 {
-                    Text("You have \(archivedCount) archived \(archivedCount == 1 ? "game" : "games") waiting. Upgrade to Pro to view your season history and get AI Coaching Insights.")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 8)
-                } else {
-                    Text("Archive games, track your season, and get AI coaching insights.")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 8)
+                    .font(.title3)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("See your season with Pro")
+                        .font(.subheadline.weight(.semibold))
+                    Text(archivedCount > 0
+                         ? "\(archivedCount) archived \(archivedCount == 1 ? "game" : "games") waiting"
+                         : "Stats, coverage, and AI insights")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.85))
                 }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.footnote.bold())
             }
-
-            Button {
-                showingPaywall = true
-            } label: {
-                Label("Upgrade to Pro — \(purchaseManager.proProduct?.displayPrice ?? "$4.99")", systemImage: "star.circle.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(14)
-            }
-
-            Button {
-                Task { await purchaseManager.restore() }
-            } label: {
-                Text("Restore Purchase")
-                    .font(.callout)
-                    .foregroundColor(.blue)
-            }
-
-            Text("One-time purchase · No subscription")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            .foregroundColor(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(Color.blue, in: RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
-        .padding(28)
-        .background(.regularMaterial)
-        .cornerRadius(20)
-        .shadow(color: .black.opacity(0.12), radius: 20, y: -4)
+        .buttonStyle(.plain)
     }
 }
 

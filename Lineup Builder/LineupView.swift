@@ -9,12 +9,9 @@ struct LineupView: View {
     @AppStorage("hasSeenPDFExportTip") private var hasSeenPDFExportTip = false
     @Binding var showingArchive: Bool
     // Tip overlays driven by parent iPhoneTabView
-    @Binding var showingDragTip: Bool
-    @Binding var showingArchiveTip: Bool
     @State private var generatedPDF: PDFDocument? = nil
     @State private var showingPDFExportTip = false
     @State private var showingTips = false
-    @State private var showingPaywall = false
     @State private var lockedPDF: PDFDocument? = nil
     @State private var showingScheduleImport = false
     @State private var showingSchedulePicker = false
@@ -222,9 +219,11 @@ struct LineupView: View {
         .sheet(item: $generatedPDF) { pdf in
             PDFPreviewView(document: pdf)
         }
-        .sheet(item: $lockedPDF) { pdf in
-            LockedPDFPreviewView(document: pdf)
-                .environmentObject(purchaseManager)
+        .fullScreenCover(item: $lockedPDF) { pdf in
+            ProGate(source: "pdf_export", navTitle: "Coaches Guide") {
+                PDFKitView(data: pdf.data)
+            }
+            .environmentObject(purchaseManager)
         }
         .onChange(of: purchaseManager.isPro) { _, isPro in
             if isPro, let pdf = lockedPDF {
@@ -249,10 +248,6 @@ struct LineupView: View {
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showingPaywall) {
-            PaywallView(source: "pdf_export")
-                .environmentObject(purchaseManager)
         }
         .sheet(isPresented: $showingScheduleImport) {
             ScheduleImportView { games, urlString in
@@ -328,59 +323,6 @@ struct LineupView: View {
                         }
                     }
                 }
-            }
-        }
-        // Drag-to-reorder tip — fires on first Lineup tab visit.
-        // Target sits on the Edit button in the Batting Order header, which now
-        // sits higher on screen because Game Info collapsed to a compact card.
-        .overlay {
-            if showingDragTip {
-                TabFirstTipOverlay(
-                    config: TabTipConfig(
-                        tabName: "Lineup",
-                        title: "Drag to set your batting order",
-                        body: "Tap Edit in the section header, then press and hold the lines on the right side of any row and drag up or down.",
-                        accentColor: .green,
-                        targetRect: CGRect(x: 330, y: 250, width: 52, height: 30),
-                        targetCornerRadius: 8,
-                        arrowDirection: .up
-                    ),
-                    onDismiss: {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            showingDragTip = false
-                            UserDefaults.standard.set(true, forKey: "hasSeenLineupDragTip")
-                        }
-                    }
-                )
-                .ignoresSafeArea()
-                .zIndex(100)
-                .transition(.opacity)
-            }
-        }
-        // Archive tip — fires on the visit after the drag tip is dismissed.
-        // Target sits on the archive icon in the trailing toolbar.
-        .overlay {
-            if showingArchiveTip {
-                TabFirstTipOverlay(
-                    config: TabTipConfig(
-                        tabName: "Lineup",
-                        title: "Archive the game when it ends",
-                        body: "Tap the archive icon to save the game to History. Positions clear for next week, your batting order is kept, and season stats only count archived games.",
-                        accentColor: .teal,
-                        targetRect: CGRect(x: 340, y: 56, width: 36, height: 36),
-                        targetCornerRadius: 8,
-                        arrowDirection: .down
-                    ),
-                    onDismiss: {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            showingArchiveTip = false
-                            UserDefaults.standard.set(true, forKey: "hasSeenArchiveTip")
-                        }
-                    }
-                )
-                .ignoresSafeArea()
-                .zIndex(100)
-                .transition(.opacity)
             }
         }
     }

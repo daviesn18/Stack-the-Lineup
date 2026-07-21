@@ -1,8 +1,9 @@
 import SwiftUI
 
 // MARK: - Welcome Cards (New-User First-Launch Flow)
-// Three short cards shown on first launch. Replaces the 9-slide tutorial as
-// the entry-point experience. The full tutorial remains accessible from Settings.
+// Three short cards shown on first launch. Point the coach at the roster —
+// everything else in the app depends on it. Ongoing help lives in the per-tab
+// info button (see AppPage.tips), which is the single source of truth for tips.
 // Gated by "hasCompletedTutorial" — existing users already have this set to true.
 
 struct WelcomeCardsView: View {
@@ -24,23 +25,23 @@ struct WelcomeCardsView: View {
             iconColor: .blue,
             tint: Color.blue.opacity(0.12),
             title: "Welcome to Stack the Lineup.",
-            body: "Build fair lineups, track positions, and share PDFs, all from your phone.",
+            body: "Build a fair lineup, assign every inning, and hand out the PDF before first pitch.",
             cta: "Show me around"
         ),
         WelcomeCard(
             icon: "shield.checkered",
             iconColor: .green,
             tint: Color.green.opacity(0.12),
-            title: "Fair play is automatic.",
-            body: "Everyone gets 1 infield inning, 1 outfield inning, and 4 fielding innings. The app flags issues as you go.",
+            title: "Fair play, tracked for you.",
+            body: "Set your league's rules once — fielding minimums, bench limits, pitching caps. The app flags a problem the moment you create one.",
             cta: "Got it"
         ),
         WelcomeCard(
-            icon: "hand.tap.fill",
+            icon: "person.3.fill",
             iconColor: .purple,
             tint: Color.purple.opacity(0.12),
-            title: "Tips pop up as you go.",
-            body: "The first time you visit each tab, we will highlight the one thing to try first.",
+            title: "Start with your roster.",
+            body: "Add your players and tag the positions each one can handle. Everything else builds on that.",
             cta: "Let's start"
         ),
     ]
@@ -147,380 +148,6 @@ struct WelcomeCardsView: View {
             }
         }
         .interactiveDismissDisabled()
-    }
-}
-
-// MARK: - Tab First Tip Overlay
-// Full-screen dim overlay with a glowing ring around a target element,
-// an arrow pointing to it, and a tooltip card.
-// Used for the five contextual tips fired on first visit to each tab.
-
-struct TabFirstTipOverlay: View {
-    let config: TabTipConfig
-    let onDismiss: () -> Void
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                // Dim layer
-                Color.black.opacity(0.30)
-                    .ignoresSafeArea()
-                    .onTapGesture { onDismiss() }
-
-                // Glowing highlight ring around the target element.
-                // The ring is a white-filled rounded rect with a colored stroke
-                // and a shadow glow — matches the design exactly.
-                RoundedRectangle(cornerRadius: config.targetCornerRadius)
-                    .fill(Color(.systemBackground))
-                    .frame(width: config.targetRect.width + 12, height: config.targetRect.height + 12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: config.targetCornerRadius)
-                            .strokeBorder(config.accentColor, lineWidth: 2)
-                    )
-                    .shadow(color: config.accentColor.opacity(0.5), radius: 10, x: 0, y: 0)
-                    .position(
-                        x: config.targetRect.midX,
-                        y: config.targetRect.midY
-                    )
-
-                // Arrow
-                TabTipArrow(
-                    arrowDirection: config.arrowDirection,
-                    accentColor: config.accentColor,
-                    targetRect: config.targetRect
-                )
-
-                // Tooltip card
-                TabTipCard(config: config, onDismiss: onDismiss)
-            }
-        }
-        .transition(.opacity)
-    }
-}
-
-// MARK: - Tab Tip Arrow
-
-private struct TabTipArrow: View {
-    let arrowDirection: TabTipConfig.ArrowDirection
-    let accentColor: Color
-    let targetRect: CGRect
-
-    var body: some View {
-        GeometryReader { geo in
-            let midX = targetRect.midX
-            let arrowX = max(20, min(geo.size.width - 20, midX))
-
-            Group {
-                if arrowDirection == .up {
-                    // Arrow points up: sits below the target, points upward
-                    Image(systemName: "arrowtriangle.up.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
-                        .position(x: arrowX, y: targetRect.maxY + 14)
-                } else {
-                    // Arrow points down: sits above the target, points downward
-                    Image(systemName: "arrowtriangle.down.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
-                        .position(x: arrowX, y: targetRect.minY - 14)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Tab Tip Card
-
-private struct TabTipCard: View {
-    let config: TabTipConfig
-    let onDismiss: () -> Void
-
-    var body: some View {
-        GeometryReader { geo in
-            let cardWidth = geo.size.width - 32
-            let cardX = geo.size.width / 2
-            // Place card below target for up-arrows, above for down-arrows.
-            // Clamp so the card never clips off screen.
-            let cardY: CGFloat = {
-                if config.arrowDirection == .up {
-                    let idealTop = config.targetRect.maxY + 28
-                    return idealTop + 80 // 80 = approx half card height
-                } else {
-                    let idealBottom = config.targetRect.minY - 28
-                    return idealBottom - 80
-                }
-            }()
-
-            VStack(alignment: .leading, spacing: 0) {
-                // Kicker row
-                HStack(spacing: 6) {
-                    ZStack {
-                        Circle()
-                            .fill(config.accentColor)
-                            .frame(width: 20, height: 20)
-                        Image(systemName: "hand.tap.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.white)
-                    }
-                    Text("First time on \(config.tabName)")
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(0.8)
-                        .textCase(.uppercase)
-                        .foregroundColor(config.accentColor)
-                }
-                .padding(.bottom, 6)
-
-                // Title
-                Text(config.title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(.primary)
-                    .padding(.bottom, 4)
-
-                // Body
-                Text(config.body)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Footer buttons
-                HStack {
-                    Button("Don't show again") {
-                        onDismiss()
-                    }
-                    .font(.caption)
-                    .foregroundColor(Color(.tertiaryLabel))
-
-                    Spacer()
-
-                    Button("Got it") {
-                        onDismiss()
-                    }
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(config.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .padding(.top, 12)
-            }
-            .padding(16)
-            .frame(width: cardWidth)
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: .black.opacity(0.22), radius: 20, x: 0, y: 6)
-            .position(x: cardX, y: cardY)
-        }
-    }
-}
-
-// MARK: - Tab Tip Config
-// Defines the content and geometry for each contextual tip overlay.
-// targetRect is in the coordinate space of the tab's root view.
-
-struct TabTipConfig {
-    enum ArrowDirection { case up, down }
-
-    let tabName: String
-    let title: String
-    let body: String
-    let accentColor: Color
-    // CGRect describing the element to highlight, in screen-relative coords.
-    // Pass values appropriate for the device's safe area / layout.
-    let targetRect: CGRect
-    let targetCornerRadius: CGFloat
-    let arrowDirection: ArrowDirection
-}
-
-// MARK: - Welcome / Tutorial View (Full — accessible from Settings)
-
-struct WelcomeView: View {
-    @Environment(\.dismiss) var dismiss
-    @State private var currentPage = 0
-
-    let pages: [TutorialPage] = [
-        TutorialPage(
-            icon: "person.3.fill",
-            iconColor: .blue,
-            title: "Build Your Roster",
-            description: "Add players with their names and jersey numbers on the Players tab. Tap \"Add Player\" to get started. You can edit or remove players at any time.",
-            systemImage: "plus.circle.fill"
-        ),
-        TutorialPage(
-            icon: "square.and.arrow.down",
-            iconColor: .teal,
-            title: "Get Set Up Fast",
-            description: "Import your roster from GameChanger and sync your season schedule. Game length can be configured under Team Settings.",
-            systemImage: "calendar.badge.plus"
-        ),
-        TutorialPage(
-            icon: "list.number",
-            iconColor: .green,
-            title: "Set Your Batting Order",
-            description: "On the Lineup tab, tap + next to each player to add them to the batting order, then drag to reorder. Toggle the switch next to any player to mark them fully absent for the game.",
-            systemImage: "arrow.up.arrow.down"
-        ),
-        TutorialPage(
-            icon: "baseball.diamond.bases",
-            iconColor: .orange,
-            title: "Assign Positions",
-            description: "On the Positions tab, select an inning and tap any player to assign their defensive position. Tap the bolt icon to auto-fill open slots. Auto-Fill respects each player's position preferences when filling. Switch to Summary view to see and edit all innings in one grid.",
-            systemImage: "bolt.fill"
-        ),
-        TutorialPage(
-            icon: "star.circle.fill",
-            iconColor: .yellow,
-            title: "Set Position Preferences",
-            description: "In each player's edit screen, tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to place players in the right spots automatically. The more accurately you tag each player, the smarter your lineups get.",
-            systemImage: "wand.and.stars"
-        ),
-        TutorialPage(
-            icon: "exclamationmark.triangle.fill",
-            iconColor: .red,
-            title: "Fair Play Warnings",
-            description: "Fair play rules are configurable per team. By default, the app warns you when a player is missing an infield or outfield inning, sitting back-to-back bench, or under the fielding minimum. To adjust the rules for your league, tap the Team Name on the Players tab, then tap Fair Play Rules.",
-            systemImage: "shield.checkered"
-        ),
-        TutorialPage(
-            icon: "checkmark.circle.fill",
-            iconColor: .green,
-            title: "Finalize Your Lineup",
-            description: "When your defensive assignments are set, tap \"Finalize lineup\" on the Positions tab. The Lineup tab shows your status as Finalized. Any edit automatically reverts it to Draft so you always know where things stand.",
-            systemImage: "checkmark.seal.fill"
-        ),
-        TutorialPage(
-            icon: "clock.arrow.circlepath",
-            iconColor: .teal,
-            title: "Game History",
-            description: "After each game, tap the Archive button to save the lineup to your history. Set how many innings were actually played so stats stay accurate. View past games and AI Coaching Insights anytime in the History tab.",
-            systemImage: "archivebox.fill"
-        ),
-        TutorialPage(
-            icon: "doc.text.fill",
-            iconColor: .purple,
-            title: "Export and Manage Teams",
-            description: "Export a Batting Order or Coaches Guide PDF from the Lineup tab. Tap the Team Name row on the Players tab to set your team name and color. Both appear on exported PDFs. Managing multiple teams? Tap Add Team to create a new team with its own roster and history.",
-            systemImage: "square.and.arrow.up"
-        )
-    ]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Page indicator dots
-            HStack(spacing: 8) {
-                ForEach(0..<pages.count, id: \.self) { index in
-                    Circle()
-                        .fill(index == currentPage ? Color.blue : Color.gray.opacity(0.3))
-                        .frame(width: 8, height: 8)
-                        .animation(.easeInOut, value: currentPage)
-                }
-            }
-            .padding(.top, 20)
-            .padding(.bottom, 10)
-
-            // Page content
-            TabView(selection: $currentPage) {
-                ForEach(0..<pages.count, id: \.self) { index in
-                    TutorialPageView(page: pages[index])
-                        .tag(index)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-
-            // Navigation buttons
-            HStack(spacing: 20) {
-                if currentPage > 0 {
-                    Button {
-                        withAnimation { currentPage -= 1 }
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                            .font(.body.bold())
-                    }
-                    .buttonStyle(.bordered)
-                } else {
-                    Button("") {}
-                        .buttonStyle(.bordered)
-                        .opacity(0)
-                }
-
-                Spacer()
-
-                if currentPage < pages.count - 1 {
-                    Button {
-                        withAnimation { currentPage += 1 }
-                    } label: {
-                        Label("Next", systemImage: "chevron.right")
-                            .font(.body.bold())
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Label("Done", systemImage: "checkmark")
-                            .font(.body.bold())
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
-                }
-            }
-            .padding()
-        }
-    }
-}
-
-// MARK: - Tutorial Page Model
-
-struct TutorialPage {
-    let icon: String
-    let iconColor: Color
-    let title: String
-    let description: String
-    let systemImage: String
-}
-
-// MARK: - Tutorial Page View
-
-struct TutorialPageView: View {
-    let page: TutorialPage
-
-    var body: some View {
-        VStack(spacing: 30) {
-            Spacer()
-
-            ZStack {
-                Circle()
-                    .fill(page.iconColor.opacity(0.15))
-                    .frame(width: 140, height: 140)
-                Image(systemName: page.icon)
-                    .font(.system(size: 60))
-                    .foregroundColor(page.iconColor)
-            }
-            .padding(.top, 40)
-
-            Text(page.title)
-                .font(.system(size: 28, weight: .bold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            Text(page.description)
-                .font(.body)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 36)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Image(systemName: page.systemImage)
-                .font(.system(size: 40))
-                .foregroundColor(page.iconColor.opacity(0.5))
-                .padding(.top, 10)
-
-            Spacer()
-            Spacer()
-        }
     }
 }
 
@@ -869,7 +496,10 @@ private struct TierExplanationRow: View {
 }
 
 // MARK: - Page Tips Model
-// Each tab has its own set of contextual tips shown via the info button.
+// Each tab has its own set of tips, shown via the info button in its toolbar.
+// This is the single source of truth for in-app help — QuickTipsView renders
+// the same content from AppPage.allCases, so there is only one copy to maintain.
+// Tips are ordered to follow game-day sequence, not toolbar layout.
 
 struct PageTip: Identifiable {
     let id = UUID()
@@ -878,9 +508,10 @@ struct PageTip: Identifiable {
     let text: String
 }
 
-enum AppPage {
+enum AppPage: CaseIterable {
     case players, lineup, positions, history
 
+    /// Title for the per-tab info sheet.
     var title: String {
         switch self {
         case .players:   return "Players Tips"
@@ -890,97 +521,117 @@ enum AppPage {
         }
     }
 
+    /// Section header used when all pages are listed together in Quick Tips.
+    var sectionTitle: String {
+        switch self {
+        case .players:   return "Players Tab"
+        case .lineup:    return "Lineup Tab"
+        case .positions: return "Positions Tab"
+        case .history:   return "History Tab"
+        }
+    }
+
     var tips: [PageTip] {
         switch self {
 
         case .players:
             return [
-                PageTip(icon: "plus.circle.fill", iconColor: .blue,
-                        text: "Tap \"Add Player\" to add a player to your roster with their name and jersey number."),
+                PageTip(icon: "person.badge.plus", iconColor: .blue,
+                        text: "Add players one at a time, or use Bulk Add to type a full roster in one pass."),
                 PageTip(icon: "square.and.arrow.down", iconColor: .teal,
-                        text: "Tap Import Roster to bring in your full roster from a GameChanger CSV export. Names, jersey numbers, and position preferences are all imported."),
-                PageTip(icon: "square.and.arrow.up", iconColor: .orange,
-                        text: "Tap the share icon in the toolbar to export your roster as a .stlroster file. Use it to back up your roster or share it with an assistant coach."),
-                PageTip(icon: "pencil.circle", iconColor: .blue,
-                        text: "Tap the pencil icon next to any player to edit their details, including position preferences."),
+                        text: "Import Roster pulls names, numbers, and position preferences from a GameChanger CSV export."),
                 PageTip(icon: "star.circle.fill", iconColor: .green,
-                        text: "Set position preferences for each player: Strength positions are tried first by Auto-Fill, Capable next, Emergency as a last resort, and Never positions are never assigned."),
-                PageTip(icon: "bolt.fill", iconColor: .blue,
-                        text: "Position preferences feed directly into Auto-Fill. The more accurately you tag each player, the smarter the automatic lineups."),
+                        text: "Tag each player's positions Strength, Capable, Emergency, or Never. Auto-Fill works down that list — Never is never assigned."),
                 PageTip(icon: "paintpalette.fill", iconColor: .pink,
-                        text: "Tap the Team Name row to open Edit Team, where you can update your team name, color, and game length. Your name and color appear on all exported PDFs."),
+                        text: "Tap your team name to set name, color, and game length. Name and color print on every PDF."),
                 PageTip(icon: "shield.checkered", iconColor: .blue,
-                        text: "Tap the Team Name row, then Fair Play Rules to configure your league's rules per team. Set fielding minimums, toggle no back-to-back bench, restrict pitcher and catcher positions, and more."),
-                PageTip(icon: "square.and.arrow.up", iconColor: .green,
-                        text: "Back up your team or share it with an assistant coach. In Edit Team, tap Export Team File under Backup & Transfer to save a .stlteam file with your full roster, history, and settings."),
-                PageTip(icon: "arrow.left.arrow.right", iconColor: .orange,
-                        text: "Managing multiple teams? Tap Add Team in the Team section header to create a new team. Once you have more than one, a Switch Team option appears to move between them."),
-                PageTip(icon: "gearshape.fill", iconColor: .gray,
-                        text: "Tap the gear icon to access Settings, the full tutorial, and data management options.")
+                        text: "Fair Play Rules live inside Edit Team, and each team gets its own set. Your rec team and travel team can run different rules."),
+                PageTip(icon: "figure.baseball", iconColor: .orange,
+                        text: "Pitching Rules track weekly pitch limits and required rest by age. Enter counts when you archive, and eligibility shows up on the Positions tab."),
+                PageTip(icon: "person.2.wave.2", iconColor: .purple,
+                        text: "Share Team sends an assistant coach an invite link. They can build positions; you finalize.")
             ]
 
         case .lineup:
             return [
                 PageTip(icon: "calendar.badge.plus", iconColor: .teal,
-                        text: "Tap the calendar icon in the toolbar to import your season schedule from GameChanger. Paste your calendar link and tap Import."),
-                PageTip(icon: "calendar", iconColor: .blue,
-                        text: "Once your schedule is imported, tap Pick from Schedule to pre-fill the game date and opponent. Tap Sync anytime to pull the latest changes from GameChanger."),
-                PageTip(icon: "plus.circle.fill", iconColor: .green,
-                        text: "Tap + next to a player to add them to the batting order. Players without + are already in the order."),
+                        text: "Import your season schedule once from GameChanger, then Pick from Schedule to fill in date and opponent."),
                 PageTip(icon: "arrow.up.arrow.down", iconColor: .blue,
-                        text: "Tap Edit, then drag the handle on the right to reorder players in the batting lineup."),
+                        text: "Tap + to add a player to the batting order. Tap Edit, then drag the handle to reorder."),
                 PageTip(icon: "person.slash", iconColor: .orange,
-                        text: "Toggle the switch next to any player to mark them fully absent. Absent players are removed from the order and all position assignments."),
+                        text: "The toggle marks a player out for the whole game and pulls them from every inning."),
                 PageTip(icon: "clock", iconColor: .purple,
-                        text: "For late arrivals or early departures, keep the player in the lineup and assign ABS to their missed innings in the Positions tab. They still need 1 infield and 1 outfield inning among the innings they play."),
-                PageTip(icon: "checkmark.circle.fill", iconColor: .green,
-                        text: "When your lineup is ready, tap \"Finalize lineup\" on the Positions tab. The status shows here as Finalized. Any edit automatically reverts it to Draft so you always know where things stand."),
-                PageTip(icon: "archivebox", iconColor: .teal,
-                        text: "Tap the Archive button after each game to save it to your History. Defensive positions are cleared but your batting order is kept."),
+                        text: "Late arrival or early exit? Leave them in the order and assign ABS to the innings they miss on the Positions tab."),
+                PageTip(icon: "square.stack.3d.up", iconColor: .blue,
+                        text: "Templates rebuild a batting order and any locked positions in one tap. Good for a standing weekday lineup."),
                 PageTip(icon: "doc.richtext", iconColor: .purple,
-                        text: "Export a Batting Order or Coaches Guide PDF to share with parents or print for the dugout.")
+                        text: "Export a Batting Order for parents or a Coaches Guide for the dugout — the guide includes the full position grid and pitch counts."),
+                PageTip(icon: "archivebox", iconColor: .teal,
+                        text: "Archive after the game. Positions clear, batting order stays.")
             ]
 
         case .positions:
             return [
-                PageTip(icon: "list.bullet", iconColor: .blue,
-                        text: "Use the inning selector at the top to switch between innings. Dots show completion status: green is complete, orange is incomplete, red means a duplicate position."),
                 PageTip(icon: "tablecells", iconColor: .blue,
-                        text: "Tap Summary in the toolbar to see all players and innings in one grid. Tap any cell to assign a position from a dropdown menu."),
-                PageTip(icon: "bolt.fill", iconColor: .blue,
-                        text: "Tap the bolt icon next to the title to auto-fill open positions. Choose to fill just the current inning, or select how many innings to fill. Auto-Fill respects each player's position preferences."),
-                PageTip(icon: "star.circle.fill", iconColor: .green,
-                        text: "Auto-Fill is smarter when players have position preferences set. Open any player on the Players tab and tag positions as Strength, Capable, Emergency, or Never."),
+                        text: "Switch between By Inning and Summary in the top left. Summary shows every inning in one grid."),
+                PageTip(icon: "hand.tap.fill", iconColor: .blue,
+                        text: "Tap any player or open slot to assign a position."),
+                PageTip(icon: "bolt.fill", iconColor: .orange,
+                        text: "The bolt fills open slots — one inning, or innings 1 through whatever you pick."),
+                PageTip(icon: "text.bubble", iconColor: .indigo,
+                        text: "Type instructions before you fill: \"Jack pitches innings 3 and 4, keep Maya out of catcher.\" Auto-Fill works around them and tells you if it can't."),
+                PageTip(icon: "figure.baseball", iconColor: .orange,
+                        text: "When pitching rules are on, each player's remaining pitches and rest status show as you assign the pitcher."),
                 PageTip(icon: "clock", iconColor: .purple,
-                        text: "Assign ABS to any inning for a player who arrives late or leaves early. ABS innings count as filled and won't trigger open-position warnings, but the player still needs 1 infield and 1 outfield inning among the innings they do play."),
+                        text: "ABS covers innings a player misses. Those innings won't flag as open, but they still need an infield and an outfield inning among the ones they play."),
+                PageTip(icon: "exclamationmark.triangle.fill", iconColor: .red,
+                        text: "The warnings icon lists everything open, duplicated, or against your fair play rules."),
+                PageTip(icon: "square.stack.3d.up", iconColor: .blue,
+                        text: "Save as Template keeps this lineup for next week. Lock the assignments you want repeated and leave the rest open."),
                 PageTip(icon: "checkmark.circle.fill", iconColor: .green,
-                        text: "Tap \"Finalize lineup\" in the status strip when your defensive assignments are locked in. Any subsequent edit automatically reverts the lineup to Draft."),
-                PageTip(icon: "exclamationmark.triangle.fill", iconColor: .orange,
-                        text: "Tap the warnings icon to see a full list of issues: open positions, duplicates, back-to-back bench, and any fair play rule violations configured for your team."),
-                PageTip(icon: "archivebox", iconColor: .teal,
-                        text: "Tap the Archive button when the game is over to save the defensive grid to History.")
+                        text: "Finalize lineup when assignments are locked in. Any edit after that puts it back to Draft.")
             ]
 
         case .history:
             return [
+                PageTip(icon: "rectangle.3.group", iconColor: .blue,
+                        text: "Three views: Players for season stats, Team for coverage across the roster, Games for the archive."),
                 PageTip(icon: "person.3.fill", iconColor: .blue,
-                        text: "The Players tab shows a season card for each player: total innings, bench time, infield/outfield split, and a bar chart of every position they've played."),
+                        text: "Each player card shows total innings, bench time, the infield/outfield split, and every position they've played."),
                 PageTip(icon: "exclamationmark.circle", iconColor: .orange,
-                        text: "After 3 or more games, position gaps appear on each player card: positions they haven't played yet that aren't marked Never in their preferences."),
+                        text: "After 3 games, position gaps appear — spots a player hasn't seen that aren't marked Never."),
                 PageTip(icon: "square.grid.3x3.fill", iconColor: .teal,
-                        text: "The Team tab shows a full position coverage grid: blue dots are positions played, amber rings are gaps, and striped dots are Never positions."),
-                PageTip(icon: "chart.bar.fill", iconColor: .red,
-                        text: "The Team tab also shows a bench innings chart sorted by most to least."),
+                        text: "The Team grid shows coverage at a glance, plus bench innings ranked most to least."),
                 PageTip(icon: "sparkles", iconColor: .purple,
-                        text: "AI Coaching Insights appear at the top of the Players tab after 2 or more games are archived. They analyze bench time, infield/outfield balance, and playing time across your season."),
-                PageTip(icon: "clock.arrow.circlepath", iconColor: .teal,
-                        text: "The Games tab lists every archived game. Tap any game to see the full batting order and defensive grid for that game."),
-                PageTip(icon: "archivebox.fill", iconColor: .teal,
-                        text: "Archive games from the Lineup or Positions tab. Set the innings played accurately: only played innings count toward season stats and AI insights."),
-                PageTip(icon: "trash", iconColor: .red,
-                        text: "Swipe left on any game in the Games tab to delete it. The app keeps your last 20 games automatically.")
+                        text: "AI Coaching Insights show up after 2 archived games and read bench time, field balance, and playing time across the season."),
+                PageTip(icon: "arrow.uturn.down", iconColor: .green,
+                        text: "Open any past game and copy its lineup to today's. It lands on the Lineup tab ready to adjust."),
+                PageTip(icon: "note.text", iconColor: .teal,
+                        text: "Notes save with each game — final score, field conditions, whatever you want next week. Assistant coaches on shared teams can see them.")
             ]
         }
+    }
+}
+
+// MARK: - Page Tip Row
+// Shared by the per-tab info sheet and the full Quick Tips list.
+
+struct PageTipRow: View {
+    let tip: PageTip
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: tip.icon)
+                .foregroundColor(tip.iconColor)
+                .font(.system(size: 20))
+                .frame(width: 28, alignment: .center)
+                .padding(.top, 2)
+            Text(tip.text)
+                .font(.callout)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -995,18 +646,7 @@ struct PageTipsView: View {
         NavigationStack {
             List {
                 ForEach(page.tips) { tip in
-                    HStack(alignment: .top, spacing: 14) {
-                        Image(systemName: tip.icon)
-                            .foregroundColor(tip.iconColor)
-                            .font(.system(size: 20))
-                            .frame(width: 28, alignment: .center)
-                            .padding(.top, 2)
-                        Text(tip.text)
-                            .font(.callout)
-                            .foregroundColor(.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 4)
+                    PageTipRow(tip: tip)
                 }
             }
             .navigationTitle(page.title)
@@ -1051,6 +691,10 @@ extension View {
 }
 
 // MARK: - Full Quick Tips (accessible from Settings)
+// Renders every tab's tips in one scroll, generated from AppPage so this
+// screen can never drift out of sync with the per-tab info sheets.
+// The reference sections below (preference tiers, warning icons) are the only
+// content unique to this screen — they explain vocabulary rather than actions.
 
 struct QuickTipsView: View {
     @Environment(\.dismiss) var dismiss
@@ -1058,138 +702,52 @@ struct QuickTipsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Players Tab") {
-                    Label("Tap \"Add Player\" to add a player to your roster", systemImage: "plus.circle.fill")
-                    Label("Tap Import Roster to bring in your roster from a GameChanger CSV export", systemImage: "square.and.arrow.down")
-                    Label("Tap the share icon in the toolbar to export your roster as a .stlroster file, useful for backups or sharing with an assistant", systemImage: "square.and.arrow.up")
-                    Label("Tap the pencil icon to edit a player's name, number, or position preferences", systemImage: "pencil.circle")
-                    Label("Swipe left on a player to delete them", systemImage: "trash")
-                    Label("Tap the Team Name row to edit your team name, color, and game length", systemImage: "paintpalette.fill")
-                    Label("Tap Fair Play Rules inside Edit Team to configure your league's rules per team: fielding minimums, bench rules, position restrictions, and battery restrictions", systemImage: "shield.checkered")
-                    Label("Tap Export Team File under Backup & Transfer in Edit Team to back up your team or share it with an assistant coach", systemImage: "square.and.arrow.up")
-                    Label("Tap Add Team to manage multiple teams, each with its own roster and history", systemImage: "person.3.fill")
+                ForEach(AppPage.allCases, id: \.self) { page in
+                    Section(page.sectionTitle) {
+                        ForEach(page.tips) { tip in
+                            PageTipRow(tip: tip)
+                        }
+                    }
                 }
 
                 Section("Position Preferences") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Set preferences per player in their edit screen. Auto-Fill uses these to place players intelligently:")
+                        Text("Set these per player on the Players tab. Auto-Fill works down the list in order:")
                             .font(.callout)
                             .foregroundColor(.secondary)
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("Strength").font(.caption.bold()).foregroundColor(.white)
-                                .padding(.horizontal, 7).padding(.vertical, 3).background(Color.green, in: Capsule())
-                                .frame(width: 74, alignment: .leading)
-                            Text("Tried first when filling this position").font(.callout)
-                        }
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("Capable").font(.caption.bold()).foregroundColor(.white)
-                                .padding(.horizontal, 7).padding(.vertical, 3).background(Color.blue, in: Capsule())
-                                .frame(width: 74, alignment: .leading)
-                            Text("Used if no Strength player is available").font(.callout)
-                        }
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("Emergency").font(.caption.bold()).foregroundColor(.white)
-                                .padding(.horizontal, 7).padding(.vertical, 3).background(Color.orange, in: Capsule())
-                                .frame(width: 74, alignment: .leading)
-                            Text("Only used when nothing else works").font(.callout)
-                        }
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("Never").font(.caption.bold()).foregroundColor(.white)
-                                .padding(.horizontal, 7).padding(.vertical, 3).background(Color.red, in: Capsule())
-                                .frame(width: 74, alignment: .leading)
-                            Text("Never assigned by Auto-Fill").font(.callout)
-                        }
+                        TierExplanationRow(tier: .strength,  description: "Tried first when filling a position")
+                        TierExplanationRow(tier: .capable,   description: "Used if no Strength player is available")
+                        TierExplanationRow(tier: .emergency, description: "Only used if nothing else is available")
+                        TierExplanationRow(tier: .never,     description: "Never assigned to this position")
                     }
                     .padding(.vertical, 4)
                 }
 
-                Section("Lineup Tab") {
-                    Label("Tap the calendar icon in the toolbar to import or sync your season schedule from GameChanger", systemImage: "calendar.badge.plus")
-                    Label("Tap Pick from Schedule to pre-fill the game date and opponent from your imported schedule", systemImage: "calendar")
-                    Label("Tap + next to a player to add them to the batting order", systemImage: "plus.circle")
-                    Label("Tap Edit, then drag to reorder the batting lineup", systemImage: "arrow.up.arrow.down")
-                    Label("Toggle the switch to mark a player fully absent for the game", systemImage: "person.slash")
-                    Label("For late arrivals or early departures, keep them in the lineup and assign ABS to their missed innings on the Positions tab", systemImage: "clock")
-                    Label("Tap Archive to save the game and start fresh", systemImage: "archivebox")
-                    Label("Export Batting Order or Coaches Guide as a PDF", systemImage: "doc.richtext")
-                }
-
-                Section("Positions Tab") {
-                    Label("Tap an inning at the top, then tap a player to assign their position", systemImage: "hand.tap.fill")
-                    Label("Tap Summary to edit all innings in a single grid", systemImage: "tablecells")
-                    Label("Tap the bolt icon to auto-fill open positions: fill a single inning or choose how many innings to fill", systemImage: "bolt.fill")
-                    Label("Auto-Fill respects position preferences. Set them on the Players tab for smarter automatic lineups", systemImage: "star.circle.fill")
-                    Label("In the Summary grid, your current position shows with a strikethrough", systemImage: "strikethrough")
-                    Label("Assign ABS to innings a player misses due to late arrival or early departure", systemImage: "clock")
-                    Label("Tap \"Finalize lineup\" in the status strip when assignments are locked in. Any edit reverts it to Draft automatically", systemImage: "checkmark.circle.fill")
-                    Label("Tap the warnings icon to review all issues for the current inning and game", systemImage: "exclamationmark.triangle.fill")
-                    Label("Archive the game from this tab when finished", systemImage: "archivebox")
-                }
-
-                Section("History Tab") {
-                    Label("Archive from Lineup or Positions tab to save games here", systemImage: "archivebox.fill")
-                    Label("Set innings played accurately when archiving for correct stats", systemImage: "slider.horizontal.3")
-                    Label("AI Coaching Insights appear after 2+ games are archived", systemImage: "sparkles")
-                    Label("Tap any game to view its full batting order and defensive grid", systemImage: "clock.arrow.circlepath")
-                    Label("Swipe left on a game to delete it", systemImage: "trash")
-                }
-
-                Section("Fair Play Rules") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "slider.horizontal.3").foregroundColor(.blue)
-                            Text("Fair play rules are configurable per team. Open Edit Team from the Players tab, then tap Fair Play Rules.")
-                                .font(.callout)
-                        }
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "shield.checkered").foregroundColor(.blue)
-                            Text("Default rules: 1 infield inning minimum, 1 outfield inning minimum, no back-to-back bench, and 4 innings fielded minimum.")
-                                .font(.callout)
-                        }
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "baseball.fill").foregroundColor(.orange)
-                            Text("Additional rules include: No Pitcher, No Catcher, 4 outfielders (LCF/RCF), equal bench time, and battery restrictions (Catcher to Pitcher, Pitcher to Catcher).")
-                                .font(.callout)
-                        }
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "person.3.fill").foregroundColor(.purple)
-                            Text("Rules are scoped per team. Your rec team and travel team can have completely different configurations.")
-                                .font(.callout)
-                        }
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "clock.fill").foregroundColor(Color(.systemGray))
-                            Text("Players with ABS innings are exempt from the fielding minimum but still need 1 infield and 1 outfield inning among the innings they play.")
-                                .font(.callout)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section("Warning Indicators") {
+                Section("Reading the Grid") {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "checkmark.shield.fill").foregroundColor(.green)
-                            Text("All Good: no issues").font(.callout)
+                            Text("Green shield: no issues").font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
-                            Text("Inning or game-wide issues").font(.callout)
+                            Text("Orange triangle: an issue in this inning, or across the game").font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
-                            Text("Critical: both inning and game issues").font(.callout)
+                            Text("Red triangle: issues in both").font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "checkmark").foregroundColor(.green)
-                            Text("Green dot: inning fully assigned").font(.callout)
+                            Image(systemName: "circle.fill").foregroundColor(.green)
+                            Text("Green dot: every position in the inning is assigned").font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "minus").foregroundColor(.orange)
-                            Text("Orange dash: inning partially assigned").font(.callout)
+                            Image(systemName: "circle.fill").foregroundColor(.orange)
+                            Text("Orange dot: the inning still has open positions").font(.callout)
                         }
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "xmark").foregroundColor(.red)
-                            Text("Red X: duplicate position in inning").font(.callout)
+                            Image(systemName: "circle.fill").foregroundColor(.red)
+                            Text("Red dot: the same position is assigned twice").font(.callout)
                         }
                     }
                     .padding(.vertical, 4)
@@ -1212,16 +770,16 @@ struct QuickTipsView: View {
     WelcomeCardsView()
 }
 
-#Preview("Full Tutorial") {
-    WelcomeView()
-}
-
 #Preview("Quick Tips") {
     QuickTipsView()
 }
 
 #Preview("Page Tips - Players") {
     PageTipsView(page: .players)
+}
+
+#Preview("Page Tips - Positions") {
+    PageTipsView(page: .positions)
 }
 
 #Preview("First Game Checklist") {
@@ -1237,22 +795,4 @@ struct QuickTipsView: View {
     AutoFillContextTip(isPresented: .constant(true), onGoToPlayers: {})
         .padding(.top, 40)
         .background(Color(.systemGroupedBackground))
-}
-
-#Preview("Tab First Tip Overlay") {
-    ZStack {
-        Color(.systemGroupedBackground).ignoresSafeArea()
-        TabFirstTipOverlay(
-            config: TabTipConfig(
-                tabName: "Players",
-                title: "Set position preferences",
-                body: "Tap the pencil icon next to any player and tag positions as Strength, Capable, Emergency, or Never. Auto-Fill uses these to build smarter lineups.",
-                accentColor: .blue,
-                targetRect: CGRect(x: 20, y: 120, width: 140, height: 36),
-                targetCornerRadius: 10,
-                arrowDirection: .up
-            ),
-            onDismiss: {}
-        )
-    }
 }
