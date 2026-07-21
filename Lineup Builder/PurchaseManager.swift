@@ -24,9 +24,6 @@ class PurchaseManager: ObservableObject {
     static let legacyProProductID = "com.stackthelineup.pro"
 
     // Auto-renewable subscription sold going forward.
-    // TODO: point this at the real App Store Connect product ID once the
-    // subscription is created in ASC. The local StoreKit config defines a
-    // product with this ID for testing (7-day free trial, then $9.99/year).
     static let subscriptionProductID = "com.stackthelineup.pro.yearly"
 
     static let firstLaunchKey = "firstLaunchDate"
