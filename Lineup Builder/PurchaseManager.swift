@@ -5,15 +5,13 @@ import Combine
 // MARK: - PurchaseManager
 // Handles the "Stack the Lineup Pro" entitlement.
 //
-// Pro can be held three ways, and ANY of them grants full Pro forever:
-//   1. Pre-freemium grandfather — no firstLaunchDate stored means the app was
-//      installed before the freemium transition. Treated as Pro for free.
-//   2. Legacy one-time purchase — the non-consumable com.stackthelineup.pro,
+// Pro can be held two ways, and either one grants full Pro:
+//   1. Legacy one-time purchase — the non-consumable com.stackthelineup.pro,
 //      sold at $4.99 before the subscription move. These buyers are grandfathered
 //      into full Pro permanently; they are never asked to subscribe.
-//   3. Active subscription — the auto-renewable product sold going forward.
+//   2. Active subscription — the auto-renewable product sold going forward.
 //
-// The legacy clause (2) is a hard product requirement: anyone who paid the
+// The legacy clause (1) is a hard product requirement: anyone who paid the
 // one-time fee keeps every Pro feature, including features shipped after the
 // subscription launch. See checkEntitlement() and PurchaseManagerTests.
 
@@ -25,8 +23,6 @@ class PurchaseManager: ObservableObject {
 
     // Auto-renewable subscription sold going forward.
     static let subscriptionProductID = "com.stackthelineup.pro.yearly"
-
-    static let firstLaunchKey = "firstLaunchDate"
 
     @Published var isPro: Bool = false
     @Published var subscriptionProduct: Product? = nil
@@ -63,17 +59,8 @@ class PurchaseManager: ObservableObject {
         updatesListener?.cancel()
     }
 
-    // MARK: - New-install stamp
-    // Called once from LineupBuilderApp when the freemium binary launches.
-    // If no date is stored this is either a brand-new install (stamp it) or a
-    // pre-freemium user (do NOT stamp — grandfather logic will fire).
-    static func stampAsNewInstall() {
-        guard UserDefaults.standard.object(forKey: firstLaunchKey) == nil else { return }
-        UserDefaults.standard.set(Date(), forKey: firstLaunchKey)
-    }
-
     // MARK: - Entitlement Check
-    // Order matters only for short-circuiting; all three paths grant full Pro.
+    // Order matters only for short-circuiting; both paths grant full Pro.
 
     /// Whether a product ID grants Pro. The legacy non-consumable is included
     /// here permanently — that inclusion is the grandfathering guarantee for
@@ -83,21 +70,8 @@ class PurchaseManager: ObservableObject {
         productID == legacyProProductID || productID == subscriptionProductID
     }
 
-    /// Pure grandfather rule: Pro is granted for free when no firstLaunchDate is
-    /// stored, i.e. the app was installed before the freemium transition.
-    /// Split out so it can be tested without a StoreKit session.
-    static func isPreFreemiumGrandfathered(defaults: UserDefaults) -> Bool {
-        defaults.object(forKey: firstLaunchKey) == nil
-    }
-
     func checkEntitlement() async {
-        // 1. Pre-freemium grandfather.
-        if Self.isPreFreemiumGrandfathered(defaults: .standard) {
-            isPro = true
-            return
-        }
-
-        // 2 & 3. Any active/owned entitlement for the legacy purchase OR the
+        // Any active/owned entitlement for the legacy purchase OR the
         // subscription grants Pro. currentEntitlements already excludes expired
         // subscriptions and refunded purchases, so presence here is sufficient.
         for await result in Transaction.currentEntitlements {

@@ -4,10 +4,9 @@ import XCTest
 // MARK: - Purchase Entitlement Tests
 //
 // These guard the grandfathering guarantee: anyone who paid the $4.99 one-time
-// Pro unlock, and anyone who installed before the freemium transition, keeps
-// full Pro after the move to a subscription. The entitlement decision is split
-// into two pure functions on PurchaseManager so it can be tested without a
-// StoreKit session — the async checkEntitlement() just calls these.
+// Pro unlock keeps full Pro after the move to a subscription. The entitlement
+// decision is split into a pure function on PurchaseManager so it can be tested
+// without a StoreKit session — the async checkEntitlement() just calls it.
 
 @MainActor
 final class PurchaseManagerEntitlementTests: XCTestCase {
@@ -43,27 +42,4 @@ final class PurchaseManagerEntitlementTests: XCTestCase {
         )
     }
 
-    // MARK: Pre-freemium grandfather (no firstLaunchDate)
-
-    func testPreFreemiumUserIsGrandfathered() {
-        let defaults = makeIsolatedDefaults()
-        // No firstLaunchDate stored → installed before freemium → Pro.
-        XCTAssertTrue(PurchaseManager.isPreFreemiumGrandfathered(defaults: defaults))
-    }
-
-    func testNewInstallIsNotGrandfathered() {
-        let defaults = makeIsolatedDefaults()
-        defaults.set(Date(), forKey: PurchaseManager.firstLaunchKey)
-        XCTAssertFalse(PurchaseManager.isPreFreemiumGrandfathered(defaults: defaults))
-    }
-
-    // MARK: Helpers
-
-    /// A throwaway UserDefaults suite so tests never touch the real store.
-    private func makeIsolatedDefaults() -> UserDefaults {
-        let suite = "PurchaseManagerTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
-    }
 }
