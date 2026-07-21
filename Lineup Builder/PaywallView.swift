@@ -16,9 +16,8 @@ struct PaywallView: View {
     @Environment(\.dismiss) var dismiss
     let source: String
 
-    // TODO: point these at the real Terms / Privacy URLs.
-    private let termsURL = URL(string: "https://stackthelineup.com/terms")!
-    private let privacyURL = URL(string: "https://stackthelineup.com/privacy")!
+    private let termsURL = URL(string: "https://stackthelineup.com/terms.html")!
+    private let privacyURL = URL(string: "https://stackthelineup.com/privacy.html")!
 
     var body: some View {
         NavigationStack {
