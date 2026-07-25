@@ -14,7 +14,7 @@
 |---|---|
 | Build | ✅ `BUILD SUCCEEDED`, iOS Simulator, Debug |
 | Tests | ✅ 28 passed, 0 failed |
-| Visual verification | 🟡 Arc 1 (Players + Lineup + **Positions**) and **arc 2** verified on iPhone; four bugs fixed (incl. the Positions toolbar-anchor bug and the arc-2 free-coach stall — both fixed & verified). The skip path and iPad still unwalked |
+| Visual verification | 🟡 Arc 1 (Players + Lineup + **Positions**), **arc 2**, and the **skip path** verified on iPhone; five bugs fixed (Positions toolbar-anchor, arc-2 free-coach stall, and the skip-path `TourInSettingsTip` toolbar-anchor — all fixed & verified). The **Pro** history tips and **iPad** still unwalked |
 | Layer 3 (checklist relocation) | ⛔️ dropped — checklist removed instead (see below) |
 
 ### Verification pass — 2026-07-23 (iPhone 17 Pro, iOS 26)
@@ -82,7 +82,7 @@ Because `Tour.positions` is a `TipGroup(.ordered)` and `PositionsViewModeTip` is
 ### Remaining work
 
 - ~~**FIRST: fix the Positions arc**~~ ✅ **Done & verified (2026-07-24)** — both toolbar tips re-anchored to content; all 4 fire in order on a clean install. See "Positions tips bug" above.
-- **Finish the visual pass** (arc 1 + arc 2 now covered on iPhone; PRO badge confirmed live in three popovers — Positions Auto-Fill, arc-2 Auto-Fill constraints, and Share Team): still to walk — the **skip path**, the **Pro** arc-2/history tips (`ReuseSaveTemplateTip`, `HistoryCopyGameTip`, `HistorySeasonViewsTip` need a Pro account to reach the game detail), and **iPad** (the Fix 2 gating threads through iPad-embedded views with behavior-preserving defaults, but hasn't been watched on iPad).
+- **Finish the visual pass** (arc 1, arc 2, and the skip path now covered on iPhone; PRO badge confirmed live in three popovers — Positions Auto-Fill, arc-2 Auto-Fill constraints, and Share Team): still to walk — the **Pro** arc-2/history tips (`ReuseSaveTemplateTip`, `HistoryCopyGameTip`, `HistorySeasonViewsTip` need a Pro account to reach the game detail), and **iPad** (the Fix 2 gating threads through iPad-embedded views with behavior-preserving defaults, but hasn't been watched on iPad; note the iPad `TourInSettingsTip` gear anchor is unchanged and was not re-walked).
 - ~~**Layer 3** — relocate the checklist to a toolbar progress ring.~~ **Dropped.** The "Getting Started" checklist (`FirstGameChecklist`) was redundant with the contextual tips, so it was removed outright rather than relocated (2026-07-23). Deleted: the render in `LineupView`, the `FirstGameChecklist` + `ChecklistRow` structs and preview in `WelcomeView`, the unused `hasCompletedChecklist` `@AppStorage` in `LineupView`, and the checklist mentions in `SettingsView`'s reset. `hasCompletedChecklist` stays in `TipsConfigurator.legacyKeys` for existing-user migration detection only.
 - One open design question (below): the History paywall auto-opening on tab entry. (~~arc 2 giving free coaches too few tips~~ — resolved 2026-07-24: it was actually giving them *zero*; fixed by Pro-gating `ReuseSaveTemplateTip` so the free `secondGame` group no longer stalls behind a paywalled anchor.)
 
@@ -198,7 +198,9 @@ Order follows a Pro coach's navigation: the list-anchored `HistorySeasonViewsTip
 ### Re-entry
 
 - **Settings → Help & Support → "Take the Tour."** Wipes the TipKit datastore so every tip is eligible again.
-- **`TourInSettingsTip`** fires once for a coach who tapped Skip on the welcome cards. **Anchored on the gear icon**, not on the Settings row itself — a coach who skipped needs to be told where Settings is, not shown a row they already found.
+- **`TourInSettingsTip`** fires once (`MaxDisplayCount(1)`) for a coach who tapped Skip on the welcome cards (skipping only sets `welcomeSkipped` / `hasCompletedTutorial` — **the contextual tour still runs**). The copy names Settings so the coach knows where the tour lives.
+  - **Anchor (fixed 2026-07-24).** It originally anchored on the **Settings gear**, but on iPhone that gear is a nav-bar `ToolbarItem`, where `popoverTip` never presents — so the hint was invisible for every iPhone skipper (verified on-device before the fix). On **iPad** the gear is a content button in the custom header (`iPadDashboardView`), so that anchor works and was left as-is. On **iPhone** it now anchors on the **Players team card** (`PlayersView`, `TeamCardView`) just below the gear; the copy still points at Settings. User picked the team card over restructuring the iPhone header into a custom pinned bar (which would have been a disproportionate main-screen redesign, and risked Settings scrolling out of view).
+  - **Sequencing.** It shares the team-card anchor with the arc-1 `PlayersTeamSetupTip` and, being a standalone tip, would otherwise fire *alongside* an arc-1 popover. It's gated `enabled: … && Tour.players.currentTip == nil`, so it only appears once the whole Players arc is exhausted. **Verified on-device (2026-07-24):** after Skip, the Players arc runs in order, then `TourInSettingsTip` presents on the team card with no collision and dismisses cleanly.
 
 ---
 

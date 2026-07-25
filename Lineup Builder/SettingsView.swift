@@ -91,8 +91,12 @@ struct SettingsView: View {
                 // MARK: - Help
                 Section("Help & Support") {
                     // Re-entry for anyone who skipped or dismissed the tour.
-                    // TourInSettingsTip points at the gear icon that opens this
-                    // screen, not at this row — a coach who skipped needs to be
+                    // TourInSettingsTip is armed by skipping the welcome cards and
+                    // tells the coach the tour lives here in Settings. On iPhone it
+                    // anchors on the Players team card (the Settings gear is a nav-bar
+                    // ToolbarItem, which popoverTip can't attach to); on iPad it points
+                    // at the header's content gear directly. Either way it names this
+                    // screen rather than this row — a coach who skipped needs to be
                     // told where Settings is, not shown a row they already found.
                     Button {
                         TipsConfigurator.restartTour()

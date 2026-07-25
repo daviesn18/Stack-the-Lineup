@@ -176,6 +176,16 @@ struct PlayersView: View {
             )
             .tourTip(Tour.players.currentTip as? PlayersTeamSetupTip, arrowEdge: .top,
                      enabled: horizontalSizeClass != .regular && isTourTabActive)
+            // Re-entry hint for coaches who skipped the welcome. It wants to point
+            // at the Settings gear, but that lives in a nav-bar ToolbarItem where
+            // popoverTip won't present (see [[tipkit-toolbar-anchor-fails]]), so it
+            // anchors here on the team card just below it — the copy names Settings.
+            // Gated on the Players arc being exhausted (`currentTip == nil`) so it
+            // never fires alongside an arc-1 tip, including the PlayersTeamSetupTip
+            // that shares this anchor. (iPad points at its content gear directly.)
+            .tourTip(TourInSettingsTip(), arrowEdge: .top,
+                     enabled: horizontalSizeClass != .regular && isTourTabActive
+                         && Tour.players.currentTip == nil)
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -345,7 +355,6 @@ struct PlayersView: View {
                     } label: {
                         Image(systemName: "gearshape.fill")
                     }
-                    .tourTip(TourInSettingsTip(), arrowEdge: .top, enabled: isTourTabActive)
                 }
                 Button {
                     showingTips = true
