@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 // MARK: - GameLogsView
 // The History tab. Pro-gated content — free users see LockedHistoryView.
@@ -17,6 +18,12 @@ struct GameLogsView: View {
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @StateObject private var insightsService = GameLogInsightsService()
+
+    /// True when the History tab (tag 3) is the one on screen. The iPad
+    /// dashboard embeds this view and leaves it at the default. Keeps the
+    /// season-views tip from presenting over another tab when it first becomes
+    /// eligible (on archive, while the coach may be on Lineup or Positions).
+    var isTourTabActive: Bool = true
 
     @State private var selectedTab: HistoryTab = .players
     @State private var logToDelete: GameLog? = nil
@@ -189,6 +196,8 @@ struct GameLogsView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(Color(.systemGroupedBackground))
+            .tourTip(Tour.history.currentTip as? HistorySeasonViewsTip, arrowEdge: .top,
+                     enabled: isTourTabActive)
 
             Divider()
 

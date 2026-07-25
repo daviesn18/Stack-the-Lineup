@@ -1,9 +1,12 @@
 import SwiftUI
+import TipKit
 
 // MARK: - Welcome Cards (New-User First-Launch Flow)
-// Three short cards shown on first launch. Point the coach at the roster —
-// everything else in the app depends on it. Ongoing help lives in the per-tab
-// info button (see AppPage.tips), which is the single source of truth for tips.
+// Two short cards shown on first launch, ending in "Start the tour". The tour
+// itself is the anchored TipKit walkthrough in ContextualTips.swift — these
+// cards only set the frame. Skipping arms TourInSettingsTip so the coach still
+// learns where to find it. Ongoing reference help lives in the per-tab info
+// button (see AppPage.tips).
 // Gated by "hasCompletedTutorial" — existing users already have this set to true.
 
 struct WelcomeCardsView: View {
@@ -34,15 +37,7 @@ struct WelcomeCardsView: View {
             tint: Color.green.opacity(0.12),
             title: "Fair play, tracked for you.",
             body: "Set your league's rules once — fielding minimums, bench limits, pitching caps. The app flags a problem the moment you create one.",
-            cta: "Got it"
-        ),
-        WelcomeCard(
-            icon: "person.3.fill",
-            iconColor: .purple,
-            tint: Color.purple.opacity(0.12),
-            title: "Start with your roster.",
-            body: "Add your players and tag the positions each one can handle. Everything else builds on that.",
-            cta: "Let's start"
+            cta: "Start the tour"
         ),
     ]
 
@@ -60,6 +55,10 @@ struct WelcomeCardsView: View {
                         Spacer()
                         Button("Skip") {
                             UserDefaults.standard.set(true, forKey: "hasCompletedTutorial")
+                            // Arms the one tip that points at the Settings
+                            // re-entry row. The tour itself still runs.
+                            TourState.welcomeSkipped = true
+                            Analytics.signal("tour.welcome.skipped")
                             dismiss()
                         }
                         .font(.subheadline)
@@ -148,328 +147,6 @@ struct WelcomeCardsView: View {
             }
         }
         .interactiveDismissDisabled()
-    }
-}
-
-// MARK: - First Game Checklist
-// A dismissible getting-started card shown on the Lineup tab until the coach
-// completes their first game. Progress is tracked via UserDefaults flags that
-// are already set as part of normal app flow — no extra instrumentation needed.
-
-struct FirstGameChecklist: View {
-    @EnvironmentObject var store: LineupStore
-    @AppStorage("hasCompletedChecklist") private var hasCompletedChecklist = false
-    @State private var isDismissed = false
-
-    // Step completion derived from real app state
-    private var hasPlayers: Bool { !store.players.isEmpty }
-    private var hasBattingOrder: Bool { !store.lineup.battingOrder.isEmpty }
-    private var hasPositions: Bool {
-        store.lineup.innings.contains { !$0.assignments.isEmpty }
-    }
-    private var hasArchivedGame: Bool { !store.gameLogs.isEmpty }
-
-    private var completedCount: Int {
-        [hasPlayers, hasBattingOrder, hasPositions, hasArchivedGame].filter { $0 }.count
-    }
-
-    private var allDone: Bool { completedCount == 4 }
-
-    var body: some View {
-        // Auto-dismiss permanently once all steps are done
-        let shouldShow = !hasCompletedChecklist && !isDismissed
-
-        if shouldShow {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Getting Started")
-                            .font(.subheadline.bold())
-                        Text("\(completedCount) of 4 steps complete")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Button {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            if allDone {
-                                hasCompletedChecklist = true
-                            } else {
-                                isDismissed = true
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(Color(.tertiaryLabel))
-                            .font(.title3)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Progress bar
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color(.systemGray5))
-                            .frame(height: 5)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(allDone ? Color.green : Color.blue)
-                            .frame(width: geo.size.width * CGFloat(completedCount) / 4.0, height: 5)
-                            .animation(.easeInOut(duration: 0.4), value: completedCount)
-                    }
-                }
-                .frame(height: 5)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    ChecklistRow(label: "Add players to your roster", isDone: hasPlayers)
-                    ChecklistRow(label: "Build your batting order", isDone: hasBattingOrder)
-                    ChecklistRow(label: "Assign defensive positions", isDone: hasPositions)
-                    ChecklistRow(label: "Archive your first game", isDone: hasArchivedGame)
-                }
-
-                if allDone {
-                    Button {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            hasCompletedChecklist = true
-                        }
-                    } label: {
-                        Text("You're all set! Dismiss")
-                            .font(.caption.bold())
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(14)
-            .background(Color(.secondarySystemGroupedBackground))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color(.systemGray4), lineWidth: 0.5)
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .transition(.opacity.combined(with: .move(edge: .top)))
-        }
-    }
-}
-
-// MARK: - Checklist Row
-
-private struct ChecklistRow: View {
-    let label: String
-    let isDone: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(isDone ? Color.green : Color(.systemGray5))
-                    .frame(width: 22, height: 22)
-                Image(systemName: isDone ? "checkmark" : "circle")
-                    .font(.system(size: isDone ? 11 : 14, weight: .bold))
-                    .foregroundColor(isDone ? .white : Color(.systemGray3))
-            }
-            .animation(.easeInOut(duration: 0.3), value: isDone)
-
-            Text(label)
-                .font(.callout)
-                .foregroundColor(isDone ? .secondary : .primary)
-                .strikethrough(isDone, color: .secondary)
-        }
-    }
-}
-
-// MARK: - Auto-Fill Context Tip
-// One-time popover shown the first time a Pro user opens the Positions tab
-// with players assigned. Highlights that Auto-Fill is smarter when position
-// preferences are set. Shown once, never again.
-
-struct AutoFillContextTip: View {
-    @Binding var isPresented: Bool
-    let onGoToPlayers: () -> Void
-
-    var body: some View {
-        if isPresented {
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                HStack(alignment: .top, spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.blue.opacity(0.12))
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "bolt.fill")
-                            .foregroundColor(.blue)
-                            .font(.system(size: 18))
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Make Auto-Fill Smarter")
-                            .font(.subheadline.bold())
-                        Text("Auto-Fill uses position preferences for each player to build better lineups.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    Button {
-                        withAnimation { isPresented = false }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(Color(.tertiaryLabel))
-                            .font(.body)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(14)
-
-                Divider()
-
-                // Tier breakdown
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("How preferences work:")
-                        .font(.caption.bold())
-                        .foregroundColor(.secondary)
-
-                    TierExplanationRow(tier: .strength,  description: "Tried first when filling a position")
-                    TierExplanationRow(tier: .capable,   description: "Used if no Strength player is available")
-                    TierExplanationRow(tier: .emergency, description: "Only used if nothing else is available")
-                    TierExplanationRow(tier: .never,     description: "Never assigned to this position")
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-
-                Divider()
-
-                // CTA
-                Button {
-                    withAnimation { isPresented = false }
-                    onGoToPlayers()
-                } label: {
-                    HStack {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                        Text("Set Preferences on the Players Tab")
-                            .font(.subheadline.bold())
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                }
-
-                Button {
-                    withAnimation { isPresented = false }
-                } label: {
-                    Text("Got it, maybe later")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-            }
-            .background(Color(.systemBackground))
-            .cornerRadius(14)
-            .shadow(color: .black.opacity(0.12), radius: 16, x: 0, y: 4)
-            .padding(.horizontal, 20)
-            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
-        }
-    }
-}
-
-// MARK: - PDF Export Context Tip
-// One-time tip shown on the Lineup tab when a free user has 3+ players in their
-// batting order. Surfaces the Coaches Guide PDF as the key Pro value prop at the
-// moment the coach has real lineup data to export.
-// Gated with hasSeenPDFExportTip — never shown again after dismissal or tap-through.
-
-struct PDFExportContextTip: View {
-    @Binding var isPresented: Bool
-
-    var body: some View {
-        if isPresented {
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                HStack(alignment: .top, spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.blue.opacity(0.12))
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "doc.richtext.fill")
-                            .foregroundColor(.blue)
-                            .font(.system(size: 18))
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Export a Coaches Guide PDF")
-                            .font(.subheadline.bold())
-                        Text("When your lineup is ready, export a full inning-by-inning position grid to print or share with your assistant coach.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    Button {
-                        withAnimation { isPresented = false }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(Color(.tertiaryLabel))
-                            .font(.body)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(14)
-
-                Divider()
-
-                // What's in the PDF
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("The Coaches Guide includes:")
-                        .font(.caption.bold())
-                        .foregroundColor(.secondary)
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill").foregroundColor(.green).font(.caption)
-                        Text("Every player's position for each inning").font(.caption)
-                    }
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill").foregroundColor(.green).font(.caption)
-                        Text("Full batting order with jersey numbers").font(.caption)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-
-                Divider()
-
-                // CTA
-                Button {
-                    withAnimation { isPresented = false }
-                } label: {
-                    Text("Got it")
-                        .font(.subheadline.bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                }
-
-                Button {
-                    withAnimation { isPresented = false }
-                } label: {
-                    Text("Maybe later")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-            }
-            .background(Color(.systemBackground))
-            .cornerRadius(14)
-            .shadow(color: .black.opacity(0.12), radius: 16, x: 0, y: 4)
-            .padding(.horizontal, 20)
-            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
-        }
     }
 }
 
@@ -660,36 +337,6 @@ struct PageTipsView: View {
     }
 }
 
-// MARK: - Info Button View Modifier
-// Adds a consistent info button to any view's toolbar.
-
-struct InfoToolbarButton: ViewModifier {
-    let page: AppPage
-    @State private var showingTips = false
-
-    func body(content: Content) -> some View {
-        content
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        showingTips = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                    }
-                }
-            }
-            .sheet(isPresented: $showingTips) {
-                PageTipsView(page: page)
-            }
-    }
-}
-
-extension View {
-    func infoButton(for page: AppPage) -> some View {
-        modifier(InfoToolbarButton(page: page))
-    }
-}
-
 // MARK: - Full Quick Tips (accessible from Settings)
 // Renders every tab's tips in one scroll, generated from AppPage so this
 // screen can never drift out of sync with the per-tab info sheets.
@@ -782,17 +429,3 @@ struct QuickTipsView: View {
     PageTipsView(page: .positions)
 }
 
-#Preview("First Game Checklist") {
-    let store = LineupStore()
-    return ScrollView {
-        FirstGameChecklist()
-            .environmentObject(store)
-    }
-    .background(Color(.systemGroupedBackground))
-}
-
-#Preview("AutoFill Context Tip") {
-    AutoFillContextTip(isPresented: .constant(true), onGoToPlayers: {})
-        .padding(.top, 40)
-        .background(Color(.systemGroupedBackground))
-}

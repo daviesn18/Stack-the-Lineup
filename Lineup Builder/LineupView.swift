@@ -1,16 +1,19 @@
 import SwiftUI
+import TipKit
 
 struct LineupView: View {
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @AppStorage("hasCompletedChecklist") private var hasCompletedChecklist = false
-    @AppStorage("hasSeenPDFExportTip") private var hasSeenPDFExportTip = false
     @Binding var showingArchive: Bool
-    // Tip overlays driven by parent iPhoneTabView
+
+    /// True when the Lineup tab is the one on screen. The iPad dashboard
+    /// embeds this view and leaves it at the default; its tour anchors are
+    /// stood down separately by the `horizontalSizeClass != .regular` guard.
+    var isTourTabActive: Bool = true
+
     @State private var generatedPDF: PDFDocument? = nil
-    @State private var showingPDFExportTip = false
     @State private var showingTips = false
     @State private var lockedPDF: PDFDocument? = nil
     @State private var showingScheduleImport = false
@@ -106,19 +109,6 @@ struct LineupView: View {
                 }
             }
 
-            // MARK: - First Game Checklist
-            // Shown until the coach completes all 4 steps or manually dismisses.
-            // Rendered as a card inside a clear-background section so it sits
-            // flush at the top without cell chrome.
-            if !hasCompletedChecklist && !isReadOnly {
-                Section {
-                    FirstGameChecklist()
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-            }
-
             // MARK: - Compact Game Card
             // Summary row (tap to edit date / opponent / status) plus a
             // Schedule / Template split-button row beneath a hairline.
@@ -133,28 +123,13 @@ struct LineupView: View {
                     onTapSchedule: { showingSchedulePicker = true },
                     onTapTemplate: { showingTemplatePicker = true }
                 )
+                .tourTip(Tour.lineup.currentTip as? LineupGameInfoTip, arrowEdge: .top,
+                         enabled: isTourTabActive)
+                .tourTip(Tour.secondGame.currentTip as? ReuseApplyTemplateTip, arrowEdge: .top,
+                         enabled: isTourTabActive)
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-            }
-
-            // MARK: - PDF Export Context Tip
-            // Shown once to free users who have 3+ players in the batting order.
-            // Surfaces PDF export as the key Pro value prop at the moment the
-            // coach has real lineup data worth exporting.
-            if showingPDFExportTip {
-                Section {
-                    PDFExportContextTip(isPresented: Binding(
-                        get: { showingPDFExportTip },
-                        set: { newValue in
-                            showingPDFExportTip = newValue
-                            if !newValue { hasSeenPDFExportTip = true }
-                        }
-                    ))
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                }
             }
 
             // MARK: - Batting Order & Availability
@@ -208,6 +183,10 @@ struct LineupView: View {
                             .font(.caption)
                     }
                 }
+                .tourTip(Tour.lineup.currentTip as? LineupBattingOrderTip, arrowEdge: .bottom,
+                         enabled: horizontalSizeClass != .regular && isTourTabActive)
+                .tourTip(Tour.lineup.currentTip as? LineupAbsentTip, arrowEdge: .bottom,
+                         enabled: horizontalSizeClass != .regular && isTourTabActive)
             } footer: {
                 if !unorderedPlayers.isEmpty {
                     Text("Tap + to add players to the batting order, then drag to reorder.")
@@ -237,17 +216,6 @@ struct LineupView: View {
         .sheet(isPresented: $showingGameInfoEditor) {
             GameInfoEditorView()
                 .environmentObject(store)
-        }
-        .onAppear {
-            // Show PDF export tip once to free users who have 3+ players
-            // in the batting order — they have real data worth exporting.
-            if !hasSeenPDFExportTip && !purchaseManager.isPro {
-                if orderedPlayers.count >= 3 {
-                    withAnimation(.easeIn(duration: 0.3)) {
-                        showingPDFExportTip = true
-                    }
-                }
-            }
         }
         .sheet(isPresented: $showingScheduleImport) {
             ScheduleImportView { games, urlString in
@@ -300,6 +268,8 @@ struct LineupView: View {
                     onExportBattingOrder: exportBattingOrder,
                     onExportCoachesGuide: exportCoachesGuide
                 )
+                .tourTip(Tour.lineup.currentTip as? LineupExportTip, arrowEdge: .bottom,
+                         enabled: isTourTabActive)
             }
             .animation(.spring(duration: 0.35), value: scheduleImportToast)
         }

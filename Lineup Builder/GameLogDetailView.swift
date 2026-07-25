@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 // MARK: - GameLogDetailView
 // Read-only view for a single archived game log.
@@ -265,10 +266,12 @@ struct GameLogDetailView: View {
                             copyToCurrentGame()
                         }
                     }
+                    .tourTip(Tour.history.currentTip as? HistoryCopyGameTip, arrowEdge: .top)
                     Divider().padding(.vertical, 4)
                     reuseRow(title: "Save as template", systemImage: "bookmark") {
                         attemptSaveAsTemplate()
                     }
+                    .tourTip(Tour.history.currentTip as? ReuseSaveTemplateTip, arrowEdge: .top)
                 }
             }
             .padding(.horizontal)

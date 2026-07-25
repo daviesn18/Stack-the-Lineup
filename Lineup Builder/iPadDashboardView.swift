@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 // MARK: - Detail Tab
 
@@ -165,6 +166,7 @@ private struct iPadNavBar: View {
                         .foregroundColor(.secondary)
                 }
             }
+            .tourTip(Tour.players.currentTip as? PlayersTeamSetupTip, arrowEdge: .top)
 
             Divider()
                 .frame(height: 20)
@@ -230,6 +232,7 @@ private struct iPadNavBar: View {
                 Image(systemName: "gearshape.fill")
                     .font(.title3)
             }
+            .tourTip(TourInSettingsTip(), arrowEdge: .top)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -356,6 +359,7 @@ private struct FairPlayRailView: View {
                 violationCount: violationCount,
                 hasAnyAssignments: hasAnyAssignments
             )
+            .tourTip(Tour.positions.currentTip as? PositionsWarningsTip, arrowEdge: .top)
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
 
@@ -698,6 +702,8 @@ struct SidebarRosterView: View {
                         .foregroundColor(.blue)
                 }
                 .accessibilityLabel("Add Players")
+                .tourTip(Tour.players.currentTip as? PlayersAddTip, arrowEdge: .top)
+                .tourTip(Tour.players.currentTip as? PlayersImportTip, arrowEdge: .top)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -741,6 +747,8 @@ struct SidebarRosterView: View {
                         .textCase(.uppercase)
                     }
                     .buttonStyle(.plain)
+                    .tourTip(Tour.lineup.currentTip as? LineupBattingOrderTip, arrowEdge: .top)
+                    .tourTip(Tour.lineup.currentTip as? LineupAbsentTip, arrowEdge: .top)
                 }
 
                 Section {
@@ -1316,6 +1324,8 @@ private struct iPadPositionsPane: View {
                         }
                         .pickerStyle(.segmented)
                         .padding(.bottom, 20)
+                        .tourTip(Tour.positions.currentTip as? PositionsViewModeTip, arrowEdge: .top)
+                        .tourTip(Tour.positions.currentTip as? PositionsAssignTip, arrowEdge: .bottom)
 
                         switch mode {
                         case .position:
@@ -1606,6 +1616,8 @@ private struct iPadPositionsPane: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Auto-Fill Open Positions")
+        .tourTip(Tour.positions.currentTip as? PositionsAutoFillTip, arrowEdge: .top)
+        .tourTip(Tour.secondGame.currentTip as? AutoFillConstraintsTip, arrowEdge: .top)
         .popover(isPresented: $showingAutoFillPopover, arrowEdge: .top) {
             AutoFillPopover(
                 isSummary: true,

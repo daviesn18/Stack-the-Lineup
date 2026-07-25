@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import WidgetKit
 
 struct ContentView: View {
@@ -57,7 +58,15 @@ struct ContentView: View {
                 iPadDashboardView(showingArchive: $showingArchive)
             } else {
                 // iPhone — existing tab bar
-                iPhoneTabView(showingArchive: $showingArchive, selectedTab: $selectedTab)
+                iPhoneTabView(
+                    showingArchive: $showingArchive,
+                    selectedTab: $selectedTab,
+                    // Hold the tour until the welcome/what's-new covers are gone.
+                    // Fix A selects the Players tab during onAppear, which makes
+                    // PlayersView "visible" underneath the welcome cover — and a
+                    // popover would otherwise render on top of it.
+                    tourEnabled: !showingWelcome && !showingWhatsNew
+                )
             }
         }
         .environmentObject(store)
@@ -84,49 +93,16 @@ struct ContentView: View {
                 "playerCount": "\(store.players.count)"
             ])
 
-            // MARK: - Existing User Grandfathering
-            // Prevent first-launch onboarding UI from appearing for coaches
-            // who are already mid-season after updating to this version.
+            syncTourState()
 
-            // Checklist: skip for any user who already has players or archived games.
-            if !UserDefaults.standard.bool(forKey: "hasCompletedChecklist") {
-                if !store.players.isEmpty || !store.gameLogs.isEmpty {
-                    UserDefaults.standard.set(true, forKey: "hasCompletedChecklist")
-                }
-            }
-
-            // Auto-Fill tip: skip for users who already have position preferences
-            // set on at least one player — they know the feature exists.
-            if !UserDefaults.standard.bool(forKey: "hasSeenAutoFillTip") {
-                let hasAnyPreferences = store.players.contains { !$0.positionPreferences.isEmpty }
-                if hasAnyPreferences {
-                    UserDefaults.standard.set(true, forKey: "hasSeenAutoFillTip")
-                }
-            }
-
-            // v2.3 schedule import tip: skip for existing users who already
-            // have game history — they're mid-season and don't need the prompt.
-            if !UserDefaults.standard.bool(forKey: "hasSeenScheduleImportTip") {
-                if !store.gameLogs.isEmpty || !store.players.isEmpty {
-                    UserDefaults.standard.set(true, forKey: "hasSeenScheduleImportTip")
-                }
-            }
-
-            // v2.3 roster import tip: skip for existing users who already
-            // have players on their roster.
-            if !UserDefaults.standard.bool(forKey: "hasSeenRosterImportTip") {
-                if !store.players.isEmpty {
-                    UserDefaults.standard.set(true, forKey: "hasSeenRosterImportTip")
-                }
-            }
-
-            // PDF export tip: skip for existing users who have already archived
-            // at least one game — they've been through the full workflow and
-            // know the PDF export exists.
-            if !UserDefaults.standard.bool(forKey: "hasSeenPDFExportTip") {
-                if !store.gameLogs.isEmpty {
-                    UserDefaults.standard.set(true, forKey: "hasSeenPDFExportTip")
-                }
+            // First-run coaches land on the Players tab, where the tour's
+            // ordered group begins. The default tab is Lineup (1), but every
+            // Lineup/Positions tip is gated behind having a roster — so a fresh
+            // coach who opens onto Lineup sees no tip at all until they wander
+            // to Players on their own. Arc-suppressed (existing) coaches keep
+            // the Lineup default.
+            if !TipsConfigurator.arcOneSuppressed, store.players.isEmpty {
+                selectedTab = 0
             }
 
             // v3.0: Request push notification permission once and set up
@@ -229,6 +205,10 @@ struct ContentView: View {
         .onChange(of: store.pendingRosterImport.isActive) { _, isActive in
             if isActive { selectedTab = 0 }
         }
+        // Tour tips gate on real app state, so re-sync whenever it moves.
+        // Collapsed into one observer — four separate onChange modifiers here
+        // push this body past the type-checker's limit.
+        .onChange(of: tourSignature) { _, _ in syncTourState() }
         .alert(nudgeAlertTitle, isPresented: $showingNudge) {
             nudgeAlertButtons
         } message: {
@@ -271,6 +251,26 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Tour State
+
+    /// Every piece of state a tour tip gates on, in one comparable value.
+    private var tourSignature: String {
+        let assignments = store.lineup.innings.reduce(0) { $0 + $1.assignments.count }
+        return "\(store.players.count)-\(store.lineup.battingOrder.count)-\(assignments)-\(store.gameLogs.count)-\(purchaseManager.isPro)"
+    }
+
+    /// Mirrors store/entitlement state into the TipKit parameters that gate
+    /// every tour tip. See ContextualTips.swift.
+    private func syncTourState() {
+        TourState.sync(
+            players: store.players.count,
+            battingOrder: store.lineup.battingOrder.count,
+            hasAnyAssignments: store.lineup.innings.contains { !$0.assignments.isEmpty },
+            archivedGames: store.gameLogs.count,
+            isPro: purchaseManager.isPro
+        )
     }
 
     // MARK: - Share-Sheet Roster Import
@@ -470,22 +470,32 @@ private struct iPhoneTabView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Binding var showingArchive: Bool
     @Binding var selectedTab: Int
+    /// False while the welcome or what's-new cover is up — holds every tour
+    /// tip so none can present over that chrome.
+    let tourEnabled: Bool
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            PlayersView()
+            // isTourTabActive stands each tab's tour anchors down while the tab
+            // is off-screen. TipKit presents an eligible tip the instant its
+            // rules pass — even when the anchor lives in a sibling tab that's
+            // instantiated but not visible — which puts a mispositioned popover
+            // on whatever tab the coach is actually looking at. Gating on the
+            // selection keeps every tip on its own tab.
+            PlayersView(isTourTabActive: selectedTab == 0 && tourEnabled)
                 .tabItem { Label("Players", systemImage: "person.3.fill") }
                 .tag(0)
-            LineupView(showingArchive: $showingArchive)
+            LineupView(showingArchive: $showingArchive, isTourTabActive: selectedTab == 1 && tourEnabled)
                 .tabItem { Label("Lineup", systemImage: "list.number") }
                 .tag(1)
             DefensiveGridView(
                 showingArchive: $showingArchive,
-                selectedTab: $selectedTab
+                selectedTab: $selectedTab,
+                tourEnabled: tourEnabled
             )
                 .tabItem { Label("Positions", systemImage: "baseball.diamond.bases") }
                 .tag(2)
-            GameLogsView()
+            GameLogsView(isTourTabActive: selectedTab == 3 && tourEnabled)
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
                 .tag(3)
         }

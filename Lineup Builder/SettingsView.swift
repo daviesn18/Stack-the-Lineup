@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 // MARK: - Settings View
 
@@ -13,6 +14,7 @@ struct SettingsView: View {
     @State private var showingSeedDoneAlert = false
     @State private var showingResetTipsConfirmation = false
     @State private var showingResetTipsDoneAlert = false
+    @State private var showingTourRestartedAlert = false
 
     // Version-row tap counter for the debug data seeder. See the Version row below.
     @State private var versionTapCount = 0
@@ -88,6 +90,17 @@ struct SettingsView: View {
 
                 // MARK: - Help
                 Section("Help & Support") {
+                    // Re-entry for anyone who skipped or dismissed the tour.
+                    // TourInSettingsTip points at the gear icon that opens this
+                    // screen, not at this row — a coach who skipped needs to be
+                    // told where Settings is, not shown a row they already found.
+                    Button {
+                        TipsConfigurator.restartTour()
+                        showingTourRestartedAlert = true
+                    } label: {
+                        Label("Take the Tour", systemImage: "figure.walk.motion")
+                    }
+
                     Button {
                         showingQuickTips = true
                     } label: {
@@ -221,12 +234,17 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Resets the welcome cards, the getting-started checklist, and the Auto-Fill and PDF tips so they appear again. Your data is not affected.")
+                Text("Resets the welcome cards and every tour tip so they appear again. Your data is not affected.")
             }
             .alert("Onboarding Reset", isPresented: $showingResetTipsDoneAlert) {
                 Button("OK") {}
             } message: {
                 Text("Close and reopen the app to see the welcome cards again.")
+            }
+            .alert("Tour Reset", isPresented: $showingTourRestartedAlert) {
+                Button("OK") { dismiss() }
+            } message: {
+                Text("Close and reopen the app, then tips will appear again as you move through the tabs.")
             }
         }
     }
@@ -239,16 +257,11 @@ struct SettingsView: View {
         UserDefaults.standard.removeObject(forKey: "lastSeenWhatsNewVersion")
     }
 
+    /// Clears the welcome cards, then wipes the TipKit datastore so every tour
+    /// tip is eligible again.
     private func resetOnboardingFlags() {
-        let keys = [
-            "hasCompletedTutorial",
-            "hasCompletedChecklist",
-            "hasSeenAutoFillTip",
-            "hasSeenPDFExportTip",
-            "hasSeenScheduleImportTip",
-            "hasSeenRosterImportTip",
-        ]
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        UserDefaults.standard.removeObject(forKey: "hasCompletedTutorial")
+        TipsConfigurator.restartTour()
     }
 }
 

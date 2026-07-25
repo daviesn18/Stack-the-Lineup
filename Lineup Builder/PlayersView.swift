@@ -1,5 +1,6 @@
 import CloudKit
 import SwiftUI
+import TipKit
 import UniformTypeIdentifiers
 
 // MARK: - Players List
@@ -9,6 +10,12 @@ struct PlayersView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+
+    /// True when the Players tab is the one on screen. The iPad dashboard
+    /// embeds this view and leaves it at the default; its tour anchors are
+    /// stood down separately by the `horizontalSizeClass != .regular` guard.
+    var isTourTabActive: Bool = true
+
     @State private var showingAddPlayer = false
     @State private var playerToEdit: Player?
     @State private var showingClearConfirmation = false
@@ -167,6 +174,8 @@ struct PlayersView: View {
                 onSwitch: { showingTeamSwitcher = true },
                 onAddTeam: { showingAddTeam = true }
             )
+            .tourTip(Tour.players.currentTip as? PlayersTeamSetupTip, arrowEdge: .top,
+                     enabled: horizontalSizeClass != .regular && isTourTabActive)
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -305,6 +314,10 @@ struct PlayersView: View {
         }
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .tourTip(Tour.players.currentTip as? PlayersAddTip, arrowEdge: .top,
+                 enabled: horizontalSizeClass != .regular && isTourTabActive)
+        .tourTip(Tour.players.currentTip as? PlayersImportTip, arrowEdge: .top,
+                 enabled: horizontalSizeClass != .regular && isTourTabActive)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
@@ -332,6 +345,7 @@ struct PlayersView: View {
                     } label: {
                         Image(systemName: "gearshape.fill")
                     }
+                    .tourTip(TourInSettingsTip(), arrowEdge: .top, enabled: isTourTabActive)
                 }
                 Button {
                     showingTips = true
@@ -968,6 +982,7 @@ struct TeamFormView: View {
                             }
                         }
                         .disabled(isPreparingShare)
+                        .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
 
                         // Manage Access — only shown when the team is already shared.
                         // Opens UICloudSharingController so the owner can change
@@ -1236,11 +1251,14 @@ struct PlayerFormView: View {
                 }
 
                 // MARK: Position Preferences
-                if purchaseManager.isPro {
-                    positionPreferencesSection
-                } else {
-                    lockedPreferencesSection
+                Group {
+                    if purchaseManager.isPro {
+                        positionPreferencesSection
+                    } else {
+                        lockedPreferencesSection
+                    }
                 }
+                .tourTip(Tour.players.currentTip as? PlayersPreferencesTip, arrowEdge: .top)
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

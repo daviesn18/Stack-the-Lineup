@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 struct DefensiveGridView: View {
     @EnvironmentObject var store: LineupStore
@@ -19,6 +20,16 @@ struct DefensiveGridView: View {
     @State private var showingSummary = false
     @Binding var showingArchive: Bool
     @Binding var selectedTab: Int          // passed in from ContentView to navigate to Players tab
+
+    /// False while the welcome/what's-new cover is up. Passed from the parent
+    /// so a Positions tip can't present over that chrome.
+    var tourEnabled: Bool = true
+
+    /// True when the Positions tab (tag 2) is the one on screen and no cover is
+    /// up. Stands the tour anchors down while a sibling tab is showing, so an
+    /// eligible Positions tip can't present mispositioned over another tab.
+    /// This view is iPhone-only, so there's no iPad embed to account for.
+    private var isTourTabActive: Bool { selectedTab == 2 && tourEnabled }
     @State private var showingTips = false
     @State private var showingPaywall = false
     @State private var showingSaveTemplate = false
@@ -58,8 +69,6 @@ struct DefensiveGridView: View {
 
     // One-time Auto-Fill context tip — shown the first time a Pro user opens
     // the Positions tab with at least one player in the roster.
-    @AppStorage("hasSeenAutoFillTip") private var hasSeenAutoFillTip = false
-    @State private var showingAutoFillTip = false
 
     // Tip overlay driven by parent iPhoneTabView
 
@@ -204,6 +213,8 @@ struct DefensiveGridView: View {
                                 onFinalize: { store.finalizeLineup() },
                                 onReopen: { store.reopenLineup() }
                             )
+                            .tourTip(Tour.positions.currentTip as? PositionsWarningsTip, arrowEdge: .top,
+                                     enabled: isTourTabActive)
 
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text("Inning \(selectedInning + 1) Positions")
@@ -237,6 +248,8 @@ struct DefensiveGridView: View {
                                 }
                                 .padding()
                             }
+                            .tourTip(Tour.positions.currentTip as? PositionsViewModeTip, arrowEdge: .top,
+                                     enabled: isTourTabActive)
 
                             Divider()
 
@@ -394,31 +407,6 @@ struct DefensiveGridView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(autoFillConstraintNoticeMessage)
-            }
-            .onAppear {
-                // Show the Auto-Fill context tip once — only to Pro users who
-                // have at least one player, and haven't seen it before.
-                if purchaseManager.isPro && !hasSeenAutoFillTip && !store.players.isEmpty {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        withAnimation(.easeOut(duration: 0.25)) {
-                            showingAutoFillTip = true
-                            hasSeenAutoFillTip = true
-                        }
-                    }
-                }
-            }
-            // Auto-Fill context tip — floats above content, dismisses itself
-            .overlay(alignment: .top) {
-                if showingAutoFillTip {
-                    AutoFillContextTip(isPresented: $showingAutoFillTip) {
-                        // Navigate to Players tab (tag 0)
-                        selectedTab = 0
-                    }
-                    .padding(.top, 8)
-                    .zIndex(10)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .animation(.easeOut(duration: 0.25), value: showingAutoFillTip)
-                }
             }
         }
     }
@@ -1001,6 +989,12 @@ struct DefensiveGridView: View {
             .onAppear { prepareNLService() }
             .onDisappear { teardownNLService() }
         }
+        // Both tips point at the bolt: arc 1 introduces it, arc 2 introduces
+        // the natural-language instructions inside its popover.
+        .tourTip(Tour.positions.currentTip as? PositionsAutoFillTip, arrowEdge: .top,
+                 enabled: isTourTabActive)
+        .tourTip(Tour.secondGame.currentTip as? AutoFillConstraintsTip, arrowEdge: .top,
+                 enabled: isTourTabActive)
     }
 
     var displayPlayers: [Player] {
@@ -1175,6 +1169,8 @@ struct DefensiveGridView: View {
                     .aspectRatio(1 / 0.82, contentMode: .fit)
                     .padding(.horizontal, 8)
                     .padding(.top, 2)
+                    .tourTip(Tour.positions.currentTip as? PositionsAssignTip, arrowEdge: .top,
+                             enabled: isTourTabActive)
 
                 chipGroupHeader("Bench")
                     .padding(.horizontal, 16)

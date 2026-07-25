@@ -12,6 +12,10 @@ struct LineupBuilderApp: App {
     init() {
         let config = TelemetryDeck.Config(appID: "F6A09F00-2EFC-4DAD-9137-3350F267E78A")
         TelemetryDeck.initialize(config: config)
+
+        // Must run before any tip can be displayed. Also migrates coaches off
+        // the pre-TipKit onboarding flags.
+        TipsConfigurator.configure()
     }
 
     var body: some Scene {
