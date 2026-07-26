@@ -232,7 +232,16 @@ private struct iPadNavBar: View {
                 Image(systemName: "gearshape.fill")
                     .font(.title3)
             }
-            .tourTip(TourInSettingsTip(), arrowEdge: .top)
+            // Re-entry hint for coaches who skipped the welcome. On iPad the gear
+            // is a content button (not a nav-bar ToolbarItem), so it can anchor
+            // here directly. Gated on the Players arc being exhausted
+            // (`currentTip == nil`), same as the iPhone team-card anchor: without
+            // it the tip is eligible the instant `welcomeSkipped` flips and
+            // competes with the arc-1 tips, where its single MaxDisplayCount gets
+            // consumed before it ever presents. The welcome cover itself is held
+            // off by the environment `tourActive` gate in `tourTip`.
+            .tourTip(TourInSettingsTip(), arrowEdge: .top,
+                     enabled: Tour.players.currentTip == nil)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)

@@ -425,13 +425,43 @@ enum Tour {
 //
 //     .tourTip(Tour.players.currentTip as? PlayersAddTip)
 
+// Cross-platform "hold the tour until the welcome / what's-new covers are gone"
+// gate. `ContentView` sets it once at the root for both the iPhone tab bar and
+// the iPad dashboard; it defaults to `true` so previews and any unhosted view
+// behave normally. This is what keeps arc-1 tips from presenting over the
+// welcome cards on iPad, where the dashboard's own anchors don't carry the
+// iPhone's per-tab `enabled:` gate. On iPhone it's redundant with the
+// `tourEnabled` folded into `isTourTabActive`, and harmlessly ANDs with it.
+private struct TourActiveKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var tourActive: Bool {
+        get { self[TourActiveKey.self] }
+        set { self[TourActiveKey.self] = newValue }
+    }
+}
+
 extension View {
     /// - Parameter enabled: pass `false` to stand this anchor down. Used by the
     ///   views the iPad dashboard embeds (PlayersView, LineupView): the sidebar
     ///   is always on screen and carries its own anchor for the same tip, so the
     ///   embedded copy would double-fire whenever that detail tab is selected.
+    ///   ANDed with the environment's `tourActive` welcome gate.
     func tourTip<T: Tip>(_ tip: T?, arrowEdge: Edge = .top, enabled: Bool = true) -> some View {
-        popoverTip(enabled ? tip : nil, arrowEdge: arrowEdge) { action in
+        modifier(TourTipModifier(tip: tip, arrowEdge: arrowEdge, enabled: enabled))
+    }
+}
+
+private struct TourTipModifier<T: Tip>: ViewModifier {
+    let tip: T?
+    let arrowEdge: Edge
+    let enabled: Bool
+    @Environment(\.tourActive) private var tourActive
+
+    func body(content: Content) -> some View {
+        content.popoverTip((enabled && tourActive) ? tip : nil, arrowEdge: arrowEdge) { action in
             Analytics.signal("tour.tip.action", parameters: [
                 "tip": String(describing: T.self),
                 "action": action.id,
@@ -458,14 +488,47 @@ enum TipsConfigurator {
 
     private static let migrationKey = "didMigrateToTipKit"
 
+    /// Set by `restartTour()`, consumed by `configure()` on the next launch.
+    /// See `restartTour()` for why the reset can't happen inline.
+    private static let pendingResetKey = "tourPendingDatastoreReset"
+
     /// Call once at launch, before any tip can be displayed.
     static func configure() {
         migrateLegacyFlagsIfNeeded()
+        applyPendingDatastoreResetIfNeeded()
         try? Tips.configure([
             .displayFrequency(.immediate),
             .datastoreLocation(.applicationDefault),
         ])
         if arcOneSuppressed { suppressArcOne() }
+    }
+
+    /// Applies a "Take the Tour" reset requested during a previous session.
+    ///
+    /// Has to run before `Tips.configure()`. Resetting from a live, already
+    /// configured session does *not* stick: the call itself succeeds (it does
+    /// not throw — that was measured, not assumed), but the running TipKit
+    /// instance still holds every tip's status in memory and persists it again,
+    /// so the cleared store is repopulated and nothing replays. Doing it here,
+    /// before configure, there is no live instance to undo the wipe.
+    ///
+    /// The flag is cleared whether or not the reset succeeds, so a datastore
+    /// that refuses to clear can't wedge the app into resetting on every launch.
+    /// Failures are reported rather than swallowed — the original bug hid under
+    /// a `try?` and left "Take the Tour" doing nothing with no signal anywhere.
+    private static func applyPendingDatastoreResetIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: pendingResetKey) else { return }
+        defaults.set(false, forKey: pendingResetKey)
+
+        do {
+            try Tips.resetDatastore()
+            Analytics.signal("tour.reset.applied")
+        } catch {
+            Analytics.signal("tour.reset.failed", parameters: [
+                "error": String(describing: error),
+            ])
+        }
     }
 
     /// Retires every arc-1 tip. Invalidation is keyed by tip type, so throwaway
@@ -508,15 +571,17 @@ enum TipsConfigurator {
 
     /// Backs the "Take the Tour" row in Settings.
     ///
-    /// TipKit has no per-tip "un-invalidate" — wiping the datastore is the only
-    /// way to make retired tips eligible again, and it only takes effect on the
-    /// next launch (Tips.configure has to run against the cleared store). Callers
-    /// must tell the coach to reopen the app; don't re-call configure here, it's
-    /// a no-op once the app is already configured.
+    /// TipKit has no per-tip "un-invalidate", so wiping the datastore is the
+    /// only way to make retired tips eligible again. Resetting inline from here
+    /// looks like it works but doesn't: TipKit is already configured and live,
+    /// and it writes its in-memory tip statuses back over the cleared store.
+    /// So we only record the intent; `configure()` performs the actual reset on
+    /// the next launch, before TipKit is configured. Callers must still tell the
+    /// coach to reopen the app.
     static func restartTour() {
         UserDefaults.standard.set(false, forKey: "didSkipArcOne")
+        UserDefaults.standard.set(true, forKey: pendingResetKey)
         TourState.welcomeSkipped = false
-        try? Tips.resetDatastore()
         Analytics.signal("tour.restarted")
     }
 }

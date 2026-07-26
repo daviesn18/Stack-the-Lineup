@@ -16,7 +16,6 @@ struct GameLogsView: View {
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.verticalSizeClass) var verticalSizeClass
-    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @StateObject private var insightsService = GameLogInsightsService()
 
     /// True when the History tab (tag 3) is the one on screen. The iPad
@@ -26,6 +25,15 @@ struct GameLogsView: View {
     var isTourTabActive: Bool = true
 
     @State private var selectedTab: HistoryTab = .players
+    // Mirrors the ordered `Tour.history` group's current tip, driven by the
+    // group's `currentTipUpdates` async sequence instead of read synchronously.
+    // The lead tip (`HistorySeasonViewsTip`) gates on `isPro`, a StoreKit-derived
+    // @Parameter that resolves asynchronously; TipKit re-evaluates the group a
+    // beat after it flips, so a synchronous `currentTip` read at render time can
+    // still be nil in the very pass that Pro unlocks — dropping the tip until an
+    // unrelated re-render. Reacting to `currentTipUpdates` makes the anchor pick
+    // up the resolved tip the instant it lands. See tipkit-currenttip-async.
+    @State private var currentHistoryTip: (any Tip)?
     @State private var logToDelete: GameLog? = nil
     @State private var showingDeleteConfirmation = false
     @State private var showingTips = false
@@ -104,13 +112,12 @@ struct GameLogsView: View {
     }
 
     var body: some View {
-        Group {
-            if horizontalSizeClass == .regular {
-                historyContent
-            } else {
-                NavigationStack { historyContent }
-            }
-        }
+        // Always our own stack. The iPad dashboard embeds this pane bare — it
+        // has no navigation container of its own — so dropping the stack on
+        // regular width left the "History" title, the info-button toolbar, and
+        // the NavigationLink into GameLogDetailView all inert on iPad. Matches
+        // PlayersView, which wraps unconditionally in the same detail pane.
+        NavigationStack { historyContent }
         .onAppear {
             if purchaseManager.isPro {
                 insightsService.loadIfNeeded(logs: store.gameLogs)
@@ -196,8 +203,19 @@ struct GameLogsView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(Color(.systemGroupedBackground))
-            .tourTip(Tour.history.currentTip as? HistorySeasonViewsTip, arrowEdge: .top,
+            .tourTip(currentHistoryTip as? HistorySeasonViewsTip, arrowEdge: .top,
                      enabled: isTourTabActive)
+            .task {
+                // Seed with whatever's already resolved, then track every change.
+                // currentTipUpdates only yields non-nil tips, so a later group
+                // advance to a game-detail tip re-casts to nil here (clearing the
+                // picker anchor), and a dismissed lead tip won't re-present
+                // because popoverTip honors the tip's own invalidated status.
+                currentHistoryTip = Tour.history.currentTip
+                for await tip in Tour.history.currentTipUpdates {
+                    currentHistoryTip = tip
+                }
+            }
 
             Divider()
 

@@ -17,6 +17,13 @@ struct GameLogDetailView: View {
     @State private var showingSaveTemplate = false
     @State private var showingTemplatePaywall = false
 
+    /// Mirror of `Tour.history.currentTip`, driven by `currentTipUpdates`.
+    /// Reading `currentTip` straight from the body doesn't work here: TipKit
+    /// advances an ordered group asynchronously, so when the coach dismisses
+    /// HistoryCopyGameTip nothing re-renders this view and ReuseSaveTemplateTip
+    /// never gets a chance to present. Same fix as GameLogsView's lead tip.
+    @State private var currentHistoryTip: (any Tip)?
+
     private var archivedAtString: String {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -266,15 +273,23 @@ struct GameLogDetailView: View {
                             copyToCurrentGame()
                         }
                     }
-                    .tourTip(Tour.history.currentTip as? HistoryCopyGameTip, arrowEdge: .top)
+                    .tourTip(currentHistoryTip as? HistoryCopyGameTip, arrowEdge: .top)
                     Divider().padding(.vertical, 4)
                     reuseRow(title: "Save as template", systemImage: "bookmark") {
                         attemptSaveAsTemplate()
                     }
-                    .tourTip(Tour.history.currentTip as? ReuseSaveTemplateTip, arrowEdge: .top)
+                    .tourTip(currentHistoryTip as? ReuseSaveTemplateTip, arrowEdge: .top)
                 }
             }
             .padding(.horizontal)
+        }
+        .task {
+            // currentTipUpdates only yields non-nil tips, so seed from
+            // currentTip once to pick up whatever is already pending.
+            currentHistoryTip = Tour.history.currentTip
+            for await tip in Tour.history.currentTipUpdates {
+                currentHistoryTip = tip
+            }
         }
     }
 

@@ -69,6 +69,11 @@ struct ContentView: View {
                 )
             }
         }
+        // Cross-platform welcome/what's-new gate for every tour tip. The iPhone
+        // path also folds this into `tourEnabled` above; the iPad dashboard's
+        // anchors have no per-anchor gate of their own, so this is what holds
+        // their arc-1 tips off the welcome cards. See `tourActive` / `tourTip`.
+        .environment(\.tourActive, !showingWelcome && !showingWhatsNew)
         .environmentObject(store)
         .tint(.blue)
         // Reuse confirmations ("Copied to current game" / "Template saved").
