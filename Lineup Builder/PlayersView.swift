@@ -1033,7 +1033,7 @@ struct TeamFormView: View {
                     } header: {
                         Text("Backup & Transfer")
                     } footer: {
-                        Text("Share your team with an assistant coach so you can both manage the lineup in real time. Or export a .stlteam file to back up your team manually.")
+                        Text("Share your team with an assistant coach — they can build positions, you finalize. Or export a .stlteam file to back the team up manually.")
                     }
                 }
 

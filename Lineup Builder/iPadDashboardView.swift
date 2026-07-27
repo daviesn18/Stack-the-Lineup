@@ -479,7 +479,7 @@ private struct FairPlayInlineWarnings: View {
                     Image(systemName: "checkmark.shield.fill")
                         .font(.system(size: 14))
                         .foregroundColor(.green)
-                    Text("Every player has a fair shot. No issues to fix.")
+                    Text("Every player meets your fair play rules.")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                 }

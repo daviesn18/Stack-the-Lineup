@@ -105,8 +105,8 @@ struct PaywallView: View {
         let accent = hero?.color ?? Color.accentColor
         let icon = hero?.icon ?? "star.circle.fill"
         let title = hero?.title ?? "Stack the Lineup Pro"
-        let desc = hero?.description ?? "Unlock the full coaching toolkit for the season."
-        let eyebrow = hero != nil ? "You just tried" : "Coaching toolkit"
+        let desc = hero?.description ?? "Auto-Fill, templates, the Coaches Guide PDF, and a full season of history."
+        let eyebrow = hero != nil ? "You just tried" : "What Pro adds"
         let eyebrowIcon = hero != nil ? "lock.fill" : "star.fill"
 
         VStack(alignment: .leading, spacing: 12) {

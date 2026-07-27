@@ -28,7 +28,7 @@ struct RosterCompletionPromptView: View {
                             VStack(spacing: 6) {
                                 Text("\(importedCount) \(importedCount == 1 ? "Player" : "Players") Imported")
                                     .font(.title2.bold())
-                                Text("Add a few more details to get the most out of the app.")
+                                Text("Names and jersey numbers came through. Two fields are still blank.")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
@@ -42,13 +42,13 @@ struct RosterCompletionPromptView: View {
                                 icon: "calendar.badge.clock",
                                 iconColor: .blue,
                                 title: "League Age",
-                                detail: "Used for age-based fair play rules and roster planning."
+                                detail: "Pitch limits and required rest days are set by age bracket."
                             )
                             featureRow(
                                 icon: "star.circle.fill",
                                 iconColor: .yellow,
                                 title: "Position Preferences",
-                                detail: "Mark each player's strengths so Auto-Fill can suggest the right positions."
+                                detail: "Tag positions Strength, Capable, Emergency, or Never. Auto-Fill works down that list."
                             )
                         }
                         .padding(.horizontal, 24)

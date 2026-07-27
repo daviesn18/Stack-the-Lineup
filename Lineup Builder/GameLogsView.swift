@@ -169,12 +169,12 @@ struct GameLogsView: View {
                     EmptyStateFeatureRow(
                         icon: "square.grid.3x3.fill", color: .teal,
                         title: "Team Position Coverage",
-                        detail: "See at a glance which positions each player has and hasn't covered"
+                        detail: "Which positions each player has and hasn't covered"
                     )
                     EmptyStateFeatureRow(
                         icon: "sparkles", color: .purple,
                         title: "AI Coaching Insights",
-                        detail: "Personalized analysis after 2+ games — bench patterns, balance, gaps"
+                        detail: "Bench time, field balance, and playing time across the season"
                     )
                 }
                 .padding(.horizontal, 32)

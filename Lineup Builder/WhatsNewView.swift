@@ -34,13 +34,13 @@ extension WhatsNewContent {
                     icon: "note.text",
                     iconColor: .teal,
                     title: "Game Notes",
-                    description: "Add notes to any game log -- final score, field conditions, coaching reminders, or anything worth remembering. Notes can be added at archive time or from the game detail view later.\n\nNotes are visible to assistant coaches on shared teams."
+                    description: "Add notes to any game log — final score, field conditions, what to fix next week. Write them when you archive, or open the game later and add them then.\n\nAssistant coaches on shared teams can see them too."
                 ),
                 WhatsNewFeature(
                     icon: "bolt.fill",
                     iconColor: .orange,
-                    title: "Auto-Fill Enhancements",
-                    description: "Auto-Fill now alerts you when a position could not be filled.\n\nA new No Repeat Positions option in Fair Play Rules tells Auto-Fill to give each player a different position every inning when possible."
+                    title: "Auto-Fill Reports Back",
+                    description: "When Auto-Fill can't fill a slot, it now tells you which one and why.\n\nThere's also a No Repeat Positions option in Fair Play Rules — turn it on and Auto-Fill gives each player a different position every inning when it can."
                 )
             ]
         ),

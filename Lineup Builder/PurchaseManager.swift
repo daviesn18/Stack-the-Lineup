@@ -71,6 +71,7 @@ class PurchaseManager: ObservableObject {
     }
 
     func checkEntitlement() async {
+
         // Any active/owned entitlement for the legacy purchase OR the
         // subscription grants Pro. currentEntitlements already excludes expired
         // subscriptions and refunded purchases, so presence here is sufficient.
@@ -129,7 +130,7 @@ class PurchaseManager: ObservableObject {
             subscriptionProduct = products.first
             await refreshIntroEligibility()
         } catch {
-            purchaseError = "Could not load upgrade details. Please try again."
+            purchaseError = "Couldn't load the price. Try again."
         }
     }
 
@@ -150,7 +151,7 @@ class PurchaseManager: ObservableObject {
 
     func purchase() async {
         guard let product = subscriptionProduct else {
-            purchaseError = "Product unavailable. Please try again later."
+            purchaseError = "The upgrade isn't available right now. Try again in a bit."
             return
         }
 
@@ -166,7 +167,7 @@ class PurchaseManager: ObservableObject {
                     isPro = true
                     Analytics.signal("paywall.converted", parameters: ["source": lastPaywallSource])
                 } else {
-                    purchaseError = "Purchase could not be verified. Please contact support."
+                    purchaseError = "Couldn't verify that purchase. Try Restore Purchase, and contact support if it still doesn't unlock."
                 }
             case .userCancelled:
                 break  // user dismissed — no error shown
