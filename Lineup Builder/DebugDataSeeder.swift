@@ -107,6 +107,15 @@ enum DebugDataSeeder {
         store.addTeam(name: "Test Team", color: .orange)
         let testTeamID = store.activeTeamID
 
+        // Assign the Little League pitching rules preset so the test team
+        // has pitch count/rest day limits configured out of the box.
+        if let testTeamID {
+            var pitchingConfig = PitchingConfig()
+            pitchingConfig.applyLittleLeaguePreset()
+            pitchingConfig.rulesEnabled = true
+            store.updatePitchingConfig(pitchingConfig, for: testTeamID)
+        }
+
         // Seed players into the test team
         for player in fakePlayers {
             store.addPlayer(player)
