@@ -125,6 +125,7 @@ class PurchaseManager: ObservableObject {
     // MARK: - Load Product (fetches live price + trial eligibility from StoreKit)
 
     func loadProduct() async {
+        isLoading = true
         do {
             let products = try await Product.products(for: [Self.subscriptionProductID])
             subscriptionProduct = products.first
@@ -132,6 +133,7 @@ class PurchaseManager: ObservableObject {
         } catch {
             purchaseError = "Couldn't load the price. Try again."
         }
+        isLoading = false
     }
 
     /// A coach is eligible for the intro offer only if the subscription defines

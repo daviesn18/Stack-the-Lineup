@@ -22,6 +22,29 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "3.2",
+            features: [
+                WhatsNewFeature(
+                    icon: "doc.on.doc.fill",
+                    iconColor: .blue,
+                    title: "Lineup Templates",
+                    description: "Save a lineup as a Template -- batting order, position locks, and all -- then apply it to a new game in one tap instead of rebuilding from scratch.\n\nOne template is free; multiple templates is a Pro feature."
+                ),
+                WhatsNewFeature(
+                    icon: "text.bubble.fill",
+                    iconColor: .purple,
+                    title: "Natural Language Auto-Fill",
+                    description: "Tell Auto-Fill what you want in plain English -- \"pitch Caleb the first two innings, bench the top of the order first\" -- and it builds the lineup around it.\n\nNatural Language Auto-Fill is a Pro feature."
+                ),
+                WhatsNewFeature(
+                    icon: "square.grid.3x3.fill",
+                    iconColor: .green,
+                    title: "Positions, Reimagined",
+                    description: "The By Inning view is now built around positions instead of batting order -- tap a position to assign a player, and see your whole field at a glance."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "3.1",
             features: [
                 WhatsNewFeature(
@@ -291,14 +314,14 @@ struct WhatsNewView: View {
 
 // MARK: - Previews
 
-#Preview("What's New v3.0") {
-    WhatsNewView(content: WhatsNewContent.all[0])
+#Preview("What's New v3.2") {
+    WhatsNewView(content: WhatsNewContent.all.first(where: { $0.version == "3.2" })!)
 }
 
-#Preview("What's New v2.5") {
-    WhatsNewView(content: WhatsNewContent.all[1])
+#Preview("What's New v3.0") {
+    WhatsNewView(content: WhatsNewContent.all.first(where: { $0.version == "3.0" })!)
 }
 
 #Preview("What's New v2.4") {
-    WhatsNewView(content: WhatsNewContent.all[2])
+    WhatsNewView(content: WhatsNewContent.all.first(where: { $0.version == "2.4" })!)
 }

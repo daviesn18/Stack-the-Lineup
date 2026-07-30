@@ -272,7 +272,10 @@ struct PaywallView: View {
             .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14))
             .foregroundStyle(.white)
         }
-        .disabled(purchaseManager.isLoading)
+        // Disabled until the real product has loaded — tapping before then hit
+        // purchase()'s "product isn't available" guard, surfacing an error the
+        // moment a fast tapper (like an App Review tester) hit Subscribe.
+        .disabled(purchaseManager.isLoading || purchaseManager.subscriptionProduct == nil)
     }
 
     private var legalBlock: some View {
