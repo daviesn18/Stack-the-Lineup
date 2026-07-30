@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**Phase 0 (foundations) is built, building clean, and covered by 133 passing unit tests. Phases 1–4 are not started.**
+**Phase 0 (foundations) is built, verified on iPhone and iPad, and covered by 135 passing unit tests. Phases 1–4 are not started.**
 
 Three blockers stood between this app and any App Intent, and all three are now cleared: intents can read team data (`TeamStorage`), check Pro without the SwiftUI environment (`PurchaseManager.isProNow()`), and navigate to a specific player or game on both iPhone and iPad (`STLRoute` + `AppRouter`).
 
@@ -10,7 +10,12 @@ Two planning assumptions turned out to be wrong, both in our favor:
 - **No Siri entitlement is needed.** `com.apple.developer.siri` is a *SiriKit* entitlement; SiriKit is deprecated and App Intents is the sole path forward. No developer-portal capability, no provisioning change.
 - **"iOS 27" is a marketing label, not a technical gate.** Everything in 3.3 scope builds on the installed iOS 26.5 SDK today.
 
-Nothing is committed yet — all changes are in the working tree on `main`.
+Committed on branch **`feature/app-intents-phase-0`**, branched from `main`. Not pushed — no remote branch, no PR.
+
+```
+a60736d Fix deep links being dropped when they cold-launch the app
+3c6de3f Add App Intents foundations: shared read path, Pro check, deep-link routing
+```
 
 ---
 
@@ -41,7 +46,7 @@ Why they were cut: `InningAssignment` is `[UUID: FieldPosition]` — one positio
 
 ## 2. Phase 0 — DONE
 
-Build clean, **133 unit tests passing, 0 failures**.
+Build clean, **135 unit tests passing, 0 failures**, and verified end to end on both device idioms (section 5).
 
 ### 2a. `Lineup Builder/TeamStorage.swift` (new)
 
@@ -112,15 +117,19 @@ Note: Position Preferences is Pro-gated, so a routed non-Pro coach lands on `loc
 
 ```
 new:  Lineup Builder/TeamStorage.swift
-new:  Lineup Builder/STLRoute.swift
+new:  Lineup Builder/STLRoute.swift                (STLRoute + AppRouter)
 new:  Lineup BuilderTests/TeamStorageTests.swift   (8 tests)
-new:  Lineup BuilderTests/STLRouteTests.swift      (10 tests)
+new:  Lineup BuilderTests/STLRouteTests.swift      (12 tests)
 mod:  Lineup Builder/Models.swift                  (applyStoredData delegates; key constants)
 mod:  Lineup Builder/PurchaseManager.swift         (isProNow)
-mod:  Lineup Builder/ContentView.swift             (router, onOpenURL, applyRoute, routed sheet)
-mod:  Lineup Builder/iPadDashboardView.swift       (DetailTab.init, router observation)
+mod:  Lineup Builder/ContentView.swift             (router, onOpenURL, applyRoute,
+                                                    routed sheet, consumePendingRoute)
+mod:  Lineup Builder/iPadDashboardView.swift       (DetailTab.init, consumePendingRoute)
 mod:  Lineup Builder/PlayersView.swift             (focusPositionPreferences)
+new:  HANDOFF-app-intents.md                       (this file)
 ```
+
+Untouched and deliberately left out of both commits: the two untracked `AppStore-Screenshots*` directories, which predate this work.
 
 ---
 
@@ -203,6 +212,17 @@ xcodebuild -project "Lineup Builder.xcodeproj" -scheme "Lineup Builder" -destina
 Unit tests:
 ```bash
 xcodebuild -project "Lineup Builder.xcodeproj" -scheme "Lineup Builder" -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:"Lineup BuilderTests" test
+```
+
+Suppress the welcome + tour covers so the tab bar is reachable on a fresh install
+(they otherwise sit on top of everything and make deep-link results unreadable):
+```bash
+xcrun simctl spawn booted defaults write com.nickdavies.LineupBuilder.Lineup-Builder hasCompletedTutorial -bool YES
+```
+
+Pull a real player/team UUID out of a booted simulator to build a `://player/<uuid>` link:
+```bash
+python3 -c "import plistlib,json,subprocess;c=subprocess.check_output(['xcrun','simctl','get_app_container','booted','com.nickdavies.LineupBuilder.Lineup-Builder','data']).decode().strip();d=plistlib.load(open(c+'/Library/Preferences/com.nickdavies.LineupBuilder.Lineup-Builder.plist','rb'));[print(t['name'],t['id'],[ (p['firstName'],p['id']) for p in t['players'][:3]]) for t in json.loads(bytes(d['stl_teams']))]"
 ```
 
 Deep link:
