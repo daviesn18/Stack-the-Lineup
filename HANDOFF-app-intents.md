@@ -88,6 +88,18 @@ Before this, `ContentView.onOpenURL` mapped **every** `stackthelineup://` URL to
 
 The original plan called for adding `com.apple.developer.siri`. That was wrong: it's a SiriKit entitlement. Pure App Intents need no entitlement and no `INIntentsSupported`. `NSUserActivityTypes` is only needed if we later adopt `NSUserActivity` donation, which this scope doesn't.
 
+### 2d-bis. THE COLD-START BUG (found during verification — read this before Phase 1)
+
+The first cut of the router wired both consumers with `.onChange(of: router.request)` only. That works when the app is **already running** and silently drops the route when the deep link **cold-launches** the app.
+
+`onOpenURL` fires during scene connection, which sets `router.request` *before* `iPadDashboardView` is constructed. `.onChange` only fires for changes observed after a view is installed, so a route that is already pending when the view appears is never seen.
+
+**This is the common case for Siri and Spotlight** — they nearly always launch the app cold. Left unfixed, every Phase 1 entity tap would have looked broken while every manual test on a warm app passed.
+
+Fix: `consumePendingRoute()` in both `ContentView` and `iPadDashboardView`, called from **both** `.onAppear` and `.onChange`, guarded by a `lastHandledRouteNonce` so a re-appearance can't re-apply the last route and yank the coach off a tab they just picked by hand.
+
+Verified on device idioms after the fix — see section 5.
+
 ### 2e. Player route destination
 
 `.player(uuid)` opens `PlayerFormView` scrolled to **Position Preferences** (Nick's call, 2026-07-30). Position Preferences is a *section inside* `PlayerFormView`, not a standalone screen, so this is a new `focusPositionPreferences: Bool = false` parameter plus a `ScrollViewReader` anchor.
@@ -160,13 +172,26 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 ---
 
-## 5. Next session
+## 5. Verification performed
 
-1. **Commit Phase 0** — still uncommitted on `main`. Branch first.
-2. **Finish the deep-link simulator check.** Unit tests cover URL parsing, round-tripping, and tab mapping, but the end-to-end confirmation (does `stackthelineup://history` actually select the History tab in the running app?) **did not complete** — the simulator's input pipe became unresponsive mid-check and the "Open in Stack the Lineup?" confirmation couldn't be dismissed. Redo on a fresh simulator, on **both** iPhone and iPad — iPad is where this historically breaks.
-3. **Verify the Position Preferences scroll** with a real roster. The 0.35s deferral is tuned by eye, not measured.
-4. **Start Phase 1.** `TeamStorage.loadTeamsForReading()` is the entry point for `PlayerEntityQuery`.
-5. **Confirm Spotlight surfacing is free** with registered entities — this is the ticket's open question and determines whether `1216544711240780` is a byproduct or its own build.
+**Unit:** full suite green on every change.
+
+**End-to-end, iPhone 17 Pro (erased simulator, fresh install):**
+- Started on Players → `stackthelineup://history` → History tab selected. ✅
+- → `stackthelineup://lineup` (the shipped widget's link) → Lineup tab selected. ✅ No regression.
+
+**End-to-end, iPad Pro 13-inch (M5), seeded Test Team, 10 players:**
+- Warm app → `stackthelineup://history` → History pane selected. ✅
+- **Cold launch** (app terminated first) → `stackthelineup://history` → launched straight into History. ✅ *This is the case that exposed the bug in 2d-bis; it failed before the fix and passes after.*
+- `stackthelineup://player/<uuid>` → switched to Players, opened Edit Player scrolled to **Position Preferences**, values matching that player's roster row. ✅ Confirms both the route and the 0.35s scroll deferral on a real roster.
+
+**Simulator gotcha that cost time:** `mcp__Claude_Code_iOS_Simulator__control` takes coordinates in **device points** (the `attach` call reports the space, e.g. 402×874 for iPhone 17 Pro, 1032×1376 for iPad Pro 13"), *not* screenshot pixels. Passing screenshot coordinates makes every tap silently miss — they get clamped and land in a corner, which looks exactly like an unresponsive simulator. Convert: `point = pixel / screenshot_dimension × point_dimension`.
+
+## 6. Next session
+
+1. **Start Phase 1.** `TeamStorage.loadTeamsForReading()` is the entry point for `PlayerEntityQuery`.
+2. **Confirm Spotlight surfacing is free** with registered entities — the ticket's open question, and it determines whether `1216544711240780` is a byproduct or its own build.
+3. When wiring `OpenPlayerIntent`, **test it cold** — terminate the app first. See 2d-bis; a warm-only test will not catch the failure mode that matters.
 
 ### Verification commands
 

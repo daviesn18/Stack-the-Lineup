@@ -90,6 +90,35 @@ final class STLRouteTests: XCTestCase {
         XCTAssertEqual(STLRoute.gameLog(UUID()).tab, .history)
     }
 
+    // MARK: - AppRouter request identity
+    //
+    // The nonce does double duty: it makes .onChange fire for a repeated route,
+    // and it lets each consumer apply a pending route exactly once via
+    // consumePendingRoute(). Both behaviours break if requests compare equal.
+
+    @MainActor
+    func testRepeatingTheSameRouteProducesADistinctRequest() {
+        let router = AppRouter()
+        router.route(to: .lineup)
+        let first = router.request
+        router.route(to: .lineup)
+        let second = router.request
+
+        XCTAssertEqual(first?.route, second?.route)
+        XCTAssertNotEqual(first, second,
+            "Asking Siri for the same screen twice must navigate twice — equal requests would not fire .onChange")
+        XCTAssertNotEqual(first?.nonce, second?.nonce)
+    }
+
+    @MainActor
+    func testHandleRejectsForeignURLsWithoutSettingARequest() {
+        let router = AppRouter()
+        let handled = router.handle(URL(string: "file:///roster.stlroster")!)
+
+        XCTAssertFalse(handled, "ContentView relies on false to fall through to file import")
+        XCTAssertNil(router.request)
+    }
+
     func testTabTagsMatchTheShippedTabViewOrder() {
         // These tags are the .tag() values in iPhoneTabView. Reordering the tabs
         // without updating this mapping would send every deep link to the wrong

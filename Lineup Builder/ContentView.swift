@@ -38,6 +38,9 @@ struct ContentView: View {
     /// separate from playerToEditFromShareSheet so the two flows can't collide.
     @State private var routedPlayer: Player?
 
+    /// Nonce of the last route applied here, so a pending route is consumed once.
+    @State private var lastHandledRouteNonce: UUID?
+
     private struct RosterImportError: Identifiable {
         let id = UUID()
         let message: String
@@ -215,9 +218,12 @@ struct ContentView: View {
                 handleIncomingRosterURL(url)
             }
         }
-        .onChange(of: router.request) { _, request in
-            guard let request else { return }
-            applyRoute(request.route)
+        // Both onAppear and onChange — a deep link that cold-launches the app can
+        // set the route before this view is installed, and onChange alone would
+        // never see it. See consumePendingRoute() in iPadDashboardView.
+        .onAppear { consumePendingRoute() }
+        .onChange(of: router.request) { _, _ in
+            consumePendingRoute()
         }
         .sheet(item: $routedPlayer) { player in
             // Spotlight/Siri asked for this player specifically — open on their
@@ -382,6 +388,15 @@ struct ContentView: View {
     }
 
     // MARK: - Deep Link / Intent Routing
+
+    /// Applies any pending route exactly once. The nonce guard stops a
+    /// re-appearance from re-applying the last route.
+    private func consumePendingRoute() {
+        guard let request = router.request,
+              request.nonce != lastHandledRouteNonce else { return }
+        lastHandledRouteNonce = request.nonce
+        applyRoute(request.route)
+    }
 
     /// Applies a route to the state ContentView owns: which team is active, the
     /// iPhone tab selection, and any sheet the route targets.

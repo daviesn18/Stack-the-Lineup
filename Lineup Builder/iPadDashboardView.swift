@@ -29,6 +29,8 @@ struct iPadDashboardView: View {
     @Binding var showingArchive: Bool
 
     @State private var selectedTab: DetailTab = .players
+    /// Nonce of the last route applied here, so a pending route is consumed once.
+    @State private var lastHandledRouteNonce: UUID?
     @State private var showingArchiveSheet = false
     @State private var showingAutoFillPopover = false
     @AppStorage("ipadBattingOrderExpanded") private var battingOrderExpanded: Bool = true
@@ -111,15 +113,31 @@ struct iPadDashboardView: View {
             Analytics.signal("ipad.dashboard.opened", parameters: [
                 "playerCount": "\(store.players.count)"
             ])
+            consumePendingRoute()
         }
-        // Deep links, Spotlight results and App Intents were previously dropped
-        // on iPad entirely — ContentView only ever set the iPhone tab index.
-        // ContentView still owns team switching and any sheet the route targets;
-        // this maps the route onto the detail pane's own selection.
-        .onChange(of: router.request) { _, request in
-            guard let request else { return }
-            selectedTab = DetailTab(request.route.tab)
+        .onChange(of: router.request) { _, _ in
+            consumePendingRoute()
         }
+    }
+
+    // Deep links, Spotlight results and App Intents were previously dropped on
+    // iPad entirely — ContentView only ever set the iPhone tab index. ContentView
+    // still owns team switching and any sheet the route targets; this maps the
+    // route onto the detail pane's own selection.
+    //
+    // Called from BOTH onAppear and onChange. A deep link that cold-launches the
+    // app fires onOpenURL during scene connection, before this pane exists — so
+    // onChange alone never sees the change and the route is silently dropped.
+    // That is the common case for Siri and Spotlight, which launch the app cold.
+    //
+    // The nonce guard keeps it idempotent: without it, every re-appearance would
+    // re-apply the last route and yank the coach back off whatever tab they just
+    // chose by hand.
+    private func consumePendingRoute() {
+        guard let request = router.request,
+              request.nonce != lastHandledRouteNonce else { return }
+        lastHandledRouteNonce = request.nonce
+        selectedTab = DetailTab(request.route.tab)
     }
 }
 
