@@ -1,0 +1,117 @@
+import Foundation
+
+// MARK: - TeamStorage
+//
+// Single source of truth for READING the persisted `[Team]` blob.
+//
+// Both LineupStore.applyStoredData() and the App Intents layer read through here.
+// An intent that decoded storage on its own path would silently drift from the
+// app the first time the local-vs-iCloud arbitration rules changed, so there is
+// deliberately only one implementation of that logic.
+//
+// Read-only by design. Writes stay in LineupStore.saveLocalOnly(), which owns the
+// CloudKit push, the KV-store safety threshold, and the widget snapshot bridge.
+//
+// `nonisolated` because App Intents `perform()` runs off the main actor and must
+// be able to call this. Nothing here touches UI state.
+
+nonisolated enum TeamStorage {
+
+    // MARK: - Storage Keys
+    // LineupStore.saveLocalOnly() writes these same keys.
+
+    static let teamsKey      = "stl_teams"
+    static let savedAtKey    = "stl_teams_saved_at"
+    static let activeTeamKey = "stl_active_team_id"
+
+    // MARK: - Load Result
+
+    /// The three outcomes callers must handle differently.
+    ///
+    /// `empty` and `decodeFailed` are deliberately NOT collapsed into "no teams".
+    /// Treating a decode failure as an empty store is exactly what would let a
+    /// schema mismatch cascade into migrateOrCreateDefaultTeam() and overwrite
+    /// iCloud with a blank team — see the SAFETY RULE on applyStoredData().
+    enum LoadResult {
+        /// Storage held a blob and it decoded cleanly.
+        case loaded(teams: [Team], activeID: UUID?)
+        /// Genuine first launch — no blob in either store.
+        case empty(activeID: UUID?)
+        /// A blob exists but will not decode. Callers must leave existing state alone.
+        case decodeFailed
+    }
+
+    // MARK: - Source Arbitration
+
+    /// Whether the iCloud KV copy should win over the local one.
+    /// Cloud wins only when it exists and is strictly newer; ties go local.
+    static func shouldPreferCloudBlob(cloudData: Data?, cloudSavedAt: TimeInterval,
+                                      localData: Data?, localSavedAt: TimeInterval) -> Bool {
+        guard cloudData != nil else { return false }
+        guard localData != nil else { return true }
+        return cloudSavedAt > localSavedAt
+    }
+
+    // MARK: - Load
+
+    /// Reads the teams blob from UserDefaults and the iCloud KV store and returns
+    /// whichever copy has the newer save-timestamp, decoded. Safe to call repeatedly.
+    ///
+    /// DEBUG builds read local data only: the KV store is shared across every
+    /// install of the bundle ID on the same Apple ID with no dev/prod split, so a
+    /// debug read/write pair can clobber real devices. This caused the July 2026
+    /// data wipe.
+    static func load() -> LoadResult {
+        let defaults  = UserDefaults.standard
+        let localData = defaults.data(forKey: teamsKey)
+
+        #if DEBUG
+        let teamsData = localData
+        let savedID   = defaults.string(forKey: activeTeamKey)
+        #else
+        let icloud = NSUbiquitousKeyValueStore.default
+        let preferCloud = shouldPreferCloudBlob(
+            cloudData:    icloud.data(forKey: teamsKey),
+            cloudSavedAt: icloud.double(forKey: savedAtKey),
+            localData:    localData,
+            localSavedAt: defaults.double(forKey: savedAtKey)
+        )
+        let teamsData = preferCloud ? icloud.data(forKey: teamsKey) : localData
+        let savedID = preferCloud
+            ? (icloud.string(forKey: activeTeamKey) ?? defaults.string(forKey: activeTeamKey))
+            : (defaults.string(forKey: activeTeamKey) ?? icloud.string(forKey: activeTeamKey))
+        #endif
+
+        let activeID = savedID.flatMap { UUID(uuidString: $0) }
+
+        guard let data = teamsData else { return .empty(activeID: activeID) }
+
+        guard let decoded = try? JSONDecoder().decode([Team].self, from: data) else {
+            return .decodeFailed
+        }
+
+        // Sort each team's game logs by gameDate descending — corrects any logs
+        // stored out of order due to the archive-order bug.
+        let normalized = decoded.map { team -> Team in
+            var t = team
+            t.gameLogs = t.gameLogs.sorted { $0.gameDate > $1.gameDate }
+            return t
+        }
+
+        return .loaded(teams: normalized, activeID: activeID)
+    }
+
+    // MARK: - Intent Convenience
+
+    /// Flat read for callers that only need the data, with no interest in the
+    /// first-launch/decode-failure distinction — i.e. every App Intent, which
+    /// should report "no teams yet" identically in both cases rather than
+    /// attempting recovery. Never mutates storage.
+    static func loadTeamsForReading() -> (teams: [Team], activeTeam: Team?) {
+        guard case .loaded(let teams, let activeID) = load() else {
+            return ([], nil)
+        }
+        let active = teams.first { $0.id == activeID } ?? teams.first
+        return (teams, active)
+    }
+}

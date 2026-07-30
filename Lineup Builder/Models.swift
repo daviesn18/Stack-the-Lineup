@@ -1179,9 +1179,8 @@ class LineupStore: ObservableObject {
     var pitchingConfig: PitchingConfig   { activeTeam.pitchingConfig }
 
     // MARK: - Constants
-    private let teamsKey      = "stl_teams"
-    private let savedAtKey    = "stl_teams_saved_at"
-    private let activeTeamKey = "stl_active_team_id"
+    // Storage keys live on TeamStorage — the write path below and the read path
+    // in TeamStorage.load() must never drift apart.
     private let maxGameLogs   = 20
 
     // MARK: - Init
@@ -1234,10 +1233,10 @@ class LineupStore: ObservableObject {
 
             // Write to UserDefaults on main thread
             await MainActor.run {
-                UserDefaults.standard.set(data, forKey: "stl_teams")
-                UserDefaults.standard.set(savedAt, forKey: "stl_teams_saved_at")
+                UserDefaults.standard.set(data, forKey: TeamStorage.teamsKey)
+                UserDefaults.standard.set(savedAt, forKey: TeamStorage.savedAtKey)
                 if let id = activeID {
-                    UserDefaults.standard.set(id, forKey: "stl_active_team_id")
+                    UserDefaults.standard.set(id, forKey: TeamStorage.activeTeamKey)
                 }
             }
 
@@ -1252,9 +1251,9 @@ class LineupStore: ObservableObject {
             #if !DEBUG
             let icloud = NSUbiquitousKeyValueStore.default
             if data.count < 800_000 {
-                icloud.set(data, forKey: "stl_teams")
-                icloud.set(savedAt, forKey: "stl_teams_saved_at")
-                if let id = activeID { icloud.set(id, forKey: "stl_active_team_id") }
+                icloud.set(data, forKey: TeamStorage.teamsKey)
+                icloud.set(savedAt, forKey: TeamStorage.savedAtKey)
+                if let id = activeID { icloud.set(id, forKey: TeamStorage.activeTeamKey) }
                 icloud.synchronize()
             } else {
                 // The saved-at stamp is deliberately not written either: the KV
@@ -1331,79 +1330,67 @@ class LineupStore: ObservableObject {
     /// instead of the local UserDefaults copy. The newer save-timestamp wins;
     /// a missing timestamp sorts oldest (legacy blobs), and ties prefer local
     /// so a device's own data is never shadowed by stale shared sync state.
-    static func shouldPreferCloudBlob(cloudData: Data?, cloudSavedAt: TimeInterval,
-                                      localData: Data?, localSavedAt: TimeInterval) -> Bool {
-        guard cloudData != nil else { return false }
-        guard localData != nil else { return true }
-        return cloudSavedAt > localSavedAt
+    /// Whether the iCloud KV copy should win over the local one.
+    /// Thin forwarder — the implementation lives in TeamStorage so the App Intents
+    /// layer arbitrates identically. Kept here as the name the tests already use.
+    nonisolated static func shouldPreferCloudBlob(cloudData: Data?, cloudSavedAt: TimeInterval,
+                                                  localData: Data?, localSavedAt: TimeInterval) -> Bool {
+        TeamStorage.shouldPreferCloudBlob(cloudData: cloudData, cloudSavedAt: cloudSavedAt,
+                                          localData: localData, localSavedAt: localSavedAt)
     }
 
-    /// Reads the teams blob from UserDefaults and the iCloud KV store, applies
-    /// whichever copy has the newer save-timestamp, and decodes it into the
-    /// store. Safe to call multiple times. DEBUG builds read local data only —
-    /// the KV store is shared with production devices on the same Apple ID.
+    /// Applies whichever stored copy TeamStorage selected into this store.
+    /// Safe to call multiple times.
+    ///
+    /// Reading and decoding now live in TeamStorage.load() so that App Intents,
+    /// which cannot reach this @StateObject, resolve teams through the exact same
+    /// path. What stays here is everything that needs live store state: clobber
+    /// detection against the currently loaded teams, first-launch migration, and
+    /// the stale-game-date reset.
     ///
     /// SAFETY RULE: if storage contains data but it fails to decode, we return
     /// early without touching `teams`. This prevents a decode failure from
     /// cascading into migrateOrCreateDefaultTeam() which would overwrite iCloud
     /// with an empty team.
     private func applyStoredData() {
-        let decoder = JSONDecoder()
+        let decodedTeams: [Team]?
+        let savedActiveID: UUID?
 
-        let localData = UserDefaults.standard.data(forKey: teamsKey)
-
-        #if DEBUG
-        let teamsData = localData
-        let savedID = UserDefaults.standard.string(forKey: activeTeamKey)
-        #else
-        let icloud = NSUbiquitousKeyValueStore.default
-        let preferCloud = Self.shouldPreferCloudBlob(
-            cloudData: icloud.data(forKey: teamsKey),
-            cloudSavedAt: icloud.double(forKey: savedAtKey),
-            localData: localData,
-            localSavedAt: UserDefaults.standard.double(forKey: savedAtKey)
-        )
-        let teamsData = preferCloud ? icloud.data(forKey: teamsKey) : localData
-        let savedID = preferCloud
-            ? (icloud.string(forKey: activeTeamKey) ?? UserDefaults.standard.string(forKey: activeTeamKey))
-            : (UserDefaults.standard.string(forKey: activeTeamKey) ?? icloud.string(forKey: activeTeamKey))
-        #endif
-
-        if let data = teamsData {
-            if let decoded = try? decoder.decode([Team].self, from: data) {
-                // Cheap clobber detection: an incoming blob carrying notably less
-                // data than what's already loaded is the signature of a sync wipe
-                // (July 2026 incident). Signal it so future variants are visible.
-                if !teams.isEmpty {
-                    let oldLogs = teams.reduce(0) { $0 + $1.gameLogs.count }
-                    let newLogs = decoded.reduce(0) { $0 + $1.gameLogs.count }
-                    if decoded.count < teams.count || newLogs < oldLogs {
-                        Analytics.signal("sync.blob_shrank", parameters: [
-                            "oldTeams": "\(teams.count)", "newTeams": "\(decoded.count)",
-                            "oldLogs": "\(oldLogs)", "newLogs": "\(newLogs)"
-                        ])
-                    }
-                }
-                // Happy path — data exists and decoded cleanly.
-                // Sort each team's game logs by gameDate descending — corrects any
-                // logs stored out of order due to the archive-order bug.
-                teams = decoded.map { team in
-                    var t = team
-                    t.gameLogs = t.gameLogs.sorted { $0.gameDate > $1.gameDate }
-                    return t
-                }
-            } else {
-                // Data exists but failed to decode (e.g. schema mismatch).
-                // DO NOT fall through to migration — that would overwrite iCloud
-                // with an empty team. Leave teams as-is and wait for a future
-                // successful sync or manual recovery.
-                print("⚠️ stl_teams data exists but failed to decode. Aborting load to protect existing data.")
-                return
-            }
+        switch TeamStorage.load() {
+        case .decodeFailed:
+            // Data exists but failed to decode (e.g. schema mismatch).
+            // DO NOT fall through to migration — that would overwrite iCloud
+            // with an empty team. Leave teams as-is and wait for a future
+            // successful sync or manual recovery.
+            print("⚠️ stl_teams data exists but failed to decode. Aborting load to protect existing data.")
+            return
+        case .loaded(let loaded, let activeID):
+            decodedTeams  = loaded
+            savedActiveID = activeID
+        case .empty(let activeID):
+            // Genuine first launch — fall through to migration.
+            decodedTeams  = nil
+            savedActiveID = activeID
         }
-        // If teamsData is nil, fall through to migration — this is a genuine first launch.
 
-        if let idString = savedID, let uuid = UUID(uuidString: idString) {
+        if let decoded = decodedTeams {
+            // Cheap clobber detection: an incoming blob carrying notably less
+            // data than what's already loaded is the signature of a sync wipe
+            // (July 2026 incident). Signal it so future variants are visible.
+            if !teams.isEmpty {
+                let oldLogs = teams.reduce(0) { $0 + $1.gameLogs.count }
+                let newLogs = decoded.reduce(0) { $0 + $1.gameLogs.count }
+                if decoded.count < teams.count || newLogs < oldLogs {
+                    Analytics.signal("sync.blob_shrank", parameters: [
+                        "oldTeams": "\(teams.count)", "newTeams": "\(decoded.count)",
+                        "oldLogs": "\(oldLogs)", "newLogs": "\(newLogs)"
+                    ])
+                }
+            }
+            teams = decoded
+        }
+
+        if let uuid = savedActiveID {
             activeTeamID = uuid
         }
 

@@ -4,6 +4,8 @@ import WidgetKit
 
 struct ContentView: View {
     @StateObject var store = LineupStore()
+    /// Owned here and injected so both idioms' navigation can observe it.
+    @StateObject private var router = AppRouter()
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.scenePhase) var scenePhase
@@ -31,6 +33,10 @@ struct ContentView: View {
     @State private var teamIDsBeforeNewTeamSheet: Set<UUID> = []
     @State private var shareSheetCompletionPrompt: ShareSheetCompletionPrompt?
     @State private var playerToEditFromShareSheet: Player?
+
+    /// Player targeted by a deep link / Spotlight result / App Intent. Kept
+    /// separate from playerToEditFromShareSheet so the two flows can't collide.
+    @State private var routedPlayer: Player?
 
     private struct RosterImportError: Identifiable {
         let id = UUID()
@@ -75,6 +81,7 @@ struct ContentView: View {
         // their arc-1 tips off the welcome cards. See `tourActive` / `tourTip`.
         .environment(\.tourActive, !showingWelcome && !showingWhatsNew)
         .environmentObject(store)
+        .environmentObject(router)
         .tint(.blue)
         // Reuse confirmations ("Copied to current game" / "Template saved").
         // Owned here because copying switches tabs out from under the screen
@@ -198,14 +205,25 @@ struct ContentView: View {
             )
         }
         .onOpenURL { url in
-            if url.scheme == "stackthelineup" {
-                // Deep link from the home screen widget — jump straight to Lineup tab.
-                selectedTab = 1
+            // App/widget/Spotlight/Siri deep links route; everything else is a
+            // shared file that still goes down the import paths.
+            if router.handle(url) {
+                return
             } else if url.pathExtension.lowercased() == "stlteam" {
                 handleIncomingTeamURL(url)
             } else {
                 handleIncomingRosterURL(url)
             }
+        }
+        .onChange(of: router.request) { _, request in
+            guard let request else { return }
+            applyRoute(request.route)
+        }
+        .sheet(item: $routedPlayer) { player in
+            // Spotlight/Siri asked for this player specifically — open on their
+            // Position Preferences rather than the top of the form.
+            PlayerFormView(mode: .edit(player), focusPositionPreferences: true)
+                .environmentObject(store)
         }
         .onChange(of: store.pendingRosterImport.isActive) { _, isActive in
             if isActive { selectedTab = 0 }
@@ -361,6 +379,46 @@ struct ContentView: View {
 
     private func cancelPendingImport() {
         store.pendingRosterImport = .none
+    }
+
+    // MARK: - Deep Link / Intent Routing
+
+    /// Applies a route to the state ContentView owns: which team is active, the
+    /// iPhone tab selection, and any sheet the route targets.
+    ///
+    /// The iPad's tab selection is NOT set here — iPadDashboardView owns its own
+    /// `DetailTab` and observes the router directly. Both consumers run for every
+    /// request; only the one currently on screen has any effect.
+    private func applyRoute(_ route: STLRoute) {
+        // Bring the owning team forward first. A Spotlight hit for a player on a
+        // different roster is otherwise a no-op: the tab changes and the player
+        // isn't there.
+        switch route {
+        case .player(let playerID):
+            if let owning = store.teams.first(where: { team in
+                team.players.contains { $0.id == playerID }
+            }), owning.id != store.activeTeamID {
+                store.switchTeam(to: owning.id)
+            }
+        case .gameLog(let logID):
+            if let owning = store.teams.first(where: { team in
+                team.gameLogs.contains { $0.id == logID }
+            }), owning.id != store.activeTeamID {
+                store.switchTeam(to: owning.id)
+            }
+        case .team(let teamID):
+            if store.teams.contains(where: { $0.id == teamID }), teamID != store.activeTeamID {
+                store.switchTeam(to: teamID)
+            }
+        case .players, .lineup, .positions, .history:
+            break
+        }
+
+        selectedTab = route.tab.iPhoneTag
+
+        if case .player(let playerID) = route {
+            routedPlayer = store.players.first { $0.id == playerID }
+        }
     }
 
     // MARK: - Share-Sheet Team File Import

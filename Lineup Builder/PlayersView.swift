@@ -1224,6 +1224,15 @@ struct PlayerFormView: View {
 
     let mode: PlayerFormMode
 
+    /// Scrolls straight to Position Preferences on appear instead of opening at
+    /// the top of the form. Set by the deep-link / Spotlight / App Intent route,
+    /// where the coach asked for a specific player's preferences — landing them
+    /// on the name fields would make them scroll for what they asked for.
+    var focusPositionPreferences: Bool = false
+
+    /// Scroll anchor for the preferences section.
+    private static let preferencesAnchor = "positionPreferences"
+
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var number = ""
@@ -1242,6 +1251,7 @@ struct PlayerFormView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             Form {
                 // MARK: Player Info
                 Section("Player Info") {
@@ -1264,10 +1274,23 @@ struct PlayerFormView: View {
                     if purchaseManager.isPro {
                         positionPreferencesSection
                     } else {
+                        // A routed non-Pro coach lands on the locked section.
+                        // That's the intended outcome: Spotlight is a free
+                        // discovery surface and this is the natural upsell.
                         lockedPreferencesSection
                     }
                 }
+                .id(Self.preferencesAnchor)
                 .tourTip(Tour.players.currentTip as? PlayersPreferencesTip, arrowEdge: .top)
+            }
+            .onAppear {
+                guard focusPositionPreferences else { return }
+                // Deferred a beat: scrolling during the sheet's presentation
+                // transition is dropped, so the form would open at the top.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    withAnimation { proxy.scrollTo(Self.preferencesAnchor, anchor: .top) }
+                }
+            }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

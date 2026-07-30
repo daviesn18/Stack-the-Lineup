@@ -8,6 +8,16 @@ enum DetailTab: String, CaseIterable {
     case lineup    = "Lineup"
     case positions = "Positions"
     case history   = "History"
+
+    /// Maps an idiom-independent route target onto this pane's selection.
+    init(_ tab: STLRoute.Tab) {
+        switch tab {
+        case .players:   self = .players
+        case .lineup:    self = .lineup
+        case .positions: self = .positions
+        case .history:   self = .history
+        }
+    }
 }
 
 // MARK: - iPad Dashboard View
@@ -15,6 +25,7 @@ enum DetailTab: String, CaseIterable {
 struct iPadDashboardView: View {
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var purchaseManager: PurchaseManager
+    @EnvironmentObject var router: AppRouter
     @Binding var showingArchive: Bool
 
     @State private var selectedTab: DetailTab = .players
@@ -100,6 +111,14 @@ struct iPadDashboardView: View {
             Analytics.signal("ipad.dashboard.opened", parameters: [
                 "playerCount": "\(store.players.count)"
             ])
+        }
+        // Deep links, Spotlight results and App Intents were previously dropped
+        // on iPad entirely — ContentView only ever set the iPhone tab index.
+        // ContentView still owns team switching and any sheet the route targets;
+        // this maps the route onto the detail pane's own selection.
+        .onChange(of: router.request) { _, request in
+            guard let request else { return }
+            selectedTab = DetailTab(request.route.tab)
         }
     }
 }

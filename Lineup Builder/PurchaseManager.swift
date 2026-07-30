@@ -66,24 +66,33 @@ class PurchaseManager: ObservableObject {
     /// here permanently — that inclusion is the grandfathering guarantee for
     /// $4.99 buyers, and removing it would silently revoke their access.
     /// Covered by PurchaseManagerEntitlementTests.
-    static func productGrantsPro(_ productID: String) -> Bool {
+    nonisolated static func productGrantsPro(_ productID: String) -> Bool {
         productID == legacyProProductID || productID == subscriptionProductID
     }
 
-    func checkEntitlement() async {
-
+    /// Re-derives Pro straight from StoreKit, with no PurchaseManager instance.
+    ///
+    /// App Intents run outside the SwiftUI environment and cannot reach the
+    /// `@EnvironmentObject` PurchaseManager, so they gate on this instead.
+    /// `nonisolated` so a background-launched intent doesn't have to hop to the
+    /// main actor just to read an entitlement.
+    ///
+    /// `checkEntitlement()` delegates here so the grandfathering rule has exactly
+    /// one implementation — two copies would eventually disagree, and the copy
+    /// that drifted would silently revoke Pro from a $4.99 buyer.
+    nonisolated static func isProNow() async -> Bool {
         // Any active/owned entitlement for the legacy purchase OR the
         // subscription grants Pro. currentEntitlements already excludes expired
         // subscriptions and refunded purchases, so presence here is sufficient.
         for await result in Transaction.currentEntitlements {
             guard case .verified(let tx) = result else { continue }
-            if Self.productGrantsPro(tx.productID) {
-                isPro = true
-                return
-            }
+            if productGrantsPro(tx.productID) { return true }
         }
+        return false
+    }
 
-        isPro = false
+    func checkEntitlement() async {
+        isPro = await Self.isProNow()
     }
 
     // MARK: - Display Copy
