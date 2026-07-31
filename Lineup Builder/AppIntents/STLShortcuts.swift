@@ -46,5 +46,21 @@ nonisolated struct STLShortcuts: AppShortcutsProvider {
             shortTitle: "Open Team",
             systemImageName: "person.3.fill"
         )
+
+        // Deliberately parameter-free phrases. `throughInning` and
+        // `instructions` are both optional, so Siri can run this from a bare
+        // sentence and the coach adjusts the rest on screen — and a spoken
+        // number in a phrase slot resolves far less reliably than an entity
+        // does, which is a bad trade for a Pro action that rewrites the game.
+        AppShortcut(
+            intent: FillLineupIntent(),
+            phrases: [
+                "Fill my lineup in \(.applicationName)",
+                "Auto-fill positions in \(.applicationName)",
+                "Fill the positions in \(.applicationName)",
+            ],
+            shortTitle: "Fill Lineup",
+            systemImageName: "bolt.fill"
+        )
     }
 }

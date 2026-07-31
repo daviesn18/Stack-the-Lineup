@@ -199,6 +199,78 @@ final class AppRouter: ObservableObject {
         request = Request(route)
     }
 
+    // MARK: - Staged Auto-Fill
+    //
+    // FillLineupIntent computes a fill against the on-disk team (via
+    // TeamStorage) but must not write it back itself: when the app is already
+    // running, LineupStore holds the authoritative in-memory copy and a write
+    // behind its back is stomped by the next store.save(). So the intent stages
+    // the finished lineup here and ContentView — which owns the store — applies
+    // it. Same handoff shape as a route, for the same cold-launch reason.
+
+    /// A finished Auto-Fill waiting for the store to apply it.
+    ///
+    /// Equatable on the nonce alone: every staged fill is a distinct event, and
+    /// comparing outcomes would force Equatable onto Lineup for no benefit.
+    struct PendingFill: Equatable {
+        static func == (lhs: PendingFill, rhs: PendingFill) -> Bool {
+            lhs.nonce == rhs.nonce
+        }
+
+        /// The team the fill was computed against. Applied by id rather than to
+        /// whatever happens to be active, so "fill the Tigers lineup" can't land
+        /// on the wrong roster.
+        let teamID: UUID
+        let outcome: AutoFillOutcome
+        let nonce: UUID
+        let createdAt: Date
+
+        init(teamID: UUID, outcome: AutoFillOutcome, createdAt: Date = Date()) {
+            self.teamID = teamID
+            self.outcome = outcome
+            self.nonce = UUID()
+            self.createdAt = createdAt
+        }
+
+        /// See `Request.isFresh` — same reasoning, and a stale fill is worse:
+        /// it would overwrite a lineup the coach has edited since.
+        var isFresh: Bool { Date().timeIntervalSince(createdAt) < 60 }
+    }
+
+    @Published var pendingFill: PendingFill?
+
+    func stageFill(_ outcome: AutoFillOutcome, teamID: UUID) {
+        pendingFill = PendingFill(teamID: teamID, outcome: outcome)
+    }
+
+    // MARK: - Paywall
+    //
+    // A Pro-gated intent can't just throw and stop. `openAppWhenRun = true`
+    // brings the app forward whether perform() succeeds or fails, so a thrown
+    // error leaves a non-Pro coach staring at whatever tab they left open with
+    // no explanation — the same dead end as a Spotlight result that opens the
+    // app and goes nowhere. Asking Siri to auto-fill should do what tapping the
+    // bolt button does: show the paywall.
+    //
+    // Deliberately not an STLRoute case: routes round-trip through
+    // `stackthelineup://` URLs, and a paywall nobody navigated to is not
+    // something an arbitrary link should be able to summon.
+
+    /// No nonce or freshness window here, unlike Request and PendingFill:
+    /// `.sheet(item:)` writes nil back on dismiss, so a request can't be
+    /// replayed and can't go stale.
+    struct PaywallRequest: Identifiable, Equatable {
+        let id = UUID()
+        /// Attribution string for PaywallView, e.g. "intent_fill_lineup".
+        let source: String
+    }
+
+    @Published var paywallRequest: PaywallRequest?
+
+    func requestPaywall(source: String) {
+        paywallRequest = PaywallRequest(source: source)
+    }
+
     /// Returns false when the URL isn't ours, so the caller can fall through to
     /// the .stlteam / .stlroster file-import paths.
     @discardableResult

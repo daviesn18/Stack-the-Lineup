@@ -44,6 +44,12 @@ struct ContentView: View {
     /// Nonce of the last route applied here, so a pending route is consumed once.
     @State private var lastHandledRouteNonce: UUID?
 
+    /// Same, for a lineup FillLineupIntent computed and left for the store to
+    /// apply. Drained only here — iPadDashboardView also observes the router,
+    /// but ContentView owns the store on both idioms, so a second consumer
+    /// would just write the same lineup twice.
+    @State private var lastHandledFillNonce: UUID?
+
     private struct RosterImportError: Identifiable {
         let id = UUID()
         let message: String
@@ -229,9 +235,22 @@ struct ContentView: View {
         // Both onAppear and onChange — a deep link that cold-launches the app can
         // set the route before this view is installed, and onChange alone would
         // never see it. See consumePendingRoute() in iPadDashboardView.
-        .onAppear { consumePendingRoute() }
+        .onAppear {
+            consumePendingRoute()
+            consumePendingFill()
+        }
         .onChange(of: router.request) { _, _ in
             consumePendingRoute()
+        }
+        .onChange(of: router.pendingFill) { _, _ in
+            consumePendingFill()
+        }
+        // A Pro-gated intent asking for the upgrade sheet. Presented here rather
+        // than by the screen that owns the feature, because an intent can run
+        // with any tab (or none) on screen.
+        .sheet(item: $router.paywallRequest) { request in
+            PaywallView(source: request.source)
+                .environmentObject(purchaseManager)
         }
         .sheet(item: $routedPlayer) { player in
             // Spotlight/Siri asked for this player specifically — open on their
@@ -406,6 +425,31 @@ struct ContentView: View {
         guard lastHandledRouteNonce != nil || request.isFresh else { return }
         lastHandledRouteNonce = request.nonce
         applyRoute(request.route)
+    }
+
+    /// Writes a lineup FillLineupIntent already computed. The intent can't do
+    /// this itself: whenever the app is running, the store holds the
+    /// authoritative copy and its next save() would overwrite a write made
+    /// straight to storage.
+    ///
+    /// Applied by team id, and the owning team is brought forward first — both
+    /// because "fill the Tigers lineup" shouldn't land on another roster, and
+    /// because save() only pushes the *active* team to CloudKit, so mutating an
+    /// inactive one would persist locally and never sync.
+    private func consumePendingFill() {
+        guard let pending = router.pendingFill,
+              pending.nonce != lastHandledFillNonce else { return }
+        // A fill computed an hour ago would overwrite whatever the coach has
+        // edited since. Same first-drain-only guard as consumePendingRoute().
+        guard lastHandledFillNonce != nil || pending.isFresh else { return }
+        guard store.teams.contains(where: { $0.id == pending.teamID }) else { return }
+        lastHandledFillNonce = pending.nonce
+
+        if pending.teamID != store.activeTeamID {
+            store.switchTeam(to: pending.teamID)
+        }
+        store.activeTeam.lineup = pending.outcome.lineup
+        store.save()
     }
 
     /// Turns a Spotlight result tap into a route. Resolved against the rosters

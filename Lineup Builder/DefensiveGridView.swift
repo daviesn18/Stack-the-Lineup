@@ -47,15 +47,13 @@ struct DefensiveGridView: View {
     // not persisted between games). Parsing runs on-device via
     // AutoFillNLConstraintService before AutoFillEngine is called.
     @State private var autoFillPrompt: String = ""
-    @State private var isParsingAutoFillPrompt = false
     @State private var showingAutoFillConstraintNotice = false
     @State private var autoFillConstraintNoticeMessage: String = ""
 
-    // Owns the on-device LanguageModelSession. Rebuilt whenever the Auto-Fill
-    // popover opens so the roster and inning count baked into the session are
-    // always current, and prewarmed on open so the model-load and prefill cost
-    // is paid while the coach types rather than after they tap Fill.
-    @State private var nlService: AutoFillNLConstraintService? = nil
+    // Parse, engine call and message composition all live here — the iPad pane
+    // and FillLineupIntent share the same instance type. What stays in this
+    // view is the UI the outcome drives: the undo toast and the two alerts.
+    @StateObject private var autoFill = AutoFillCoordinator()
 
     // Clear positions state
     @State private var showingClearPopover = false     // inning view: anchored popover
@@ -73,11 +71,6 @@ struct DefensiveGridView: View {
     // Tip overlay driven by parent iPhoneTabView
 
     private var isReadOnly: Bool { store.activeTeam.isReadOnly }
-
-    enum FillScope {
-        case thisInning
-        case through(Int)
-    }
 
     var smartDefaultLastInning: Int {
         let lastFilled = (0..<store.lineup.innings.count).reversed().first {
@@ -124,10 +117,10 @@ struct DefensiveGridView: View {
                             },
                             smartDefaultLastInning: smartDefaultLastInning,
                             autoFillPrompt: $autoFillPrompt,
-                            isParsingAutoFillPrompt: isParsingAutoFillPrompt
+                            isParsingAutoFillPrompt: autoFill.isParsingPrompt
                         )
                         .onChange(of: showingAutoFillPopover) { _, isShowing in
-                            if isShowing { prepareNLService() } else { teardownNLService() }
+                            if isShowing { autoFill.prewarm(for: store.activeTeam) } else { autoFill.teardown() }
                         }
 
                         // Summary view — clear all only, straight to confirm
@@ -613,112 +606,38 @@ struct DefensiveGridView: View {
 
     // MARK: - Auto-Fill Logic
 
-    /// Builds a fresh NL service for the current roster and inning count and
-    /// warms the on-device model. Called when the Auto-Fill popover opens.
-    ///
-    /// This is the single biggest speed lever in the feature. The previous
-    /// version created a LanguageModelSession inside parse(), meaning every
-    /// Fill tap paid full model load plus instruction prefill before a single
-    /// token could be generated. Doing it here spends that cost during the
-    /// seconds the coach is already typing.
-    @MainActor
-    private func prepareNLService() {
-        let service = AutoFillNLConstraintService(
-            activePlayers: store.activeTeam.lineup.activePlayers(from: store.players),
-            inningCount: store.lineup.innings.count
-        )
-        service.prewarm()
-        nlService = service
-    }
-
-    /// Popover closed without a fill. Drop the session so we aren't holding
-    /// a warm model open indefinitely.
-    @MainActor
-    private func teardownNLService() {
-        nlService = nil
-    }
-
-    func runAutoFill(scope: FillScope) {
+    func runAutoFill(scope: AutoFillScope) {
         Task { await performAutoFill(scope: scope) }
     }
 
-    /// Parses the NL constraint prompt (if any), then runs AutoFillEngine.
-    /// A blank prompt, or an on-device parse failure, falls back to today's
-    /// unconstrained behavior rather than blocking the fill — a coach who
-    /// just wants the normal Auto-Fill shouldn't be interrupted by an
-    /// Apple Intelligence availability check they never asked to trigger.
+    /// Runs the shared coordinator, then drives everything the outcome implies
+    /// on screen: writing the lineup back, the undo toast, and the two alerts.
     ///
-    /// The popover is intentionally kept open (not dismissed) until this
-    /// whole operation finishes, so the "Reading your instructions..."
-    /// spinner is actually visible while parsing runs — dismissing the
-    /// popover immediately on tap (the previous behavior) closed it before
-    /// the spinner ever got a chance to render.
+    /// The popover is intentionally kept open (not dismissed) until parsing
+    /// finishes, so the "Reading your instructions..." spinner is actually
+    /// visible while it runs — dismissing the popover immediately on tap (the
+    /// original behavior) closed it before the spinner ever got a chance to
+    /// render.
     @MainActor
-    private func performAutoFill(scope: FillScope) async {
+    private func performAutoFill(scope: AutoFillScope) async {
         let snapshot = store.activeTeam.lineup.innings
-        let prompt = autoFillPrompt
 
-        var constraints = AutoFillConstraintSet.empty
-        var parseDiagnosticMessage: String? = nil
-
-        if !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            isParsingAutoFillPrompt = true
-            let parseResult = await parseAutoFillPromptWithTimeout(prompt: prompt)
-            constraints = parseResult.constraints
-            parseDiagnosticMessage = parseResult.diagnosticMessage
-            Analytics.signal("autofill.nl_prompt_used", parameters: [
-                "constraintCount": "\(constraints.playerConstraints.count)",
-                "diagnosticCount": "\(parseResult.diagnostics.count)"
-            ])
-            isParsingAutoFillPrompt = false
-        }
-
-        // Now that parsing has settled (success, fallback, or timeout),
-        // dismiss the popover — everything from here is fast, synchronous
-        // engine work.
-        showingAutoFillPopover = false
-
-        let preferences = Dictionary(
-            uniqueKeysWithValues: store.players.map { ($0.id, $0.positionPreferences) }
+        let outcome = await autoFill.run(
+            scope: scope,
+            prompt: autoFillPrompt,
+            team: store.activeTeam
         )
 
-        let result: AutoFillResult
-        switch scope {
-        case .thisInning:
-            result = AutoFillEngine.fillInning(
-                selectedInning,
-                in: store.activeTeam.lineup,
-                players: store.players,
-                preferences: preferences,
-                config: store.fairPlayConfig,
-                pitchingConfig: store.pitchingConfig,
-                gameLogs: store.gameLogs,
-                constraints: constraints
-            )
-        case .through(let lastInning):
-            result = AutoFillEngine.fillInnings(
-                through: lastInning,
-                in: store.activeTeam.lineup,
-                players: store.players,
-                preferences: preferences,
-                config: store.fairPlayConfig,
-                pitchingConfig: store.pitchingConfig,
-                gameLogs: store.gameLogs,
-                constraints: constraints
-            )
-        }
+        // Parsing has settled (success, fallback, or timeout) — everything from
+        // here is fast, synchronous work, so the popover can go.
+        showingAutoFillPopover = false
 
-        if result.filledCount > 0 {
-            store.activeTeam.lineup = result.lineup
+        if outcome.didFill {
+            store.activeTeam.lineup = outcome.lineup
             store.save()
 
             undoSnapshot = snapshot
-            let scopeLabel: String
-            switch scope {
-            case .thisInning: scopeLabel = "inning \(selectedInning + 1)"
-            case .through(let last): scopeLabel = "innings 1–\(last + 1)"
-            }
-            undoMessage = "Auto-filled \(result.filledCount) position\(result.filledCount == 1 ? "" : "s") (\(scopeLabel))"
+            undoMessage = outcome.undoMessage
             withAnimation { showingUndo = true }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
@@ -730,157 +649,24 @@ struct DefensiveGridView: View {
         // or not it produced any usable constraints.
         autoFillPrompt = ""
 
-        if result.hasUnfilledSlots {
-            autoFillIncompleteMessage = buildAutoFillIncompleteMessage(from: result.unfilledSlots, scope: scope)
+        if let message = outcome.incompleteMessage {
+            autoFillIncompleteMessage = message
             // Small delay so the undo toast settles before the alert fires.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 showingAutoFillIncomplete = true
             }
         }
 
-        // Parse-side diagnostics (an instruction we couldn't resolve at all)
-        // and engine-side notices (an instruction we honored by bending a
-        // fair-play guideline) both belong in the same alert — from the
-        // coach's point of view they're all "here's what happened to what you
-        // asked for." Parse misses lead, since a skipped instruction is the
-        // more surprising outcome.
-        let engineNotice = result.constraintNoticeMessage(players: store.players)
-        let combinedNotice = [parseDiagnosticMessage, engineNotice]
-            .compactMap { $0 }
-            .joined(separator: "\n")
-
-        if !combinedNotice.isEmpty {
-            autoFillConstraintNoticeMessage = combinedNotice
+        if let notice = outcome.noticeMessage {
+            autoFillConstraintNoticeMessage = notice
             // Stack after the incomplete-fill alert if both fire.
-            let delay = result.hasUnfilledSlots ? 0.7 : 0.35
+            let delay = outcome.hasUnfilledSlots ? 0.7 : 0.35
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 showingAutoFillConstraintNotice = true
             }
         }
-
-        Analytics.signal("autofill.used", parameters: [
-            "mode": {
-                if case .thisInning = scope { return "inning" }
-                return "range"
-            }(),
-            "filledCount": "\(result.filledCount)",
-            "unfilledCount": "\(result.unfilledSlots.count)"
-        ])
     }
 
-    /// Races the NL parse against a timeout so a slow or stuck on-device model
-    /// call can never leave the coach staring at a spinner indefinitely. Falls
-    /// back to unconstrained after `timeout` elapses.
-    ///
-    /// With prewarming in place the session is already warm and the
-    /// instructions already prefilled by the time this runs, so a normal parse
-    /// should land well inside the timeout. The old 12s ceiling was sized for
-    /// a cold start on every call; 8s is a more honest bound now, and if the
-    /// model hasn't answered in 8 seconds with a warm session, waiting longer
-    /// is unlikely to help.
-    ///
-    /// Note: if the underlying model call ignores cancellation it may keep
-    /// running in the background after the timeout wins. That's harmless (the
-    /// result is discarded), just not free.
-    private func parseAutoFillPromptWithTimeout(
-        prompt: String,
-        timeout: Duration = .seconds(8)
-    ) async -> AutoFillNLParseResult {
-        // Prewarm should have built this on popover open. If it somehow
-        // didn't, build one now rather than skipping the parse.
-        let service = nlService ?? {
-            let s = AutoFillNLConstraintService(
-                activePlayers: store.activeTeam.lineup.activePlayers(from: store.players),
-                inningCount: store.lineup.innings.count
-            )
-            nlService = s
-            return s
-        }()
-
-        return await withTaskGroup(of: AutoFillNLParseResult.self) { group in
-            group.addTask { @MainActor in
-                do {
-                    return try await service.parse(prompt: prompt)
-                } catch {
-                    // Apple Intelligence unavailable, or the model call failed.
-                    // Proceed unconstrained rather than blocking the fill.
-                    return .empty
-                }
-            }
-            group.addTask { @MainActor in
-                try? await Task.sleep(for: timeout)
-                return .empty
-            }
-            let first = await group.next() ?? .empty
-            group.cancelAll()
-            return first
-        }
-    }
-
-    /// Builds a coach-readable explanation of why specific positions could not
-    /// be auto-filled. Groups slots by reason so related issues read together.
-    private func buildAutoFillIncompleteMessage(
-        from slots: [AutoFillUnfilledSlot],
-        scope: FillScope
-    ) -> String {
-        let isMultiInning: Bool = {
-            if case .through = scope { return true }
-            return false
-        }()
-
-        // Format a list of positions (with inning numbers when multi-inning).
-        func label(for group: [AutoFillUnfilledSlot]) -> String {
-            if isMultiInning {
-                // Group by position: "P (Innings 3, 4), CF (Inning 5)"
-                var byPos: [FieldPosition: [Int]] = [:]
-                for slot in group {
-                    byPos[slot.position, default: []].append(slot.inningIndex + 1)
-                }
-                return byPos
-                    .sorted { $0.key.rawValue < $1.key.rawValue }
-                    .map { pos, innings in
-                        let numbers = innings.map { "\($0)" }.joined(separator: ", ")
-                        let qualifier = innings.count == 1 ? "Inning \(numbers)" : "Innings \(numbers)"
-                        return "\(pos.rawValue) (\(qualifier))"
-                    }
-                    .joined(separator: ", ")
-            } else {
-                return group.map { $0.position.rawValue }.joined(separator: ", ")
-            }
-        }
-
-        var parts: [String] = []
-
-        let rosterSlots = slots.filter { $0.reason == .rosterTooSmall }
-        if !rosterSlots.isEmpty {
-            parts.append("""
-\(label(for: rosterSlots)) could not be filled. Not enough active players to cover every field position. Mark additional players as active on the Lineup tab, or assign these slots manually.
-""")
-        }
-
-        let reentrySlots = slots.filter { $0.reason == .pitcherReentry }
-        if !reentrySlots.isEmpty {
-            parts.append("""
-\(label(for: reentrySlots)) could not be filled. All eligible pitchers have already left the mound this game and cannot re-enter. Assign pitcher manually.
-""")
-        }
-
-        let capacitySlots = slots.filter { $0.reason == .pitchCapacityLimited }
-        if !capacitySlots.isEmpty {
-            parts.append("""
-\(label(for: capacitySlots)) could not be filled. All eligible pitchers have reached their estimated pitch count limit for today. Assign pitcher manually or adjust pitch counts on the Players tab.
-""")
-        }
-
-        let neverSlots = slots.filter { $0.reason == .neverPreferences }
-        if !neverSlots.isEmpty {
-            parts.append("""
-\(label(for: neverSlots)) could not be filled. All remaining players have those positions set to Never in their preferences. Update preferences on the Players tab, or assign manually.
-""")
-        }
-
-        return parts.joined(separator: "\n")
-    }
 
     // MARK: - Warnings Button
 
@@ -981,13 +767,14 @@ struct DefensiveGridView: View {
                 smartDefaultLastInning: smartDefaultLastInning,
                 inningCount: store.lineup.innings.count,
                 prompt: $autoFillPrompt,
-                isParsingPrompt: isParsingAutoFillPrompt
+                isParsingPrompt: autoFill.isParsingPrompt,
+                currentInning: selectedInning
             ) { scope in
                 runAutoFill(scope: scope)
             }
             .presentationCompactAdaptation(.popover)
-            .onAppear { prepareNLService() }
-            .onDisappear { teardownNLService() }
+            .onAppear { autoFill.prewarm(for: store.activeTeam) }
+            .onDisappear { autoFill.teardown() }
         }
         // Both tips point at the bolt: arc 1 introduces it, arc 2 introduces
         // the natural-language instructions inside its popover.
@@ -1587,7 +1374,10 @@ struct AutoFillPopover: View {
     let inningCount: Int
     @Binding var prompt: String
     let isParsingPrompt: Bool
-    let onSelect: (DefensiveGridView.FillScope) -> Void
+    /// Zero-based index behind "Fill This Inning". Ignored in summary mode,
+    /// which has no single current inning and hides that button.
+    let currentInning: Int
+    let onSelect: (AutoFillScope) -> Void
 
     @State private var selectedLastInning: Int
     @FocusState private var promptFieldFocused: Bool
@@ -1598,13 +1388,15 @@ struct AutoFillPopover: View {
         inningCount: Int,
         prompt: Binding<String>,
         isParsingPrompt: Bool,
-        onSelect: @escaping (DefensiveGridView.FillScope) -> Void
+        currentInning: Int = 0,
+        onSelect: @escaping (AutoFillScope) -> Void
     ) {
         self.isSummary = isSummary
         self.smartDefaultLastInning = smartDefaultLastInning
         self.inningCount = inningCount
         self._prompt = prompt
         self.isParsingPrompt = isParsingPrompt
+        self.currentInning = currentInning
         self.onSelect = onSelect
         self._selectedLastInning = State(initialValue: smartDefaultLastInning)
     }
@@ -1664,7 +1456,7 @@ struct AutoFillPopover: View {
 
             if !isSummary {
                 Button {
-                    onSelect(.thisInning)
+                    onSelect(.inning(currentInning))
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "1.circle.fill")
