@@ -902,26 +902,15 @@ struct PositionSummaryView: View {
     @ViewBuilder
     private var fairPlaySection: some View {
         let config = store.fairPlayConfig
-        let activePlayers = store.lineup.activePlayers(from: store.players)
-        let noInfield = config.minimumInfieldInnings > 0
-            ? store.lineup.playersWithoutInfield(players: activePlayers)
-            : []
-        let noOutfield = config.minimumOutfieldInnings > 0
-            ? store.lineup.playersWithoutOutfield(players: activePlayers)
-            : []
-        let underMinimum = config.minimumFieldingInnings > 0
-            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings)
-            : []
-        let consecutiveBenchPlayers = config.noConsecutiveBench
-            ? store.lineup.playersWithBackToBackBench(from: store.players)
-            : []
-        let catcherToPitcherViolators = store.lineup.playersViolatingCatcherToPitcher(
-            players: activePlayers, threshold: config.catcherToPitcherThreshold)
-        let pitcherToCatcherViolators = store.lineup.playersViolatingPitcherToCatcher(
-            players: activePlayers, threshold: config.pitcherToCatcherThreshold)
+        let findings = store.lineup.fairPlayFindings(players: store.players, config: config)
+        let noInfield = findings.withoutInfield
+        let noOutfield = findings.withoutOutfield
+        let underMinimum = findings.underFieldingMinimum
+        let consecutiveBenchPlayers = findings.backToBackBench
+        let catcherToPitcherViolators = findings.catcherThenPitcher
+        let pitcherToCatcherViolators = findings.pitcherThenCatcher
         let hasAssignments = store.lineup.innings.contains(where: { !$0.assignments.isEmpty })
-        let hasAnyWarning = !noInfield.isEmpty || !noOutfield.isEmpty || !consecutiveBenchPlayers.isEmpty
-            || !underMinimum.isEmpty || !catcherToPitcherViolators.isEmpty || !pitcherToCatcherViolators.isEmpty
+        let hasAnyWarning = !findings.isEmpty
 
         // Pitch eligibility — only computed when rules are enabled
         let pitchViolators: [(player: Player, status: PitchEligibilityStatus)] = {

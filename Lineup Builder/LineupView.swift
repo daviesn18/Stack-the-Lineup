@@ -53,27 +53,10 @@ struct LineupView: View {
 
     /// Count of active players implicated in any fair-play warning.
     private var fairPlayWarningCount: Int {
-        let config = store.fairPlayConfig
-        let activePlayers = store.lineup.activePlayers(from: store.players)
-
-        let noInfield = config.minimumInfieldInnings > 0
-            ? store.lineup.playersWithoutInfield(players: activePlayers) : []
-        let noOutfield = config.minimumOutfieldInnings > 0
-            ? store.lineup.playersWithoutOutfield(players: activePlayers) : []
-        let underMinimum = config.minimumFieldingInnings > 0
-            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings) : []
-        let backToBack = config.noConsecutiveBench
-            ? store.lineup.playersWithBackToBackBench(from: store.players) : []
-        let catcherToPitcher = store.lineup.playersViolatingCatcherToPitcher(
-            players: activePlayers, threshold: config.catcherToPitcherThreshold)
-        let pitcherToCatcher = store.lineup.playersViolatingPitcherToCatcher(
-            players: activePlayers, threshold: config.pitcherToCatcherThreshold)
-
-        let implicated = Set(
-            (noInfield + noOutfield + underMinimum + backToBack + catcherToPitcher + pitcherToCatcher)
-                .map { $0.id }
-        )
-        return implicated.count
+        store.lineup
+            .fairPlayFindings(players: store.players, config: store.fairPlayConfig)
+            .implicatedPlayerIDs
+            .count
     }
 
     var body: some View {

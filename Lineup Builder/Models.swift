@@ -794,6 +794,73 @@ struct Lineup: Codable, Sendable {
     }
 }
 
+// MARK: - Fair Play Findings
+//
+// Which fair-play rules a lineup breaks, evaluated once against the team's
+// config. The individual `playersWithout…` helpers above are the rules; this is
+// the one place that knows which of them are switched on and what thresholds
+// they run at.
+//
+// It exists because that "which rules are on" logic had been copy-pasted onto
+// every surface that shows a warning, and the copies disagree. GameRecapIntent
+// would have been the sixth copy — and a recap that reports a clean game while
+// the app's own Fair Play rail shows a violation is worse than no recap.
+
+nonisolated struct FairPlayFindings {
+    /// Empty when the corresponding rule is switched off in `FairPlayConfig`,
+    /// so callers never have to re-check the config to interpret a result.
+    let withoutInfield: [Player]
+    let withoutOutfield: [Player]
+    let underFieldingMinimum: [Player]
+    let backToBackBench: [Player]
+    let catcherThenPitcher: [Player]
+    let pitcherThenCatcher: [Player]
+    /// The threshold `underFieldingMinimum` was measured against, so messages
+    /// can name the real number rather than assuming the old hardcoded 4.
+    let minimumFieldingInnings: Int
+
+    /// Distinct players implicated in at least one rule. The warning badges
+    /// count coaches, not violations — one player missing both infield and
+    /// outfield is one thing to go fix.
+    var implicatedPlayerIDs: Set<UUID> {
+        Set((withoutInfield + withoutOutfield + underFieldingMinimum
+             + backToBackBench + catcherThenPitcher + pitcherThenCatcher).map(\.id))
+    }
+
+    var isEmpty: Bool { implicatedPlayerIDs.isEmpty }
+}
+
+extension Lineup {
+
+    /// Evaluates every fair-play rule that `config` has switched on.
+    ///
+    /// Note the two different roster arguments in play: the per-position rules
+    /// run against active players only, while back-to-back bench is handed the
+    /// full roster because `playersWithBackToBackBench` filters to active
+    /// itself. That asymmetry was in all the copies; it's preserved here rather
+    /// than "tidied", since changing it would change what the badges count.
+    nonisolated func fairPlayFindings(players: [Player], config: FairPlayConfig) -> FairPlayFindings {
+        let active = activePlayers(from: players)
+
+        return FairPlayFindings(
+            withoutInfield: config.minimumInfieldInnings > 0
+                ? playersWithoutInfield(players: active) : [],
+            withoutOutfield: config.minimumOutfieldInnings > 0
+                ? playersWithoutOutfield(players: active) : [],
+            underFieldingMinimum: config.minimumFieldingInnings > 0
+                ? playersUnderFieldingMinimum(players: active,
+                                              minimumInnings: config.minimumFieldingInnings) : [],
+            backToBackBench: config.noConsecutiveBench
+                ? playersWithBackToBackBench(from: players) : [],
+            catcherThenPitcher: playersViolatingCatcherToPitcher(
+                players: active, threshold: config.catcherToPitcherThreshold),
+            pitcherThenCatcher: playersViolatingPitcherToCatcher(
+                players: active, threshold: config.pitcherToCatcherThreshold),
+            minimumFieldingInnings: config.minimumFieldingInnings
+        )
+    }
+}
+
 // MARK: - Lineup Template
 // A reusable, partially-specified lineup. Unlike a saved Lineup, a template
 // does not require every cell to be filled. Position locks pin specific

@@ -147,18 +147,30 @@ struct FillLineupIntent: AppIntent {
 // at a dugout fence — not as a developer-facing error.
 
 enum STLIntentError: Error, CustomLocalizedStringResourceConvertible {
+    /// Only for intents that **don't** open the app — see 4c in the handoff.
+    /// `FillLineupIntent` routes to the paywall instead, because throwing there
+    /// would leave the coach looking at an app that opened and did nothing.
+    case needsPro(feature: String)
     case noTeam
     case teamIsReadOnly
     case noActivePlayers(teamName: String)
+    case noGames(teamName: String)
+    case noSuchGame
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
+        case .needsPro(let feature):
+            return "\(feature) are part of Pro. Open Stack the Lineup to upgrade."
         case .noTeam:
             return "I couldn't find that team in Stack the Lineup."
         case .teamIsReadOnly:
             return "You're only viewing that team, so I can't change its lineup."
         case .noActivePlayers(let teamName):
             return "No one is marked active on \(teamName), so there's nothing to fill."
+        case .noGames(let teamName):
+            return "\(teamName) doesn't have any archived games yet."
+        case .noSuchGame:
+            return "I couldn't find that game in Stack the Lineup."
         }
     }
 }

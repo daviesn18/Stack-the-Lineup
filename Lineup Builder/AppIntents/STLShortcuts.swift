@@ -62,5 +62,21 @@ nonisolated struct STLShortcuts: AppShortcutsProvider {
             shortTitle: "Fill Lineup",
             systemImageName: "bolt.fill"
         )
+
+        // Parameter-free for the same reason as Fill Lineup, plus one of its
+        // own: "how did we do" is a question about the last game roughly always,
+        // and the intent already prompts when a doubleheader makes that
+        // genuinely ambiguous. Making the coach name a game up front would tax
+        // every ask to handle the rare one.
+        AppShortcut(
+            intent: GameRecapIntent(),
+            phrases: [
+                "How did we do in \(.applicationName)",
+                "Recap my last game in \(.applicationName)",
+                "Game recap in \(.applicationName)",
+            ],
+            shortTitle: "Game Recap",
+            systemImageName: "sportscourt.fill"
+        )
     }
 }
