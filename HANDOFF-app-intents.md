@@ -1,10 +1,12 @@
-# Handoff — v3.3 Siri & App Intents (2026-07-30)
+# Handoff — v3.3 Siri & App Intents (2026-07-31)
 
 ## TL;DR
 
-**Phases 0 and 1 are built, verified end to end on iPhone and iPad, and covered by 157 passing unit tests. Phases 2–4 are not started.**
+**Phases 0, 1 and 2 are built, verified end to end on iPhone and iPad, and covered by 172 passing unit tests. Phases 3–4 are not started.**
 
 Players and teams are searchable from the home screen today: type a name in Spotlight, tap the result, and the app opens that player on their Position Preferences — from a cold start. The ticket's open question is answered: **Spotlight surfacing is free** once entities are registered. `1216544711240780` is delivered.
+
+Auto-Fill is now reachable without touching the app: "Fill my lineup in Stack the Lineup" fills every inning, opens on the Positions grid, and reads the result back including any slot it couldn't cover. `1215519098776981` Phase 2 is delivered. The three-way duplication that ticket flagged is collapsed — `AutoFillCoordinator` is the single implementation the iPhone grid, the iPad summary pane and the intent all run through.
 
 Three blockers stood between this app and any App Intent, and all three are now cleared: intents can read team data (`TeamStorage`), check Pro without the SwiftUI environment (`PurchaseManager.isProNow()`), and navigate to a specific player or game on both iPhone and iPad (`STLRoute` + `AppRouter`).
 
@@ -15,6 +17,8 @@ Two planning assumptions turned out to be wrong, both in our favor:
 Committed on branch **`feature/app-intents-phase-0`**, branched from `main`. Not pushed — no remote branch, no PR.
 
 ```
+c1d73c2 Add FillLineupIntent on a shared AutoFillCoordinator
+dee85d2 Document Phase 1 in the handoff doc
 c16c39d Add Phase 1 App Intents: entities, Spotlight index, Siri phrases
 ea93652 Bring the App Intents handoff doc up to date
 a60736d Fix deep links being dropped when they cold-launch the app
@@ -32,7 +36,7 @@ Source: Asana section **"3.3 - Siri AI"** (`1217027047050411`) in *Stack the Lin
 | Deliverable | Asana | Gating |
 |---|---|---|
 | `PlayerEntity` / `TeamEntity` + Spotlight index — **DONE** | `1216544711240780` | Free |
-| `FillLineupIntent` | `1215519098776981` (Phase 2) | Pro |
+| `FillLineupIntent` — **DONE** | `1215519098776981` (Phase 2) | Pro |
 | `GameRecapIntent` | `1216544711115108` | Pro |
 | `FairPlayRuleIntent` | `1216543825469858` | Free |
 | Localization (Spanish, then French) | `1214429900445010` | Parallel track |
@@ -208,15 +212,63 @@ mod:  Lineup BuilderTests/STLRouteTests.swift           (12 -> 17 tests)
 
 ---
 
-## 4. Phases 2–4 — NOT STARTED
+## 4. Phase 2 — DONE
 
-### Phase 2 — `FillLineupIntent` (Pro)
+### 4a. `Lineup Builder/AutoFillCoordinator.swift` (new)
 
-Params: `team: TeamEntity?`, `innings: Int?`, `constraints: String?`. `openAppWhenRun = true` — it mutates the lineup and the coach should see the resulting grid.
+The prerequisite refactor, and the bulk of the phase. One place that runs a fill end to end: parse the coach's prompt (racing an 8s timeout), call `AutoFillEngine`, compose the messages, emit analytics. It owns **no UI state and never touches `LineupStore`** — it takes a `Team` in and hands an `AutoFillOutcome` back, which is exactly what lets an intent use it with no view hierarchy.
 
-The constraints string feeds the **existing** `AutoFillNLConstraintService.parse(prompt:)` (`AutoFillNLConstraintService.swift:211`) — no duplicate parsing logic. `AutoFillResult.incompleteMessage(multiInning:)` (`AutoFillEngine.swift:67`) and `constraintNoticeMessage(players:)` (`:118`) already produce coach-facing prose and become the intent's `ProvidesDialog` verbatim.
+The two existing copies had already drifted, which is the argument against letting a third appear:
+- The iPhone one rebuilt the "couldn't fill" text in a private `buildAutoFillIncompleteMessage` that duplicated `AutoFillResult.incompleteMessage(multiInning:)` almost line for line — and joined paragraphs with `\n` instead of `\n\n` and never sorted the inning numbers. **Both are now fixed on iPhone by deletion**, since everything routes through the shared version.
+- The alert-sequencing delays differed (0.7s vs 0.35s stacking).
+- Only the iPhone copy captured an undo snapshot.
 
-**Prerequisite refactor:** `DefensiveGridView.performAutoFill(scope:)` (`DefensiveGridView.swift:657`) interleaves parse, engine call, store write, undo snapshot, and toast/alert sequencing — and `iPadDashboardView.swift:921–932` holds a second copy. Extract an `AutoFillCoordinator` used by all three callers. This collapses existing duplication rather than adding a third copy. Regression-test it against the Bug 3 and Bug 6 prompts recorded in `1215519098776981`.
+`DefensiveGridView.FillScope` is gone, replaced by a top-level `AutoFillScope` (`.inning(Int)` / `.through(Int)`). `AutoFillPopover` now takes a `currentInning` so it can emit `.inning(n)` rather than a context-free `.thisInning`.
+
+What stayed with the views: alerts, the undo toast, popover state.
+
+### 4b. `Lineup Builder/AppIntents/FillLineupIntent.swift` (new)
+
+Params `team: TeamEntity?`, `throughInning: Int?`, `instructions: String?`. `openAppWhenRun = true`.
+
+**The intent computes but does not write.** It reads the target team through `TeamStorage`, runs the coordinator, then stages the finished lineup on `AppRouter.stageFill(_:teamID:)`; `ContentView.consumePendingFill()` applies it to the store. It cannot write storage itself — whenever the app is running, `LineupStore` holds the authoritative in-memory copy and its next `save()` silently overwrites anything written to `UserDefaults` behind its back.
+
+Computing in the intent rather than deferring the whole operation is what lets `spokenSummary` report a real result ("Filled 70 positions in innings 1–7…") instead of "opening the app". The alternative — awaiting a continuation the view fulfils — risks hanging on the app-foregrounding order, which App Intents does not document.
+
+`consumePendingFill` switches to the owning team *before* applying, because `LineupStore.save()` only pushes the **active** team to CloudKit; mutating an inactive one would persist locally and never sync.
+
+Defaults `throughInning` to the team's `gameInningCount`, not the popover's "last inning that already has assignments" — a coach asking by voice with no inning named wants the game filled. Clamped to the innings that exist, so a spoken "12" fills 7.
+
+### 4c. THE PRO-GATE TRAP (read this before Phases 3–4)
+
+**A Pro-gated intent must not just `throw`.** With `openAppWhenRun = true`, iOS brings the app forward whether `perform()` succeeds or fails. Verified on iOS 26.5: throwing `needsPro` left the app open on whatever tab was last used, with nothing on screen explaining why nothing happened — the same dead end as a Spotlight result that opens the app and goes nowhere (3e).
+
+The fix is `AppRouter.requestPaywall(source:)` + a `.sheet(item:)` in `ContentView`, so the intent does what tapping the bolt button does. Siri says "Auto-Fill is part of Pro. I've opened the upgrade options for you." and the paywall is already up behind it. Deliberately **not** an `STLRoute` case: routes round-trip through `stackthelineup://` URLs, and a paywall nobody navigated to shouldn't be summonable by an arbitrary link.
+
+`STLIntentError` (in `FillLineupIntent.swift`) still covers the genuinely terminal cases — no such team, read-only shared team, nobody marked active. Those read as complete sentences because App Intents speaks `localizedStringResource` verbatim.
+
+### 4d. Shortcut phrases
+
+The `FillLineupIntent` phrases are deliberately **parameter-free** ("Fill my lineup in ⟨app⟩"). Both params are optional, so a bare sentence works and the coach adjusts on screen. A spoken *number* in a phrase slot resolves far less reliably than an entity does — a bad trade for a Pro action that rewrites the whole game.
+
+### Files added / touched in Phase 2
+
+```
+Lineup Builder/AutoFillCoordinator.swift            NEW  AutoFillScope, AutoFillOutcome, the coordinator
+Lineup Builder/AppIntents/FillLineupIntent.swift    NEW  the intent + STLIntentError
+Lineup Builder/AppIntents/STLShortcuts.swift        +1 AppShortcut
+Lineup Builder/STLRoute.swift                       AppRouter.PendingFill + PaywallRequest
+Lineup Builder/ContentView.swift                    consumePendingFill(), paywall sheet
+Lineup Builder/DefensiveGridView.swift              -292 lines: two helpers deleted, FillScope removed
+Lineup Builder/iPadDashboardView.swift              -147 lines: its whole copy deleted
+Lineup BuilderTests/AutoFillCoordinatorTests.swift  NEW  15 tests
+```
+
+Net −185 lines in the two views.
+
+---
+
+## 5. Phases 3–4 — NOT STARTED
 
 ### Phase 3 — `GameRecapIntent` (Pro)
 
@@ -236,17 +288,17 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 ---
 
-## 5. Environment facts
+## 6. Environment facts
 
 - **Xcode 26.6, iOS 26.5 SDK. No iOS 27 SDK installed** — and it isn't needed. `AppIntent`/`AppEnum`/`EntityQuery`/`AppShortcutsProvider` are iOS 16; `AppEntity`/`IndexedEntity` (Spotlight semantic index) are iOS 18. Deployment target is already 26.x. Only *View Annotations* (Phase 3 of the parent ticket, out of scope) needs iOS 27.
   - Don't be misled by `xcrun simctl list runtimes`: an **iOS 27.0 beta runtime** (`24A5380i`) is installed. That's a runtime, not an SDK. `Platforms/iPhoneOS.platform/Developer/SDKs/` still holds only `iPhoneOS26.5.sdk`, so everything above stands.
 - Xcode project uses `PBXFileSystemSynchronizedRootGroup` — new **files** are free (confirmed: the whole `AppIntents/` subfolder joined the app target with no pbxproj edit); a new **target** means editing exception sets. Another reason intents stay in the app target.
-- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Types callable from intents must be explicitly `nonisolated` (`TeamStorage`, `STLRoute`, both entities, both queries, the AppEnum). **The intents themselves must not be** — see the isolation gotcha in section 3.
+- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Types callable from intents must be explicitly `nonisolated` (`TeamStorage`, `STLRoute`, both entities, both queries, the AppEnum). **The intents themselves must not be** — see the isolation gotcha at the end of section 3.
 - Debug builds run on **simulators only, never Nick's physical devices** (standing rule from the July 2026 data wipe).
 
 ---
 
-## 6. Verification performed
+## 7. Verification performed
 
 **Unit:** full suite green on every change.
 
@@ -267,16 +319,22 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 - Spotlight → "Stack the Lineup" → the **"Open Lineup" App Shortcut** appears as a tile in Top Hit. ✅ `STLShortcuts` is registered.
 - `xcrun simctl openurl` with `stackthelineup://player/<uuid>`, cold → same destination. ✅ Phase 0 routing unregressed.
 
+**Phase 2, end to end on iPhone 17 Pro and iPad Pro 13-inch (M5), seeded Test Team, 10 players:**
+- **Not Pro:** Spotlight → "Fill Lineup" tile → app opens with the **paywall sheet already presented** and Siri showing "Auto-Fill is part of Pro. I've opened the upgrade options for you." ✅ Before this, a thrown error opened the app to a silently unchanged screen — see 4c.
+- **Pro** (temporary `FORCE_PRO` env hook in `isProNow()`, since `simctl` bypasses the scheme's `.storekit` config — hook removed before commit): Spotlight → "Fill Lineup" → **"Filled 70 positions in innings 1–7. C (Inning 2), P (Inning 5) could not be filled. Not enough active players…"**, app landed on the **Positions** tab with the grid populated and innings 2 and 5 flagged. ✅ Confirms staging → `consumePendingFill` → store write → route, and that `spokenSummary` flattens the alert copy's paragraph breaks.
+- **iPhone UI, unregressed:** cleared all positions → bolt → *Fill This Inning* on inning 1 → "Auto-filled 10 positions (inning 1)" toast with Undo. Switched to inning 3, filled again → "Auto-filled 10 positions (**inning 3**)". ✅ Confirms `currentInning` reaches `AutoFillScope.inning(_:)` rather than a hardcoded 0.
+- **iPad UI, unregressed:** cleared all positions → *Auto-Fill Open Positions* → *Fill Innings 1–7* → grid filled, "Some Positions Not Filled" alert rendering the shared `incompleteMessage(multiInning: true)`. ✅
+
 **Not verifiable in a simulator** (needs a device): Siri *voice* invocation of the phrases, and whether the parameterized phrases ("Open ⟨player⟩ in Stack the Lineup") resolve a spoken name through `EntityStringQuery` as intended. The phrase set compiles and registers; only the speech path is unproven.
 
 **Simulator gotcha that cost time:** `mcp__Claude_Code_iOS_Simulator__control` takes coordinates in **device points** (the `attach` call reports the space, e.g. 402×874 for iPhone 17 Pro, 1032×1376 for iPad Pro 13"), *not* screenshot pixels. Passing screenshot coordinates makes every tap silently miss — they get clamped and land in a corner, which looks exactly like an unresponsive simulator. Convert: `point = pixel / screenshot_dimension × point_dimension`.
 
-## 7. Next session
+## 8. Next session
 
-1. **Start Phase 2** (`FillLineupIntent`) with the `AutoFillCoordinator` extraction — that refactor is the real work; the intent on top of it is small.
-2. **Test every new intent cold.** Terminate the app first. See 2d-bis and 3e — both bugs found so far were invisible warm, and Siri/Spotlight almost always cold-launch.
+1. **Start Phase 3** (`GameRecapIntent`). It's the first `openAppWhenRun = false` intent, so it's also the first real test of whether background-launching the whole app answers inside Siri's window — time it on a device (section 5).
+2. **Test every new intent cold, and every Pro gate without Pro.** Terminate the app first. See 2d-bis, 3e and 4c — all three bugs found so far were invisible warm or invisible with Pro, and Siri/Spotlight almost always cold-launch.
 3. **Verify the Siri phrases on a physical device.** The only Phase 1 claim not proven in the simulator (section 6). Do it before building more phrases on the same assumption.
-4. **Localization is now overdue-ish.** Phase 1 shipped with `LocalizedStringResource` literals inline and **no string catalog in the repo** (`find . -name "*.xcstrings"` returns nothing). That was the cheap moment to add one. It's still cheaper now than after Phases 2–4 add dialog strings — see `1214429900445010`.
+4. **Localization is now overdue.** Phases 1 and 2 shipped with `LocalizedStringResource` literals inline and **no string catalog in the repo** (`find . -name "*.xcstrings"` returns nothing). That was the cheap moment to add one. Phase 2 added the first dialog strings; it's still cheaper now than after Phases 3–4 add more — see `1214429900445010`.
 
 ### Verification commands
 
