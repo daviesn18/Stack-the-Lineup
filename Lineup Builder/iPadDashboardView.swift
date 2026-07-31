@@ -136,6 +136,8 @@ struct iPadDashboardView: View {
     private func consumePendingRoute() {
         guard let request = router.request,
               request.nonce != lastHandledRouteNonce else { return }
+        // A first-ever drain in a brand new window must not replay a stale route.
+        guard lastHandledRouteNonce != nil || request.isFresh else { return }
         lastHandledRouteNonce = request.nonce
         selectedTab = DetailTab(request.route.tab)
     }

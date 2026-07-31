@@ -1268,6 +1268,11 @@ class LineupStore: ObservableObject {
             await MainActor.run {
                 WidgetDataBridge.writeSnapshot(from: widgetTeam)
             }
+
+            // Republish players and teams to Spotlight. Passed the snapshot rather
+            // than re-reading storage, and internally a no-op unless the roster
+            // itself changed — this runs on every position drag.
+            await STLSpotlightIndexer.reindexIfNeeded(teams: snapshot)
         }
     }
 

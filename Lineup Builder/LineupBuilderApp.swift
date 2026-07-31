@@ -25,6 +25,13 @@ struct LineupBuilderApp: App {
                 .task {
                     await purchaseManager.checkEntitlement()
                 }
+                .task {
+                    // Covers the first launch after installing a build that adds
+                    // indexing, and any roster change made while the app was gone
+                    // (a CloudKit pull from another device). Subsequent edits are
+                    // picked up by the hook in LineupStore.saveLocalOnly().
+                    await STLSpotlightIndexer.reindexIfNeeded()
+                }
         }
     }
 }

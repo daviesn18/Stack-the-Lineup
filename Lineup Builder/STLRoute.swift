@@ -103,6 +103,49 @@ nonisolated enum STLRoute: Equatable, Hashable {
     }
 }
 
+// MARK: - Spotlight Selection
+
+extension STLRoute {
+
+    /// Resolves the identifier Spotlight hands back when a coach taps an indexed
+    /// entity result.
+    ///
+    /// Two things make this necessary rather than optional. Conforming an entity
+    /// to `IndexedEntity` gets it *listed* in Spotlight, but tapping the result
+    /// only launches the app — it lands on whatever was last on screen, which
+    /// reads as the feature being broken. And `URLRepresentableEntity`, which
+    /// looks like it should cover this, does not: verified on iOS 26.5, adding
+    /// `urlRepresentation` changed nothing about tap-through. The
+    /// `CSSearchableItemActionType` activity is the path that actually fires.
+    ///
+    /// The identifier's encoding belongs to AppIntents and is undocumented, so
+    /// rather than pattern-match a shape Apple can change, pull out any UUID it
+    /// contains and check it against rosters we actually hold. An id that matches
+    /// nothing returns nil instead of guessing.
+    static func fromSpotlightIdentifier(_ identifier: String,
+                                        playerIDs: Set<UUID>,
+                                        teamIDs: Set<UUID>) -> STLRoute? {
+        for candidate in uuids(in: identifier) {
+            if playerIDs.contains(candidate) { return .player(candidate) }
+            if teamIDs.contains(candidate)   { return .team(candidate) }
+        }
+        return nil
+    }
+
+    /// Every UUID-shaped substring, in order. A sliding window rather than a
+    /// regex: `UUID(uuidString:)` is already the exact validator, and identifiers
+    /// are a few dozen characters long.
+    static func uuids(in text: String) -> [UUID] {
+        let characters = Array(text)
+        let width = 36
+        guard characters.count >= width else { return [] }
+
+        return (0...(characters.count - width)).compactMap { start in
+            UUID(uuidString: String(characters[start..<(start + width)]))
+        }
+    }
+}
+
 // MARK: - AppRouter
 //
 // Carries a route from whatever produced it (URL open, App Intent, Spotlight tap)
@@ -116,17 +159,35 @@ nonisolated enum STLRoute: Equatable, Hashable {
 @MainActor
 final class AppRouter: ObservableObject {
 
+    /// App Intents declared in the app target run inside the app's own process,
+    /// so `perform()` can set a route here directly — but it may run *before*
+    /// ContentView exists on a cold launch, which is the common case for Siri and
+    /// Spotlight. A shared instance is what lets the request outlive that gap:
+    /// whichever hierarchy appears next drains it via consumePendingRoute().
+    static let shared = AppRouter()
+
     /// A route plus a nonce. The nonce makes every request a distinct value so
     /// `.onChange` fires even when the same route is requested twice in a row —
     /// asking Siri for the same player twice should navigate both times.
     struct Request: Equatable {
         let route: STLRoute
         let nonce: UUID
+        let createdAt: Date
 
-        init(_ route: STLRoute) {
+        init(_ route: STLRoute, createdAt: Date = Date()) {
             self.route = route
             self.nonce = UUID()
+            self.createdAt = createdAt
         }
+
+        /// Requests are never cleared after handling (see `request`), so the last
+        /// one lingers indefinitely. A view hierarchy appearing for the first time
+        /// — a second iPad window, say — would otherwise drain a route the coach
+        /// asked for an hour ago and yank the new window somewhere unexpected.
+        ///
+        /// Only consulted on a first-ever drain. The cold-launch case this window
+        /// exists to protect is milliseconds old, so the bound is generous.
+        var isFresh: Bool { Date().timeIntervalSince(createdAt) < 60 }
     }
 
     /// Set by producers, observed by both navigation hierarchies. Deliberately

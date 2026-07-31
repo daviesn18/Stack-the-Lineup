@@ -1,11 +1,14 @@
+import CoreSpotlight
 import SwiftUI
 import TipKit
 import WidgetKit
 
 struct ContentView: View {
     @StateObject var store = LineupStore()
-    /// Owned here and injected so both idioms' navigation can observe it.
-    @StateObject private var router = AppRouter()
+    /// Observed here and injected so both idioms' navigation can observe it.
+    /// Not `@StateObject` — App Intents set routes on `AppRouter.shared` from
+    /// outside the view tree, potentially before this view is ever constructed.
+    @ObservedObject private var router = AppRouter.shared
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.scenePhase) var scenePhase
@@ -218,6 +221,11 @@ struct ContentView: View {
                 handleIncomingRosterURL(url)
             }
         }
+        // Tapping an indexed player or team in system Spotlight. This does NOT
+        // arrive through onOpenURL — see STLRoute.fromSpotlightIdentifier.
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            handleSpotlightSelection(activity)
+        }
         // Both onAppear and onChange — a deep link that cold-launches the app can
         // set the route before this view is installed, and onChange alone would
         // never see it. See consumePendingRoute() in iPadDashboardView.
@@ -394,8 +402,27 @@ struct ContentView: View {
     private func consumePendingRoute() {
         guard let request = router.request,
               request.nonce != lastHandledRouteNonce else { return }
+        // A first-ever drain in a brand new window must not replay a stale route.
+        guard lastHandledRouteNonce != nil || request.isFresh else { return }
         lastHandledRouteNonce = request.nonce
         applyRoute(request.route)
+    }
+
+    /// Turns a Spotlight result tap into a route. Resolved against the rosters
+    /// actually in the store, so an identifier for a player deleted since the
+    /// index was last written is dropped rather than opening the wrong screen.
+    private func handleSpotlightSelection(_ activity: NSUserActivity) {
+        guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+              let route = STLRoute.fromSpotlightIdentifier(
+                  identifier,
+                  playerIDs: Set(store.teams.flatMap { $0.players.map(\.id) }),
+                  teamIDs: Set(store.teams.map(\.id))
+              )
+        else {
+            Analytics.signal("spotlight.selection_unresolved")
+            return
+        }
+        router.route(to: route)
     }
 
     /// Applies a route to the state ContentView owns: which team is active, the

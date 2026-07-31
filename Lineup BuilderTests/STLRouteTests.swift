@@ -119,6 +119,82 @@ final class STLRouteTests: XCTestCase {
         XCTAssertNil(router.request)
     }
 
+    // MARK: - Spotlight selection
+    //
+    // Tapping an indexed entity does NOT arrive through onOpenURL — verified on
+    // iOS 26.5, adding URLRepresentableEntity changed nothing. It comes back as a
+    // CSSearchableItemActionType activity carrying an identifier whose encoding
+    // AppIntents owns and does not document, hence resolving by UUID content
+    // rather than by parsing a format.
+
+    func testSpotlightIdentifierResolvesToThePlayerItNames() {
+        let player = UUID()
+        let team   = UUID()
+
+        // Shapes Apple has used or plausibly could; all must resolve the same.
+        for identifier in [
+            player.uuidString,
+            "PlayerEntity/\(player.uuidString)",
+            "com.nickdavies.LineupBuilder.PlayerEntity.\(player.uuidString)",
+        ] {
+            XCTAssertEqual(
+                STLRoute.fromSpotlightIdentifier(identifier, playerIDs: [player], teamIDs: [team]),
+                .player(player),
+                "\(identifier) did not resolve"
+            )
+        }
+    }
+
+    func testSpotlightIdentifierResolvesToATeam() {
+        let team = UUID()
+        XCTAssertEqual(
+            STLRoute.fromSpotlightIdentifier("TeamEntity/\(team.uuidString)",
+                                             playerIDs: [], teamIDs: [team]),
+            .team(team)
+        )
+    }
+
+    func testSpotlightIdentifierForSomethingWeNoLongerHaveIsDropped() {
+        // A player deleted since the index was last written. Opening an arbitrary
+        // screen would be worse than doing nothing.
+        XCTAssertNil(
+            STLRoute.fromSpotlightIdentifier(UUID().uuidString,
+                                             playerIDs: [UUID()], teamIDs: [UUID()])
+        )
+        XCTAssertNil(
+            STLRoute.fromSpotlightIdentifier("no-uuid-here", playerIDs: [UUID()], teamIDs: [])
+        )
+    }
+
+    func testUUIDExtractionFindsEmbeddedIdentifiers() {
+        let first  = UUID()
+        let second = UUID()
+        XCTAssertEqual(
+            STLRoute.uuids(in: "x/\(first.uuidString)::\(second.uuidString)!"),
+            [first, second]
+        )
+        XCTAssertTrue(STLRoute.uuids(in: "short").isEmpty)
+    }
+
+    // MARK: - Request freshness
+    //
+    // AppRouter.shared outlives every view, and requests are never cleared after
+    // handling. Both consumers use `isFresh` to decide whether a first-ever drain
+    // — a newly opened iPad window — should replay whatever is still sitting there.
+
+    @MainActor
+    func testANewRequestIsFresh() {
+        XCTAssertTrue(AppRouter.Request(.lineup).isFresh,
+            "A cold-launch request is milliseconds old and must always be applied")
+    }
+
+    @MainActor
+    func testAnOldRequestIsNotFresh() {
+        let stale = AppRouter.Request(.player(UUID()), createdAt: Date(timeIntervalSinceNow: -600))
+        XCTAssertFalse(stale.isFresh,
+            "A route asked for ten minutes ago must not hijack a window opening now")
+    }
+
     func testTabTagsMatchTheShippedTabViewOrder() {
         // These tags are the .tag() values in iPhoneTabView. Reordering the tabs
         // without updating this mapping would send every deep link to the wrong
