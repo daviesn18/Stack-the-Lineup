@@ -2,11 +2,13 @@
 
 ## TL;DR
 
-**Phases 0, 1 and 2 are built, verified end to end on iPhone and iPad, and covered by 172 passing unit tests. Phases 3–4 are not started.**
+**Phases 0–3 are built, verified end to end on iPhone and iPad, and covered by 193 passing unit tests. Phase 4 is not started.**
 
 Players and teams are searchable from the home screen today: type a name in Spotlight, tap the result, and the app opens that player on their Position Preferences — from a cold start. The ticket's open question is answered: **Spotlight surfacing is free** once entities are registered. `1216544711240780` is delivered.
 
 Auto-Fill is now reachable without touching the app: "Fill my lineup in Stack the Lineup" fills every inning, opens on the Positions grid, and reads the result back including any slot it couldn't cover. `1215519098776981` Phase 2 is delivered. The three-way duplication that ticket flagged is collapsed — `AutoFillCoordinator` is the single implementation the iPhone grid, the iPad summary pane and the intent all run through.
+
+"How did we do" is answered **without the app opening at all** — innings, who pitched and on how many pitches, and which fair-play rules the game missed. `1216544711115108` is delivered.
 
 Three blockers stood between this app and any App Intent, and all three are now cleared: intents can read team data (`TeamStorage`), check Pro without the SwiftUI environment (`PurchaseManager.isProNow()`), and navigate to a specific player or game on both iPhone and iPad (`STLRoute` + `AppRouter`).
 
@@ -17,6 +19,8 @@ Two planning assumptions turned out to be wrong, both in our favor:
 Committed on branch **`feature/app-intents-phase-0`**, branched from `main`. Not pushed — no remote branch, no PR.
 
 ```
+7f0642b Add GameRecapIntent, answering by voice without opening the app
+48569d4 Document Phase 2 in the handoff doc
 c1d73c2 Add FillLineupIntent on a shared AutoFillCoordinator
 dee85d2 Document Phase 1 in the handoff doc
 c16c39d Add Phase 1 App Intents: entities, Spotlight index, Siri phrases
@@ -37,7 +41,7 @@ Source: Asana section **"3.3 - Siri AI"** (`1217027047050411`) in *Stack the Lin
 |---|---|---|
 | `PlayerEntity` / `TeamEntity` + Spotlight index — **DONE** | `1216544711240780` | Free |
 | `FillLineupIntent` — **DONE** | `1215519098776981` (Phase 2) | Pro |
-| `GameRecapIntent` | `1216544711115108` | Pro |
+| `GameRecapIntent` — **DONE** | `1216544711115108` | Pro |
 | `FairPlayRuleIntent` | `1216543825469858` | Free |
 | Localization (Spanish, then French) | `1214429900445010` | Parallel track |
 
@@ -268,15 +272,80 @@ Net −185 lines in the two views.
 
 ---
 
-## 5. Phases 3–4 — NOT STARTED
+## 5. Phase 3 — DONE
 
-### Phase 3 — `GameRecapIntent` (Pro)
+### 5a. `Lineup Builder/GameRecap.swift` (new)
 
-`openAppWhenRun = false`. Reads the most recent `GameLog` via `TeamStorage`; composes from `SeasonStatsCalculator.compute` (`SeasonStatsCalculator.swift:30`), the `nonisolated` fair-play helpers on `Lineup` (`Models.swift` ~622–790), and `GameLog.pitchCounts`. Returns `ProvidesDialog & ShowsSnippetView`.
+`GameRecap` plus `GameRecapBuilder` — the whole answer, computed from one `GameLog`, with no UI and no store.
 
-Reuse `GameLogInsightsService`'s availability gating so an unsupported device degrades to the structured summary rather than failing. Disambiguate multiple same-day games by prompting on `team`.
+**Deliberately not a Foundation Models summarization.** `GameLogInsightsService` already does season-level prose across many games, which is the right shape for "what patterns do you see". A single-game recap is a set of facts a coach repeats to a parent — who pitched, how many pitches, who came up short on innings — and a model paraphrasing those is a way to get them subtly wrong. Everything here is counted.
 
-### Phase 4 — `FairPlayRuleIntent` (free)
+Two choices about *which* roster the recap describes, both load-bearing:
+- Players come from `log.playerSnapshot`, **not** the live roster. A coach who has since removed a player still wants to hear that they pitched. `SeasonStatsCalculator` filters by the live roster for the opposite and equally correct reason.
+- `absentPlayerIDs` on the synthetic lineup is left **empty**, even though some players carry `.absent` innings for a late arrival. That's what the app's own Fair Play rail does with a live lineup — only `playersUnderFieldingMinimum` exempts them. Making the recap kinder than the rail would be the recap being wrong.
+
+One guard worth knowing about: a rain-shortened game (2 innings against a 4-inning minimum) would put the whole roster "under", which is true and useless. `fieldingMinimumSkipped` reports the rule as un-appliable instead.
+
+### 5b. `Lineup.fairPlayFindings(players:config:)` (new, `Models.swift`)
+
+The prerequisite extraction, and the same story as `AutoFillCoordinator`. The "which fair-play rules are switched on, at what thresholds" logic had been copy-pasted onto **five** surfaces, and the copies have already drifted:
+
+| Surface | State |
+|---|---|
+| `LineupView.fairPlayWarningCount` | correct — now uses the shared helper |
+| `PositionSummaryView.fairPlaySection` | correct — now uses the shared helper |
+| `iPadDashboardView.matrixFairPlayFooter` | **omits both battery rules**, so it can show "All players meet fair play requirements" over a catcher-then-pitcher violation |
+| `iPadDashboardView.violationCount` (~line 160) | **ignores the config entirely** — counts infield/outfield/fielding minimums even when set to 0, and uses the default 4 rather than the configured value |
+| `iPadDashboardView.FairPlayRailView` | same as above |
+
+The recap would have been the sixth copy, and a recap reporting a clean game while the rail shows a violation is worse than no recap. **The three iPad divergences are real bugs and are deliberately left alone** — fixing them changes visible iPad badge counts, which deserves its own change and its own verification rather than riding along inside Phase 3.
+
+### 5c. THE PRO-GATE RULE, INVERTED (read alongside 4c)
+
+`GameRecapIntent` is `openAppWhenRun = false`, and that flips the Phase 2 rule exactly:
+
+- **`openAppWhenRun = true`** → **must not throw** on a failed entitlement check. The app comes forward regardless, and the coach lands on an unchanged screen with no explanation. Route to the paywall (4c).
+- **`openAppWhenRun = false`** → **must throw**. Nothing comes forward, so the thrown `localizedStringResource` *is* the entire answer. Verified: Spotlight shows "Game recaps are part of Pro. Open Stack the Lineup to upgrade." and the app never opens.
+
+`STLIntentError.needsPro(feature:)` exists for the second case only. Its doc comment says so, because the two intents doing opposite things looks like an inconsistency until you know why.
+
+### 5d. Writing for the ear, and for a box that clips
+
+Both of these were found by *looking at the result*, not by reading the code — neither is visible in a unit test that only checks the facts are right.
+
+- A spoken issue naming six players ("Jake Rivera, Tyler Nguyen, Drew Santos, Eli Park, Nate Coleman, and Leo Huang never played the outfield") is not something anyone can hold onto. The dialog now names three and counts the rest; the snippet still names everyone. Hence `RecapIssue` carrying names-plus-predicate rather than a finished sentence.
+- **A snippet view clips at a fixed height — it does not scroll.** Ten stacked batting-order rows pushed the fair-play verdict off the bottom entirely. The batting order is now one wrapping line, fair play sits *above* it (the reverse of the spoken order, for the opposite reason: spoken, nothing gets cut and last is what people remember), and the issue list caps at two with "+N more in the app".
+
+**Known limit:** in the Spotlight presentation the snippet gets whatever height is left after the dialog, and a recap with several fair-play issues still clips partway through the fair-play block. The dialog above it carries the complete answer, so nothing is lost — but the snippet is not the place to put anything load-bearing. Not checked in the Shortcuts app's (taller) result card.
+
+### 5e. `GameLogEntity`
+
+Added for the `game` parameter and for same-day disambiguation — a doubleheader is two logs on one date where "the newest" is a coin flip the coach can't see, so the intent prompts. Deliberately **not** `IndexedEntity`: indexing promises tap-through, and tap-through needs a `CSSearchableItemActionType` handler per type (3e). If games get indexed later, index and tap-through ship together or not at all.
+
+### 5f. `Analytics` is now `nonisolated`
+
+It only forwards to TelemetryDeck and reads no state; it was main-actor-isolated purely by the project default. A background-answering intent shouldn't hop to the main actor to record a signal.
+
+### Files added / touched in Phase 3
+
+```
+Lineup Builder/GameRecap.swift                    NEW  GameRecap, RecapIssue, RecapPitchingLine, builder
+Lineup Builder/AppIntents/GameRecapIntent.swift   NEW  the intent + GameRecapSnippetView
+Lineup Builder/AppIntents/GameLogEntity.swift     NEW  entity + query
+Lineup Builder/Models.swift                       FairPlayFindings + Lineup.fairPlayFindings
+Lineup Builder/LineupView.swift                   -18 lines, now shares the helper
+Lineup Builder/PositionSummaryView.swift          -14 lines, now shares the helper
+Lineup Builder/AppIntents/FillLineupIntent.swift  STLIntentError gains .needsPro/.noGames/.noSuchGame
+Lineup Builder/AppIntents/STLShortcuts.swift      +1 AppShortcut
+Lineup Builder/Analytics.swift                    nonisolated
+Lineup BuilderTests/GameRecapTests.swift          NEW  21 tests
+```
+
+---
+
+## 6. Phase 4 — NOT STARTED
+
+### `FairPlayRuleIntent` (free)
 
 `openAppWhenRun = false`. Params: `LeagueRulesetAppEnum` (Little League / Cal Ripken / Babe Ruth) + rule topic.
 
@@ -288,7 +357,7 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 ---
 
-## 6. Environment facts
+## 7. Environment facts
 
 - **Xcode 26.6, iOS 26.5 SDK. No iOS 27 SDK installed** — and it isn't needed. `AppIntent`/`AppEnum`/`EntityQuery`/`AppShortcutsProvider` are iOS 16; `AppEntity`/`IndexedEntity` (Spotlight semantic index) are iOS 18. Deployment target is already 26.x. Only *View Annotations* (Phase 3 of the parent ticket, out of scope) needs iOS 27.
   - Don't be misled by `xcrun simctl list runtimes`: an **iOS 27.0 beta runtime** (`24A5380i`) is installed. That's a runtime, not an SDK. `Platforms/iPhoneOS.platform/Developer/SDKs/` still holds only `iPhoneOS26.5.sdk`, so everything above stands.
@@ -298,7 +367,7 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 ---
 
-## 7. Verification performed
+## 8. Verification performed
 
 **Unit:** full suite green on every change.
 
@@ -325,16 +394,25 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 - **iPhone UI, unregressed:** cleared all positions → bolt → *Fill This Inning* on inning 1 → "Auto-filled 10 positions (inning 1)" toast with Undo. Switched to inning 3, filled again → "Auto-filled 10 positions (**inning 3**)". ✅ Confirms `currentInning` reaches `AutoFillScope.inning(_:)` rather than a hardcoded 0.
 - **iPad UI, unregressed:** cleared all positions → *Auto-Fill Open Positions* → *Fill Innings 1–7* → grid filled, "Some Positions Not Filled" alert rendering the shared `incompleteMessage(multiInning: true)`. ✅
 
+**Phase 3, end to end on iPhone 17 Pro, real archived game (Test Team vs Eagles, 5 innings, 3 pitchers with recorded pitch counts):**
+- **Not Pro:** Spotlight → "Game Recap" → banner reading "Game recaps are part of Pro. Open Stack the Lineup to upgrade." and **the app never opened**. ✅ Confirms both `openAppWhenRun = false` and that throwing is the right channel here (5c).
+- **Pro** (temporary DEBUG return in `isProNow()`, removed before commit): the full recap read back innings, all three pitchers with pitch counts, and the fair-play misses — with the app still closed. ✅
+- Snippet rendered team, headline, the pitching table with pitch counts, and the fair-play block. Batting order present but below the fold in this presentation — see the known limit in 5d.
+- Pluralization verified on the real data: "1 inning · 12 P" for a one-inning pitcher against "3 innings · 55 P".
+
+**Simulator gotcha that cost several round-trips:** after changing intent code, `simctl install` — *and even `simctl uninstall` followed by a fresh install* — can leave the **old intent binary running**. The dialog kept coming back with pre-fix copy while a unit test proved the new code was correct and `strings` proved it was in the installed dylib. Only `simctl shutdown` + `boot` picked up the change. **When verifying an App Intent, reboot the simulator after installing**, or you will "fix" code that was already right.
+
 **Not verifiable in a simulator** (needs a device): Siri *voice* invocation of the phrases, and whether the parameterized phrases ("Open ⟨player⟩ in Stack the Lineup") resolve a spoken name through `EntityStringQuery` as intended. The phrase set compiles and registers; only the speech path is unproven.
 
 **Simulator gotcha that cost time:** `mcp__Claude_Code_iOS_Simulator__control` takes coordinates in **device points** (the `attach` call reports the space, e.g. 402×874 for iPhone 17 Pro, 1032×1376 for iPad Pro 13"), *not* screenshot pixels. Passing screenshot coordinates makes every tap silently miss — they get clamped and land in a corner, which looks exactly like an unresponsive simulator. Convert: `point = pixel / screenshot_dimension × point_dimension`.
 
-## 8. Next session
+## 9. Next session
 
-1. **Start Phase 3** (`GameRecapIntent`). It's the first `openAppWhenRun = false` intent, so it's also the first real test of whether background-launching the whole app answers inside Siri's window — time it on a device (section 5).
-2. **Test every new intent cold, and every Pro gate without Pro.** Terminate the app first. See 2d-bis, 3e and 4c — all three bugs found so far were invisible warm or invisible with Pro, and Siri/Spotlight almost always cold-launch.
-3. **Verify the Siri phrases on a physical device.** The only Phase 1 claim not proven in the simulator (section 6). Do it before building more phrases on the same assumption.
-4. **Localization is now overdue.** Phases 1 and 2 shipped with `LocalizedStringResource` literals inline and **no string catalog in the repo** (`find . -name "*.xcstrings"` returns nothing). That was the cheap moment to add one. Phase 2 added the first dialog strings; it's still cheaper now than after Phases 3–4 add more — see `1214429900445010`.
+1. **Start Phase 4** (`FairPlayRuleIntent`) — the last one, and free. Note the hard constraint in section 6: the numbers must come from `FairPlayConfig`/`PitchingLimits`, never from a generation.
+2. **Test every new intent cold, without Pro, and after rebooting the simulator.** See 2d-bis, 3e, 4c and the reboot gotcha in section 8 — every bug found so far was invisible warm, invisible with Pro, or invisible without a reboot.
+3. **Fix the three iPad fair-play copies** (table in 5a). `matrixFairPlayFooter` can currently show "All players meet fair play requirements" over a real battery violation, and the rail and badge ignore the config entirely. `Lineup.fairPlayFindings` already exists to fix them with; it was left out of Phase 3 only because it changes visible iPad counts.
+4. **Verify the Siri phrases on a physical device.** The only Phase 1 claim not proven in the simulator (section 8). Do it before building more phrases on the same assumption.
+5. **Localization is now overdue.** Phases 1–3 shipped with `LocalizedStringResource` literals inline and **no string catalog in the repo** (`find . -name "*.xcstrings"` returns nothing). That was the cheap moment to add one. Phases 2 and 3 added the dialog strings; it's still cheaper now than after Phase 4 adds more — see `1214429900445010`.
 
 ### Verification commands
 
