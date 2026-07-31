@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**Phases 0–3 are built, verified end to end on iPhone and iPad, and covered by 193 passing unit tests. Phase 4 is not started.**
+**Phases 0–3 are built, verified end to end on iPhone and iPad, and covered by 196 passing unit tests. Phase 4 is not started.**
 
 Players and teams are searchable from the home screen today: type a name in Spotlight, tap the result, and the app opens that player on their Position Preferences — from a cold start. The ticket's open question is answered: **Spotlight surfacing is free** once entities are registered. `1216544711240780` is delivered.
 
@@ -19,6 +19,8 @@ Two planning assumptions turned out to be wrong, both in our favor:
 Committed on branch **`feature/app-intents-phase-0`**, branched from `main`. Not pushed — no remote branch, no PR.
 
 ```
+8ac8905 Fix three iPad fair-play checks that had drifted from the rules
+ee98c6f Document Phase 3 in the handoff doc
 7f0642b Add GameRecapIntent, answering by voice without opening the app
 48569d4 Document Phase 2 in the handoff doc
 c1d73c2 Add FillLineupIntent on a shared AutoFillCoordinator
@@ -294,11 +296,11 @@ The prerequisite extraction, and the same story as `AutoFillCoordinator`. The "w
 |---|---|
 | `LineupView.fairPlayWarningCount` | correct — now uses the shared helper |
 | `PositionSummaryView.fairPlaySection` | correct — now uses the shared helper |
-| `iPadDashboardView.matrixFairPlayFooter` | **omits both battery rules**, so it can show "All players meet fair play requirements" over a catcher-then-pitcher violation |
-| `iPadDashboardView.violationCount` (~line 160) | **ignores the config entirely** — counts infield/outfield/fielding minimums even when set to 0, and uses the default 4 rather than the configured value |
-| `iPadDashboardView.FairPlayRailView` | same as above |
+| `iPadDashboardView.matrixFairPlayFooter` | ~~omitted both battery rules~~ — fixed in `8ac8905` |
+| `iPadDashboardView.violationCount` (~line 160) | ~~ignored the config entirely, and double-counted a player in two rules~~ — fixed in `8ac8905` |
+| `iPadDashboardView.FairPlayRailView` | ~~same as above~~ — fixed in `8ac8905` |
 
-The recap would have been the sixth copy, and a recap reporting a clean game while the rail shows a violation is worse than no recap. **The three iPad divergences are real bugs and are deliberately left alone** — fixing them changes visible iPad badge counts, which deserves its own change and its own verification rather than riding along inside Phase 3.
+The recap would have been the sixth copy, and a recap reporting a clean game while the rail shows a violation is worse than no recap. The three iPad divergences were fixed in a separate change (`8ac8905`) rather than riding along inside Phase 3, since they change visible iPad badge counts. All five surfaces now share the helper, and the rail gained the two battery warning cards it never had.
 
 ### 5c. THE PRO-GATE RULE, INVERTED (read alongside 4c)
 
@@ -410,9 +412,8 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 1. **Start Phase 4** (`FairPlayRuleIntent`) — the last one, and free. Note the hard constraint in section 6: the numbers must come from `FairPlayConfig`/`PitchingLimits`, never from a generation.
 2. **Test every new intent cold, without Pro, and after rebooting the simulator.** See 2d-bis, 3e, 4c and the reboot gotcha in section 8 — every bug found so far was invisible warm, invisible with Pro, or invisible without a reboot.
-3. **Fix the three iPad fair-play copies** (table in 5a). `matrixFairPlayFooter` can currently show "All players meet fair play requirements" over a real battery violation, and the rail and badge ignore the config entirely. `Lineup.fairPlayFindings` already exists to fix them with; it was left out of Phase 3 only because it changes visible iPad counts.
-4. **Verify the Siri phrases on a physical device.** The only Phase 1 claim not proven in the simulator (section 8). Do it before building more phrases on the same assumption.
-5. **Localization is now overdue.** Phases 1–3 shipped with `LocalizedStringResource` literals inline and **no string catalog in the repo** (`find . -name "*.xcstrings"` returns nothing). That was the cheap moment to add one. Phases 2 and 3 added the dialog strings; it's still cheaper now than after Phase 4 adds more — see `1214429900445010`.
+3. **Verify the Siri phrases on a physical device.** The only Phase 1 claim not proven in the simulator (section 8). Do it before building more phrases on the same assumption.
+4. **Localization is now overdue.** Phases 1–3 shipped with `LocalizedStringResource` literals inline and **no string catalog in the repo** (`find . -name "*.xcstrings"` returns nothing). That was the cheap moment to add one. Phases 2 and 3 added the dialog strings; it's still cheaper now than after Phase 4 adds more — see `1214429900445010`.
 
 ### Verification commands
 
