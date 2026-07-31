@@ -2,7 +2,9 @@
 
 ## TL;DR
 
-**Phase 0 (foundations) is built, verified on iPhone and iPad, and covered by 135 passing unit tests. Phases 1–4 are not started.**
+**Phases 0 and 1 are built, verified end to end on iPhone and iPad, and covered by 157 passing unit tests. Phases 2–4 are not started.**
+
+Players and teams are searchable from the home screen today: type a name in Spotlight, tap the result, and the app opens that player on their Position Preferences — from a cold start. The ticket's open question is answered: **Spotlight surfacing is free** once entities are registered. `1216544711240780` is delivered.
 
 Three blockers stood between this app and any App Intent, and all three are now cleared: intents can read team data (`TeamStorage`), check Pro without the SwiftUI environment (`PurchaseManager.isProNow()`), and navigate to a specific player or game on both iPhone and iPad (`STLRoute` + `AppRouter`).
 
@@ -13,6 +15,8 @@ Two planning assumptions turned out to be wrong, both in our favor:
 Committed on branch **`feature/app-intents-phase-0`**, branched from `main`. Not pushed — no remote branch, no PR.
 
 ```
+c16c39d Add Phase 1 App Intents: entities, Spotlight index, Siri phrases
+ea93652 Bring the App Intents handoff doc up to date
 a60736d Fix deep links being dropped when they cold-launch the app
 3c6de3f Add App Intents foundations: shared read path, Pro check, deep-link routing
 ```
@@ -27,7 +31,7 @@ Source: Asana section **"3.3 - Siri AI"** (`1217027047050411`) in *Stack the Lin
 
 | Deliverable | Asana | Gating |
 |---|---|---|
-| `PlayerEntity` / `TeamEntity` + Spotlight index | `1216544711240780` | Free |
+| `PlayerEntity` / `TeamEntity` + Spotlight index — **DONE** | `1216544711240780` | Free |
 | `FillLineupIntent` | `1215519098776981` (Phase 2) | Pro |
 | `GameRecapIntent` | `1216544711115108` | Pro |
 | `FairPlayRuleIntent` | `1216543825469858` | Free |
@@ -46,7 +50,7 @@ Why they were cut: `InningAssignment` is `[UUID: FieldPosition]` — one positio
 
 ## 2. Phase 0 — DONE
 
-Build clean, **135 unit tests passing, 0 failures**, and verified end to end on both device idioms (section 5).
+Build clean and verified end to end on both device idioms (section 6). Test count at the time of this phase was 135; the suite now stands at **157 passing, 0 failures**.
 
 ### 2a. `Lineup Builder/TeamStorage.swift` (new)
 
@@ -103,7 +107,7 @@ The first cut of the router wired both consumers with `.onChange(of: router.requ
 
 Fix: `consumePendingRoute()` in both `ContentView` and `iPadDashboardView`, called from **both** `.onAppear` and `.onChange`, guarded by a `lastHandledRouteNonce` so a re-appearance can't re-apply the last route and yank the coach off a tab they just picked by hand.
 
-Verified on device idioms after the fix — see section 5.
+Verified on device idioms after the fix — see section 6.
 
 ### 2e. Player route destination
 
@@ -133,18 +137,78 @@ Untouched and deliberately left out of both commits: the two untracked `AppStore
 
 ---
 
-## 3. Phases 1–4 — NOT STARTED
+## 3. Phase 1 — DONE
 
-### Phase 1 — Entities + Spotlight (free)
+All in `Lineup Builder/AppIntents/`. New **files** in a synchronized root group join the app target automatically — no pbxproj edit was needed.
 
-New files in the app target:
-- `PlayerEntity: AppEntity, IndexedEntity` — id `UUID`, display from `Player.displayNameWithNumber`, jersey + team name as subtitle. `PlayerEntityQuery: EntityQuery & EntityStringQuery` backed by `TeamStorage`, so Siri resolves "Caleb" by name.
-- `TeamEntity: AppEntity, IndexedEntity`.
-- `FieldPositionAppEnum: AppEnum` mirroring `FieldPosition` (`Models.swift:20`, already a `String` enum with `displayName`). **A wrapper, not a conformance on `FieldPosition` itself** — `Models.swift` and `AutoFillEngine.swift` stay framework-independent, per the architecture note in `1215519098776981`.
-- `STLShortcuts: AppShortcutsProvider`.
-- `OpenPlayerIntent` / `OpenTeamIntent` — `openAppWhenRun = true`, route via `AppRouter`.
+### 3a. Entities
 
-Index on launch and after roster mutations. Exclude players not on the active roster. **Open question the ticket flags:** confirm during implementation whether Spotlight surfacing really is free once entities are registered.
+`PlayerEntity` and `TeamEntity` conform to `AppEntity, IndexedEntity, URLRepresentableEntity`. Both are **flattened snapshots** — a player carries their team's name so a result can say which roster it came from. Only `id` is authoritative; everything else is display data, and callers re-read the live record through the store by id.
+
+`PlayerEntity.allFromStorage()` reads **every** team, not just the active one. This deviates from the original plan ("exclude players not on the active roster"), which was written before `ContentView.applyRoute` learned to switch teams. It switches now, so a hit on another roster resolves correctly — and a coach running a spring and a fall team expects to find a name either way. The team name in the subtitle disambiguates.
+
+### 3b. Search ranking
+
+`PlayerSearch` / `TeamSearch` (in the entity files) are pure and unit-tested — Siri hands over a transcribed string with no structure, so this scoring *is* "did the coach mean this player."
+
+- `"12"`, `"number 12"` and `"#12"` all resolve to the same jersey. Siri transcribes the spoken form; Spotlight passes the typed one.
+- Case- and diacritic-insensitive, so "jose" finds "José".
+- A team-name match scores **below every player-name match**: "Tigers" lists the roster, but a player actually named Tiger still outranks their teammates.
+- No match returns nothing. Returning the whole roster on a miss would make Siri disambiguate over 14 children instead of admitting it didn't catch the name.
+
+### 3c. `FieldPositionAppEnum`
+
+A wrapper, **not** a conformance on `FieldPosition` — `Models.swift` and `AutoFillEngine.swift` stay framework-independent, per the architecture note in `1215519098776981`. The bridge is a hand-written exhaustive switch in both directions, so adding a position to `FieldPosition` fails the build here until it's given a spoken name. Synonyms carry what coaches actually say ("short", "first", "left"), which the formal display names don't cover.
+
+### 3d. Spotlight indexing
+
+`STLSpotlightIndexer.reindexIfNeeded()` runs at launch (`LineupBuilderApp`) and at the tail of `LineupStore.saveLocalOnly()`.
+
+**The signature guard is load-bearing.** `save()` fires on every position drag; an unconditional reindex would hammer CoreSpotlight throughout a game. The signature hashes only what the index displays — inning assignments, schedules and pitch counts are excluded; the game *count* is included because it appears in a team's subtitle. The save path passes its existing snapshot rather than re-reading storage.
+
+The signature is recorded **only after a fully successful pass**. Delete-then-index means a throw partway would otherwise cache a signature against an empty index, leaving Spotlight blank until the roster happened to change again.
+
+### 3e. THE SPOTLIGHT TAP-THROUGH TRAP (read this before Phases 2–4)
+
+`IndexedEntity` gets an entity **listed** in Spotlight. Tapping the result **only launches the app** — it lands on whatever tab was last open, which reads exactly like the feature being broken. Indexing alone is half a feature.
+
+`URLRepresentableEntity` looks like the fix and **is not**. Verified on iOS 26.5: adding `static let urlRepresentation: URLRepresentation = "stackthelineup://player/\(.id)"` changed nothing about tap-through — the result still just launched the app. (The conformance is kept: it's still correct for Shortcuts' Open-URL flows and for a future `OpenIntent`.)
+
+What actually fires is the **`CSSearchableItemActionType` user activity**. `ContentView.onContinueUserActivity` handles it and calls `STLRoute.fromSpotlightIdentifier`, which resolves by pulling any UUID out of the identifier and checking it against rosters we actually hold — rather than parsing an encoding AppIntents owns and doesn't document. An id matching nothing returns nil instead of guessing.
+
+### 3f. `AppRouter` is now a singleton
+
+Intents set routes from **outside the view tree**, often before `ContentView` exists — Siri and Spotlight almost always cold-launch. `AppRouter.shared` is what lets a request survive that gap; `ContentView` uses `@ObservedObject`, not `@StateObject`, because it no longer owns the object.
+
+That makes a request outlive its window, so `Request` now carries `createdAt` and a **first-ever** drain (`lastHandledRouteNonce == nil`) ignores anything older than 60s. Without it a second iPad window would open replaying a route from an hour ago. Live routing is untouched — the cold-launch case is milliseconds old.
+
+### Files added / touched in Phase 1
+
+```
+new:  Lineup Builder/AppIntents/PlayerEntity.swift        (entity, query, PlayerSearch)
+new:  Lineup Builder/AppIntents/TeamEntity.swift          (entity, query, TeamSearch)
+new:  Lineup Builder/AppIntents/FieldPositionAppEnum.swift
+new:  Lineup Builder/AppIntents/OpenIntents.swift         (Player / Team / Lineup)
+new:  Lineup Builder/AppIntents/STLShortcuts.swift
+new:  Lineup Builder/AppIntents/STLSpotlightIndexer.swift
+new:  Lineup BuilderTests/AppIntentEntityTests.swift      (17 tests)
+mod:  Lineup Builder/STLRoute.swift        (AppRouter.shared, Request.createdAt/isFresh,
+                                            fromSpotlightIdentifier, uuids(in:))
+mod:  Lineup Builder/ContentView.swift     (@ObservedObject router, onContinueUserActivity,
+                                            handleSpotlightSelection, freshness guard)
+mod:  Lineup Builder/iPadDashboardView.swift            (freshness guard)
+mod:  Lineup Builder/Models.swift                       (reindex hook in saveLocalOnly)
+mod:  Lineup Builder/LineupBuilderApp.swift             (reindex on launch)
+mod:  Lineup BuilderTests/STLRouteTests.swift           (12 -> 17 tests)
+```
+
+### Isolation gotcha
+
+`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and `nonisolated` on a struct propagates to `@Parameter`'s mutable stored property — a warning today, a hard error in Swift 6 mode. So: **entities, queries and the AppEnum are `nonisolated`; the intents are not.** Leaving intents on the default actor is also honest, since every `perform()` touches `AppRouter`.
+
+---
+
+## 4. Phases 2–4 — NOT STARTED
 
 ### Phase 2 — `FillLineupIntent` (Pro)
 
@@ -172,16 +236,17 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 ---
 
-## 4. Environment facts
+## 5. Environment facts
 
 - **Xcode 26.6, iOS 26.5 SDK. No iOS 27 SDK installed** — and it isn't needed. `AppIntent`/`AppEnum`/`EntityQuery`/`AppShortcutsProvider` are iOS 16; `AppEntity`/`IndexedEntity` (Spotlight semantic index) are iOS 18. Deployment target is already 26.x. Only *View Annotations* (Phase 3 of the parent ticket, out of scope) needs iOS 27.
-- Xcode project uses `PBXFileSystemSynchronizedRootGroup` — new **files** are free; a new **target** means editing exception sets. Another reason intents stay in the app target.
-- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. New types callable from intents must be explicitly `nonisolated` (`TeamStorage`, `STLRoute` both are).
+  - Don't be misled by `xcrun simctl list runtimes`: an **iOS 27.0 beta runtime** (`24A5380i`) is installed. That's a runtime, not an SDK. `Platforms/iPhoneOS.platform/Developer/SDKs/` still holds only `iPhoneOS26.5.sdk`, so everything above stands.
+- Xcode project uses `PBXFileSystemSynchronizedRootGroup` — new **files** are free (confirmed: the whole `AppIntents/` subfolder joined the app target with no pbxproj edit); a new **target** means editing exception sets. Another reason intents stay in the app target.
+- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Types callable from intents must be explicitly `nonisolated` (`TeamStorage`, `STLRoute`, both entities, both queries, the AppEnum). **The intents themselves must not be** — see the isolation gotcha in section 3.
 - Debug builds run on **simulators only, never Nick's physical devices** (standing rule from the July 2026 data wipe).
 
 ---
 
-## 5. Verification performed
+## 6. Verification performed
 
 **Unit:** full suite green on every change.
 
@@ -194,13 +259,24 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 - **Cold launch** (app terminated first) → `stackthelineup://history` → launched straight into History. ✅ *This is the case that exposed the bug in 2d-bis; it failed before the fix and passes after.*
 - `stackthelineup://player/<uuid>` → switched to Players, opened Edit Player scrolled to **Position Preferences**, values matching that player's roster row. ✅ Confirms both the route and the 0.35s scroll deferral on a real roster.
 
+**Phase 1, end to end on iPad Pro 13-inch (M5), seeded Test Team, 10 players:**
+- Launched the app once (indexes on `.task`), then **terminated it**. Home → Spotlight → typed "Drew Santos".
+- "Stack the Lineup → #9 Drew Santos / Test Team" appeared as its own section, above web results. ✅ **Spotlight surfacing is free** — no entitlement, no extra configuration beyond `IndexedEntity`.
+- Tapped the result **with the app terminated** → cold launch straight into Edit Player, scrolled to Position Preferences, values matching Drew's roster row (1B Strength, P/3B Capable, CF Emergency). ✅
+- *Before* the `CSSearchableItemActionType` handler, this same tap launched the app and went nowhere — see 3e. Both the plain `IndexedEntity` build and the `URLRepresentableEntity` build failed it.
+- Spotlight → "Stack the Lineup" → the **"Open Lineup" App Shortcut** appears as a tile in Top Hit. ✅ `STLShortcuts` is registered.
+- `xcrun simctl openurl` with `stackthelineup://player/<uuid>`, cold → same destination. ✅ Phase 0 routing unregressed.
+
+**Not verifiable in a simulator** (needs a device): Siri *voice* invocation of the phrases, and whether the parameterized phrases ("Open ⟨player⟩ in Stack the Lineup") resolve a spoken name through `EntityStringQuery` as intended. The phrase set compiles and registers; only the speech path is unproven.
+
 **Simulator gotcha that cost time:** `mcp__Claude_Code_iOS_Simulator__control` takes coordinates in **device points** (the `attach` call reports the space, e.g. 402×874 for iPhone 17 Pro, 1032×1376 for iPad Pro 13"), *not* screenshot pixels. Passing screenshot coordinates makes every tap silently miss — they get clamped and land in a corner, which looks exactly like an unresponsive simulator. Convert: `point = pixel / screenshot_dimension × point_dimension`.
 
-## 6. Next session
+## 7. Next session
 
-1. **Start Phase 1.** `TeamStorage.loadTeamsForReading()` is the entry point for `PlayerEntityQuery`.
-2. **Confirm Spotlight surfacing is free** with registered entities — the ticket's open question, and it determines whether `1216544711240780` is a byproduct or its own build.
-3. When wiring `OpenPlayerIntent`, **test it cold** — terminate the app first. See 2d-bis; a warm-only test will not catch the failure mode that matters.
+1. **Start Phase 2** (`FillLineupIntent`) with the `AutoFillCoordinator` extraction — that refactor is the real work; the intent on top of it is small.
+2. **Test every new intent cold.** Terminate the app first. See 2d-bis and 3e — both bugs found so far were invisible warm, and Siri/Spotlight almost always cold-launch.
+3. **Verify the Siri phrases on a physical device.** The only Phase 1 claim not proven in the simulator (section 6). Do it before building more phrases on the same assumption.
+4. **Localization is now overdue-ish.** Phase 1 shipped with `LocalizedStringResource` literals inline and **no string catalog in the repo** (`find . -name "*.xcstrings"` returns nothing). That was the cheap moment to add one. It's still cheaper now than after Phases 2–4 add dialog strings — see `1214429900445010`.
 
 ### Verification commands
 
