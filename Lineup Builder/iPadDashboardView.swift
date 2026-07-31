@@ -157,13 +157,17 @@ private struct iPadNavBar: View {
     @State private var showingAddTeam = false
     @State private var showingSettings = false
 
+    /// Distinct players implicated in a fair-play rule the team actually has
+    /// switched on. Previously this called the rule helpers directly, which
+    /// meant it counted infield/outfield/fielding-minimum misses even for teams
+    /// that had set those minimums to 0, and measured against the hardcoded
+    /// default of 4 rather than the configured value. It also summed per-rule
+    /// counts, so one player missing both infield and outfield showed as 2.
     private var violationCount: Int {
-        let active = store.lineup.activePlayers(from: store.players)
-        let backToBack = store.lineup.playersWithBackToBackBench(from: store.players)
-        return store.lineup.playersWithoutInfield(players: active).count
-             + store.lineup.playersWithoutOutfield(players: active).count
-             + store.lineup.playersUnderFieldingMinimum(players: active).count
-             + backToBack.count
+        store.lineup
+            .fairPlayFindings(players: store.players, config: store.fairPlayConfig)
+            .implicatedPlayerIDs
+            .count
     }
 
     var body: some View {
@@ -311,20 +315,26 @@ private struct FairPlayRailView: View {
     private var activePlayers: [Player] {
         store.lineup.activePlayers(from: store.players)
     }
-    private var noInfield: [Player] {
-        store.lineup.playersWithoutInfield(players: activePlayers)
+
+    /// Every rule evaluated once against the team's own config. These used to
+    /// call the rule helpers directly, which flagged players against minimums
+    /// the team had switched off and measured the fielding minimum at the
+    /// hardcoded default of 4 instead of the configured number.
+    private var findings: FairPlayFindings {
+        store.lineup.fairPlayFindings(players: store.players, config: store.fairPlayConfig)
     }
-    private var noOutfield: [Player] {
-        store.lineup.playersWithoutOutfield(players: activePlayers)
-    }
-    private var underMin: [Player] {
-        store.lineup.playersUnderFieldingMinimum(players: activePlayers)
-    }
-    private var backToBack: [Player] {
-        store.lineup.playersWithBackToBackBench(from: store.players)
-    }
+
+    private var noInfield: [Player]   { findings.withoutInfield }
+    private var noOutfield: [Player]  { findings.withoutOutfield }
+    private var underMin: [Player]    { findings.underFieldingMinimum }
+    private var backToBack: [Player]  { findings.backToBackBench }
+
+    /// Players counted once each, plus open field slots. The two units in one
+    /// number predate this change and the pill's copy ("N fair-play issues")
+    /// covers both; what changed is that a player breaking two rules no longer
+    /// counts twice.
     private var violationCount: Int {
-        noInfield.count + noOutfield.count + underMin.count + backToBack.count + unfilledPositions.count
+        findings.implicatedPlayerIDs.count + unfilledPositions.count
     }
     private var hasAnyAssignments: Bool {
         store.lineup.innings.contains { !$0.assignments.isEmpty }
@@ -414,10 +424,7 @@ private struct FairPlayRailView: View {
             // Inline warning cards
             if hasAnyAssignments {
                 FairPlayInlineWarnings(
-                    noInfield: noInfield,
-                    noOutfield: noOutfield,
-                    underMin: underMin,
-                    backToBack: backToBack,
+                    findings: findings,
                     unfilledSummary: unfilledPositionsSummary
                 )
                 .padding(.horizontal, 16)
@@ -500,15 +507,19 @@ private struct FairPlayStatusPill: View {
 // MARK: - Fair Play Inline Warnings
 
 private struct FairPlayInlineWarnings: View {
-    let noInfield: [Player]
-    let noOutfield: [Player]
-    let underMin: [Player]
-    let backToBack: [Player]
+    /// Every rule, so the cards can account for everything the status pill
+    /// counts. The battery rules were previously missing here, which was
+    /// survivable only because the pill wasn't counting them either.
+    let findings: FairPlayFindings
     let unfilledSummary: String?
 
+    private var noInfield: [Player]   { findings.withoutInfield }
+    private var noOutfield: [Player]  { findings.withoutOutfield }
+    private var underMin: [Player]    { findings.underFieldingMinimum }
+    private var backToBack: [Player]  { findings.backToBackBench }
+
     private var allClear: Bool {
-        noInfield.isEmpty && noOutfield.isEmpty && underMin.isEmpty
-            && backToBack.isEmpty && unfilledSummary == nil
+        findings.isEmpty && unfilledSummary == nil
     }
 
     var body: some View {
@@ -561,6 +572,22 @@ private struct FairPlayInlineWarnings: View {
                         color: .orange,
                         title: "Under minimum innings fielded",
                         detail: underMin.map { $0.firstName }.joined(separator: ", ")
+                    )
+                }
+                // Red, like the other hard rules: these are league restrictions
+                // on a kid's arm, not playing-time fairness.
+                if !findings.catcherThenPitcher.isEmpty {
+                    FairPlayWarningCard(
+                        color: .red,
+                        title: "Caught, then pitched",
+                        detail: findings.catcherThenPitcher.map { $0.firstName }.joined(separator: ", ")
+                    )
+                }
+                if !findings.pitcherThenCatcher.isEmpty {
+                    FairPlayWarningCard(
+                        color: .red,
+                        title: "Pitched, then caught",
+                        detail: findings.pitcherThenCatcher.map { $0.firstName }.joined(separator: ", ")
                     )
                 }
             }
@@ -1468,17 +1495,14 @@ private struct iPadPositionsPane: View {
     /// the always-on Fair Play rail, so no warning list is duplicated here.
     @ViewBuilder
     private var matrixFairPlayFooter: some View {
-        let config = store.fairPlayConfig
         let hasAssignments = store.lineup.innings.contains { !$0.assignments.isEmpty }
-        let noInfield = config.minimumInfieldInnings > 0
-            ? store.lineup.playersWithoutInfield(players: activePlayers) : []
-        let noOutfield = config.minimumOutfieldInnings > 0
-            ? store.lineup.playersWithoutOutfield(players: activePlayers) : []
-        let underMin = config.minimumFieldingInnings > 0
-            ? store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings) : []
-        let backToBack = config.noConsecutiveBench
-            ? store.lineup.playersWithBackToBackBench(from: store.players) : []
-        let allClear = noInfield.isEmpty && noOutfield.isEmpty && underMin.isEmpty && backToBack.isEmpty
+        // This version checked four rules by hand and silently omitted both
+        // battery rules, so it could promise "all players meet fair play
+        // requirements" over a live catcher-then-pitcher violation. An all-clear
+        // that isn't true is worse than no all-clear at all.
+        let allClear = store.lineup
+            .fairPlayFindings(players: store.players, config: store.fairPlayConfig)
+            .isEmpty
 
         if hasAssignments && allClear {
             HStack(spacing: 7) {

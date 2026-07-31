@@ -337,6 +337,64 @@ final class GameRecapTests: XCTestCase {
         XCTAssertTrue(findings.backToBackBench.isEmpty)
     }
 
+    func testABatteryViolationAloneIsEnoughToBreakTheAllClear() {
+        // The iPad matrix footer used to check four rules by hand and omit both
+        // battery rules, so it could render "All players meet fair play
+        // requirements" over a live catcher-then-pitcher violation. Every
+        // surface now asks fairPlayFindings, so this is the guard for all of them.
+        let tyler = makePlayer("Tyler", "Nguyen")
+        var team = teamWithNoRules()
+        team.fairPlayConfig.catcherToPitcherThreshold = 2
+
+        let caught: [UUID: FieldPosition] = [tyler.id: .catcher]
+        let pitched: [UUID: FieldPosition] = [tyler.id: .pitcher]
+        let lineup = Lineup(
+            battingOrder: [tyler.id],
+            innings: innings([caught, caught, pitched])
+        )
+
+        let findings = lineup.fairPlayFindings(players: [tyler], config: team.fairPlayConfig)
+        XCTAssertEqual(findings.catcherThenPitcher.map(\.displayName), ["Tyler Nguyen"])
+        XCTAssertFalse(findings.isEmpty, "An all-clear here would be a lie")
+    }
+
+    func testABatteryThresholdOfZeroSwitchesTheRuleOff() {
+        let tyler = makePlayer("Tyler", "Nguyen")
+        let caught: [UUID: FieldPosition] = [tyler.id: .catcher]
+        let pitched: [UUID: FieldPosition] = [tyler.id: .pitcher]
+        let lineup = Lineup(
+            battingOrder: [tyler.id],
+            innings: innings([caught, caught, pitched])
+        )
+
+        let findings = lineup.fairPlayFindings(
+            players: [tyler], config: teamWithNoRules().fairPlayConfig
+        )
+        XCTAssertTrue(findings.catcherThenPitcher.isEmpty)
+        XCTAssertTrue(findings.isEmpty)
+    }
+
+    func testTheFieldingMinimumUsesTheConfiguredNumberNotTheDefault() {
+        // The iPad badge and rail called playersUnderFieldingMinimum without a
+        // minimum, so they measured every team against the hardcoded 4.
+        let player = makePlayer("Cam", "Torres")
+        var config = teamWithNoRules().fairPlayConfig
+        config.minimumFieldingInnings = 2
+
+        let onField: [UUID: FieldPosition] = [player.id: .pitcher]
+        let benched: [UUID: FieldPosition] = [player.id: .bench]
+        // Three fielding innings: under the old default of 4, over a config of 2.
+        let lineup = Lineup(
+            battingOrder: [player.id],
+            innings: innings([onField, onField, onField, benched])
+        )
+
+        let findings = lineup.fairPlayFindings(players: [player], config: config)
+        XCTAssertTrue(findings.underFieldingMinimum.isEmpty,
+                      "3 fielding innings clears a configured minimum of 2")
+        XCTAssertEqual(findings.minimumFieldingInnings, 2)
+    }
+
     func testAPlayerBreakingTwoRulesCountsOnce() {
         // The badges count coaches' worth of work, not violations — one player
         // missing both infield and outfield is one person to go fix.
