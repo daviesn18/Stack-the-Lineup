@@ -12,42 +12,42 @@ import XCTest
 // These run in DEBUG, so TeamStorage.load() reads local UserDefaults only and the
 // iCloud KV store is never consulted. That keeps them deterministic.
 //
-// SAFETY: the test host is the real app, so UserDefaults.standard here is the
-// app's own store. setUp/tearDown snapshot and restore every key touched so a
-// test run can never destroy a developer's simulator roster.
+// ISOLATION: these run against a private UserDefaults suite, never .standard.
+//
+// They used to use .standard and guard it with a setUp/tearDown snapshot-restore.
+// That could not work: the test host IS the real app, so .standard here is the
+// running app's own store, and LineupStore.saveLocalOnly() writes these same three
+// keys from a detached Task (Models.swift). setUp() cleared the keys synchronously
+// and a pending app write could land before the assertion read -- which is why
+// testNoStoredDataReportsEmpty, the only test asserting *absence*, failed on any
+// simulator that had ever held a roster while the suite still reported green on a
+// fresh one. The snapshot dance was guarding against a synchronous writer while the
+// real writer was async.
+//
+// A private suite removes the shared mutable state instead of trying to out-race
+// it, and as a side effect these tests no longer touch a developer's roster at all.
 
 @MainActor
 final class TeamStorageTests: XCTestCase {
 
     // MARK: - Setup / Teardown
 
-    private var savedTeams:    Data?
-    private var savedSavedAt:  Any?
-    private var savedActiveID: String?
+    /// Private to this suite. Never the app's store.
+    private static let suiteName = "com.stackthelineup.tests.TeamStorage"
+
+    private var defaults: UserDefaults!
 
     override func setUp() {
         super.setUp()
-        let d = UserDefaults.standard
-        savedTeams    = d.data(forKey: TeamStorage.teamsKey)
-        savedSavedAt  = d.object(forKey: TeamStorage.savedAtKey)
-        savedActiveID = d.string(forKey: TeamStorage.activeTeamKey)
-        clearKeys()
+        // Clear first: a crashed previous run can leave the domain populated.
+        UserDefaults.standard.removePersistentDomain(forName: Self.suiteName)
+        defaults = UserDefaults(suiteName: Self.suiteName)
     }
 
     override func tearDown() {
-        let d = UserDefaults.standard
-        clearKeys()
-        if let savedTeams    { d.set(savedTeams,    forKey: TeamStorage.teamsKey) }
-        if let savedSavedAt  { d.set(savedSavedAt,  forKey: TeamStorage.savedAtKey) }
-        if let savedActiveID { d.set(savedActiveID, forKey: TeamStorage.activeTeamKey) }
+        defaults?.removePersistentDomain(forName: Self.suiteName)
+        defaults = nil
         super.tearDown()
-    }
-
-    private func clearKeys() {
-        let d = UserDefaults.standard
-        d.removeObject(forKey: TeamStorage.teamsKey)
-        d.removeObject(forKey: TeamStorage.savedAtKey)
-        d.removeObject(forKey: TeamStorage.activeTeamKey)
     }
 
     // MARK: - Helpers
@@ -65,16 +65,16 @@ final class TeamStorageTests: XCTestCase {
 
     private func write(_ teams: [Team], activeID: UUID?) {
         let data = try! JSONEncoder().encode(teams)
-        UserDefaults.standard.set(data, forKey: TeamStorage.teamsKey)
+        defaults.set(data, forKey: TeamStorage.teamsKey)
         if let activeID {
-            UserDefaults.standard.set(activeID.uuidString, forKey: TeamStorage.activeTeamKey)
+            defaults.set(activeID.uuidString, forKey: TeamStorage.activeTeamKey)
         }
     }
 
     // MARK: - empty
 
     func testNoStoredDataReportsEmpty() {
-        guard case .empty(let activeID) = TeamStorage.load() else {
+        guard case .empty(let activeID) = TeamStorage.load(defaults: defaults) else {
             return XCTFail("A genuine first launch must report .empty so migration can run")
         }
         XCTAssertNil(activeID)
@@ -83,9 +83,9 @@ final class TeamStorageTests: XCTestCase {
     // MARK: - decodeFailed
 
     func testUndecodableBlobReportsDecodeFailedNotEmpty() {
-        UserDefaults.standard.set(Data("not json".utf8), forKey: TeamStorage.teamsKey)
+        defaults.set(Data("not json".utf8), forKey: TeamStorage.teamsKey)
 
-        guard case .decodeFailed = TeamStorage.load() else {
+        guard case .decodeFailed = TeamStorage.load(defaults: defaults) else {
             return XCTFail(
                 "A corrupt blob must NOT report .empty — that path runs migration and overwrites iCloud."
             )
@@ -98,7 +98,7 @@ final class TeamStorageTests: XCTestCase {
         let teams = [makeTeam("Reds"), makeTeam("Tigers")]
         write(teams, activeID: teams[1].id)
 
-        guard case .loaded(let loaded, let activeID) = TeamStorage.load() else {
+        guard case .loaded(let loaded, let activeID) = TeamStorage.load(defaults: defaults) else {
             return XCTFail("Valid stored data should decode")
         }
         XCTAssertEqual(loaded.map(\.name), ["Reds", "Tigers"])
@@ -114,7 +114,7 @@ final class TeamStorageTests: XCTestCase {
         team.gameLogs = [makeLog(old, "Old"), makeLog(new, "New"), makeLog(mid, "Mid")]
         write([team], activeID: team.id)
 
-        guard case .loaded(let loaded, _) = TeamStorage.load() else {
+        guard case .loaded(let loaded, _) = TeamStorage.load(defaults: defaults) else {
             return XCTFail("Valid stored data should decode")
         }
         XCTAssertEqual(loaded[0].gameLogs.map(\.opponent), ["New", "Mid", "Old"])
@@ -123,10 +123,10 @@ final class TeamStorageTests: XCTestCase {
     func testMalformedActiveIDIsIgnoredRatherThanFatal() {
         let teams = [makeTeam("Reds")]
         let data = try! JSONEncoder().encode(teams)
-        UserDefaults.standard.set(data, forKey: TeamStorage.teamsKey)
-        UserDefaults.standard.set("not-a-uuid", forKey: TeamStorage.activeTeamKey)
+        defaults.set(data, forKey: TeamStorage.teamsKey)
+        defaults.set("not-a-uuid", forKey: TeamStorage.activeTeamKey)
 
-        guard case .loaded(let loaded, let activeID) = TeamStorage.load() else {
+        guard case .loaded(let loaded, let activeID) = TeamStorage.load(defaults: defaults) else {
             return XCTFail("A bad active-team ID must not prevent teams from loading")
         }
         XCTAssertEqual(loaded.count, 1)
@@ -139,7 +139,7 @@ final class TeamStorageTests: XCTestCase {
         let teams = [makeTeam("Reds"), makeTeam("Tigers")]
         write(teams, activeID: nil)
 
-        let result = TeamStorage.loadTeamsForReading()
+        let result = TeamStorage.loadTeamsForReading(defaults: defaults)
         XCTAssertEqual(result.teams.count, 2)
         XCTAssertEqual(result.activeTeam?.name, "Reds",
                        "With no stored active team, an intent should answer about the first team")
@@ -149,14 +149,14 @@ final class TeamStorageTests: XCTestCase {
         let teams = [makeTeam("Reds"), makeTeam("Tigers")]
         write(teams, activeID: teams[1].id)
 
-        XCTAssertEqual(TeamStorage.loadTeamsForReading().activeTeam?.name, "Tigers")
+        XCTAssertEqual(TeamStorage.loadTeamsForReading(defaults: defaults).activeTeam?.name, "Tigers")
     }
 
     func testReadingReportsNothingOnCorruptData() {
         // An intent should say "no teams yet" rather than attempt recovery.
-        UserDefaults.standard.set(Data("not json".utf8), forKey: TeamStorage.teamsKey)
+        defaults.set(Data("not json".utf8), forKey: TeamStorage.teamsKey)
 
-        let result = TeamStorage.loadTeamsForReading()
+        let result = TeamStorage.loadTeamsForReading(defaults: defaults)
         XCTAssertTrue(result.teams.isEmpty)
         XCTAssertNil(result.activeTeam)
     }

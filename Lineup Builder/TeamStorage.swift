@@ -61,8 +61,17 @@ nonisolated enum TeamStorage {
     /// install of the bundle ID on the same Apple ID with no dev/prod split, so a
     /// debug read/write pair can clobber real devices. This caused the July 2026
     /// data wipe.
-    static func load() -> LoadResult {
-        let defaults  = UserDefaults.standard
+    ///
+    /// `defaults` is injectable **for tests only**; production always wants
+    /// `.standard`. The unit tests run inside the real app as their test host, so
+    /// `.standard` there is the *live app's* store — and `LineupStore.saveLocalOnly()`
+    /// writes these same three keys from a detached `Task`. A test that cleared the
+    /// keys could have the app write them back before it read, which is exactly what
+    /// made `testNoStoredDataReportsEmpty` fail on any simulator that had ever held a
+    /// roster. Passing a private suite removes the shared mutable state rather than
+    /// trying to out-race it. Note this injects the *local* store only: the KV store
+    /// is untouched because DEBUG never reads it.
+    static func load(defaults: UserDefaults = .standard) -> LoadResult {
         let localData = defaults.data(forKey: teamsKey)
 
         #if DEBUG
@@ -107,8 +116,10 @@ nonisolated enum TeamStorage {
     /// first-launch/decode-failure distinction — i.e. every App Intent, which
     /// should report "no teams yet" identically in both cases rather than
     /// attempting recovery. Never mutates storage.
-    static func loadTeamsForReading() -> (teams: [Team], activeTeam: Team?) {
-        guard case .loaded(let teams, let activeID) = load() else {
+    ///
+    /// `defaults` is injectable for tests on the same terms as `load(defaults:)`.
+    static func loadTeamsForReading(defaults: UserDefaults = .standard) -> (teams: [Team], activeTeam: Team?) {
+        guard case .loaded(let teams, let activeID) = load(defaults: defaults) else {
             return ([], nil)
         }
         let active = teams.first { $0.id == activeID } ?? teams.first

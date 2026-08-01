@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 248 passing unit tests. Every intent in 3.3 scope is delivered, plus a follow-on pitch-eligibility intent and the discovery surfaces (section 6bis).**
+**Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 248 passing unit tests (0 failures — see 6ter). Every intent in 3.3 scope is delivered, plus a follow-on pitch-eligibility intent and the discovery surfaces (section 6bis).**
 
 > **One thing is still waiting on Nick — see 9a.2.** Parameterized Siri phrases don't surface in typed Spotlight, which makes the physical-device voice check a blocker rather than a nice-to-have.
 >
@@ -474,6 +474,24 @@ Lineup BuilderTests/PitchEligibilityAnswerTests.swift    NEW  16 tests
 
 ---
 
+## 6ter. `TeamStorageTests` shared a mutable store with the running app (FIXED 2026-08-01)
+
+`testNoStoredDataReportsEmpty()` failed on every simulator that had ever held a roster, and passed on a fresh one — which is how earlier phases could honestly report "0 failures" while this sat there.
+
+**The race.** `TeamStorage.load()` hardcoded `UserDefaults.standard`. The test host *is* the real app, so `.standard` in these tests was the live app's store — and `LineupStore.saveLocalOnly()` writes the same three keys from a `Task.detached` hopping to `MainActor.run` (`Models.swift:1297`), fired on launch by the dedup/normalize pass at `Models.swift:1610`. `setUp()` cleared the keys synchronously; a pending app write could land before the assertion read. The xcresult confirms the branch: `TeamStorageTests.swift:78`, the `XCTFail` — `load()` returned `.loaded`, so the keys were repopulated between the clear and the read.
+
+**Why the old guard could never work.** The file carried a `setUp`/`tearDown` snapshot-restore billed as SAFETY. It was guarding against a *synchronous* writer while the actual writer was *asynchronous*. It also meant every run mutated the developer's real simulator roster and relied on `tearDown` running to put it back.
+
+**The fix.** `load(defaults:)` and `loadTeamsForReading(defaults:)` now take an injectable store defaulting to `.standard`, so no production call site changed. The tests use a private suite (`com.stackthelineup.tests.TeamStorage`), cleared in `setUp` as well as `tearDown` because a crashed run can leave the domain populated. The snapshot dance is gone — there is nothing left to protect.
+
+Only the *local* store is injectable. The KV store is untouched, which is fine because DEBUG never reads it (the July 2026 wipe rule).
+
+`testNoStoredDataReportsEmpty` was the only test asserting *absence*, which is why it lost most often — but the whole class was racy, since a stray app write could equally overwrite another test's fixture. Verified after the fix: 248 passed / 0 failed on the same simulator that had been failing, and the Test Team roster was still intact afterwards.
+
+**If you add storage tests, do not reach for `UserDefaults.standard`** — take the suite. Any future test that asserts on the absence of app-written state will hit this same race.
+
+---
+
 ## 7. Environment facts
 
 - **Xcode 26.6, iOS 26.5 SDK. No iOS 27 SDK installed** — and it isn't needed. `AppIntent`/`AppEnum`/`EntityQuery`/`AppShortcutsProvider` are iOS 16; `AppEntity`/`IndexedEntity` (Spotlight semantic index) are iOS 18. Deployment target is already 26.x. Only *View Annotations* (Phase 3 of the parent ticket, out of scope) needs iOS 27.
@@ -564,7 +582,7 @@ Lineup Builder.xcscheme  BuildableName → "Stack the Lineup.app"   ×3
 - No Swift source references the bundle or executable name, so the blast radius is entirely build settings + the scheme.
 - Reverting is `git revert` of this commit — nothing else depends on it.
 
-**Test result after the rename: 247 passed, 1 failed.** The failure is `TeamStorageTests.testNoStoredDataReportsEmpty()`, and it is **pre-existing, not caused by the rename** — verified by running that suite against unmodified `HEAD` (99ae3bc) in a separate worktree, where it fails identically. It reads `UserDefaults.standard` in the test host and expects a virgin container, so it fails on any simulator that has run the app. Worth a ticket on its own; it makes the suite permanently red on a used simulator.
+**Test result after the rename: 247 passed, 1 failed** — `TeamStorageTests.testNoStoredDataReportsEmpty()`, **pre-existing, not caused by the rename** (verified against unmodified `HEAD` 99ae3bc in a separate worktree, where it failed identically). **Fixed separately — see 6ter. The suite is now 248 / 0.**
 
 **Still wrong, and not fixed:** `LineupView.swift:259` hardcodes `.navigationTitle("Lineup Builder")` — the old name, as the large title on the Lineup tab, which is far more visible than the `ShortcutsLink` button ever was. (`PDFGenerator.swift:457` uses it as a fallback header too.) Left alone deliberately: same product-identity call, and it's app copy rather than a build setting, so it's a one-word edit whenever you want it.
 
