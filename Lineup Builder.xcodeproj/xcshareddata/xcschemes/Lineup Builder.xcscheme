@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "720846F62F53C48900F70E89"
-               BuildableName = "Lineup Builder.app"
+               BuildableName = "Stack the Lineup.app"
                BlueprintName = "Lineup Builder"
                ReferencedContainer = "container:Lineup Builder.xcodeproj">
             </BuildableReference>
@@ -81,7 +81,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "720846F62F53C48900F70E89"
-            BuildableName = "Lineup Builder.app"
+            BuildableName = "Stack the Lineup.app"
             BlueprintName = "Lineup Builder"
             ReferencedContainer = "container:Lineup Builder.xcodeproj">
          </BuildableReference>
@@ -101,7 +101,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "720846F62F53C48900F70E89"
-            BuildableName = "Lineup Builder.app"
+            BuildableName = "Stack the Lineup.app"
             BlueprintName = "Lineup Builder"
             ReferencedContainer = "container:Lineup Builder.xcodeproj">
          </BuildableReference>

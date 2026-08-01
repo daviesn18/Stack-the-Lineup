@@ -4,7 +4,9 @@
 
 **Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 248 passing unit tests. Every intent in 3.3 scope is delivered, plus a follow-on pitch-eligibility intent and the discovery surfaces (section 6bis).**
 
-> **Two things are waiting on Nick — see 9a.** `ShortcutsLink` renders the wrong app name on the new Settings screen (a one-line build-setting change, but it's shipping bundle metadata). And parameterized Siri phrases don't surface in typed Spotlight, which makes the physical-device voice check a blocker rather than a nice-to-have. Neither is a code defect; both need a decision.
+> **One thing is still waiting on Nick — see 9a.2.** Parameterized Siri phrases don't surface in typed Spotlight, which makes the physical-device voice check a blocker rather than a nice-to-have.
+>
+> **9a.1 (`ShortcutsLink` app name) is fixed and verified on screen**, but it cost more than the doc predicted: the prescribed `INFOPLIST_KEY_CFBundleName` fix does nothing, and the only lever is `PRODUCT_NAME` — which also renames the executable and the `.app` wrapper. **Read 9a.1 before shipping it**; backing it out is one `git revert`.
 
 A coach can now ask what their own rules are without opening the app: "How many innings do I need to play someone in the infield?" and "how many days rest does 33 pitches buy?" both answer by voice, free, from that team's stored config. `1216543825469858` is delivered — but note it shipped **team-scoped rather than league-scoped**, which is a scope change from the original ticket; see section 6.
 
@@ -539,16 +541,32 @@ Lineup BuilderTests/PitchEligibilityAnswerTests.swift    NEW  16 tests
 
 ### 9a. OPEN — needs Nick's decision (2026-07-31)
 
-Two things left deliberately unresolved rather than decided unilaterally. Both are small; neither is a code question.
+**1. `ShortcutsLink` shows the wrong app name. — DONE 2026-08-01, but read the correction.**
 
-**1. `ShortcutsLink` shows the wrong app name.**
+The button at the bottom of Settings › Siri Shortcuts read **"Lineup Builder shortcuts"** — the Xcode target name — while every phrase above it says "Stack the Lineup". On a screen whose whole job is teaching the name a coach has to say out loud, that was the one wrong word on it. It now reads **"Stack the Lineup shortcuts"**, verified on screen (iPhone 17 Pro, fresh install, simulator rebooted). At 16 characters it renders in full — no truncation, no ellipsis.
 
-The button at the bottom of Settings › Siri Shortcuts reads **"Lineup Builder shortcuts"** — the Xcode target name — while every phrase above it says "Stack the Lineup". On a screen whose whole job is teaching the name a coach has to say out loud, that's the one wrong word on it.
+**The fix this doc previously prescribed does not work, and the "one-line build setting" framing was wrong.** Both dead ends were tried and measured:
 
-- Cause: `ShortcutsLink` labels itself from **`CFBundleName`**, which inherits `PRODUCT_NAME = $(TARGET_NAME)` = `Lineup Builder`. `CFBundleDisplayName` is already correctly `Stack the Lineup` (pbxproj lines 683 / 734), which is why the home screen and every `\(.applicationName)` phrase are right.
-- Fix: add `INFOPLIST_KEY_CFBundleName = "Stack the Lineup"` to the app target's Debug and Release build settings.
-- Why it wasn't just done: `CFBundleName` is shipping bundle metadata on a released app, and Apple recommends **≤ 15 characters** — "Stack the Lineup" is 16. It'll almost certainly render fine, but it's a product-identity call, not an engineering one.
-- If you'd rather not touch it: drop `ShortcutsLink` and use a plain `Button` opening `shortcuts://`, accepting that it lands on the Shortcuts home rather than this app's section.
+- `INFOPLIST_KEY_CFBundleName = "Stack the Lineup"` — **no effect.** Built `Info.plist` still read `Lineup Builder`.
+- Adding `CFBundleName` directly to `Lineup-Builder-Info.plist` — **also no effect.** With `GENERATE_INFOPLIST_FILE = YES` the build system writes `CFBundleName` from `PRODUCT_NAME` and that write wins over both the source plist and the `INFOPLIST_KEY_` injection.
+
+The only lever is **`PRODUCT_NAME`**, which is why this is bigger than it looked. What actually shipped:
+
+```
+PRODUCT_NAME        = "Stack the Lineup"   (was $(TARGET_NAME))   Debug + Release
+PRODUCT_MODULE_NAME = Lineup_Builder       (NEW — pin)            Debug + Release
+TEST_HOST           → "Stack the Lineup.app/…/Stack the Lineup"   ×4
+Lineup Builder.xcscheme  BuildableName → "Stack the Lineup.app"   ×3
+```
+
+- **`PRODUCT_MODULE_NAME` must be pinned.** It defaults to `PRODUCT_NAME`, so renaming without the pin renames the Swift module and breaks every `@testable import Lineup_Builder`.
+- **`CFBundleExecutable` and the `.app` wrapper name change too** — from `Lineup Builder` to `Stack the Lineup`. That is shipping bundle metadata on a released app. Allowed on an App Store update, but it changes crash-report and dSYM naming. **This is the part that exceeds the original "add one build setting" decision; back it out if you'd rather not carry it.**
+- No Swift source references the bundle or executable name, so the blast radius is entirely build settings + the scheme.
+- Reverting is `git revert` of this commit — nothing else depends on it.
+
+**Test result after the rename: 247 passed, 1 failed.** The failure is `TeamStorageTests.testNoStoredDataReportsEmpty()`, and it is **pre-existing, not caused by the rename** — verified by running that suite against unmodified `HEAD` (99ae3bc) in a separate worktree, where it fails identically. It reads `UserDefaults.standard` in the test host and expects a virgin container, so it fails on any simulator that has run the app. Worth a ticket on its own; it makes the suite permanently red on a used simulator.
+
+**Still wrong, and not fixed:** `LineupView.swift:259` hardcodes `.navigationTitle("Lineup Builder")` — the old name, as the large title on the Lineup tab, which is far more visible than the `ShortcutsLink` button ever was. (`PDFGenerator.swift:457` uses it as a fallback header too.) Left alone deliberately: same product-identity call, and it's app copy rather than a build setting, so it's a one-word edit whenever you want it.
 
 **2. Parameterized phrases don't surface in typed Spotlight — and two shortcuts now depend on them.**
 
@@ -558,7 +576,14 @@ Typing "Can Jake Rivera pitch" into Spotlight returns nothing, and "Can They Pit
 - Confirmed working the other way round: every **parameter-free** tile (Open Lineup, Fill Lineup, Game Recap, My Rules, Pitch Limits, Rest Days) resolves by title in typed Spotlight.
 - This makes item 2 below a blocker rather than a nice-to-have. Until a physical device proves spoken entity resolution, `PitchEligibilityIntent` and `OpenPlayerIntent` are only reachable by building a shortcut by hand.
 
-**Also unverified, and worth knowing before trusting it:** `AskSiriTip` has **not been seen on screen**. It sits third in the ordered `Tour.secondGame` group, so it only presents after `ReuseApplyTemplateTip` and `AutoFillConstraintsTip` are dismissed, and the first of those needs a saved template to reach its anchor. Resetting the tour and walking to Positions wasn't enough. The static argument is sound (both arc-2 tips on the bolt read `currentTip as? <Type>`, so at most one is non-nil, and two already coexisted there) — but every bug in this project so far was invisible until someone looked. Check it on the next pass that has a template saved.
+**`AskSiriTip` — VERIFIED ON SCREEN 2026-08-01.** Previously the one discovery claim resting on a static argument rather than a sighting. iPhone 17 Pro, existing Test Team with an archived game: `ReuseApplyTemplateTip` presented on the Lineup tab's game-info header → *Got it* → Positions tab → `AutoFillConstraintsTip` on the Auto-Fill bolt → *Got it* → **`AskSiriTip` ("Or just ask", mic glyph) presented on the same bolt immediately**, no navigation away and back required.
+
+Two things that had been flagged as risks and turned out not to be:
+
+- The triple anchor on the bolt holds — three `.tourTip` modifiers on one control, and only the expected one presented.
+- The one-cycle `currentTip` lag (see the TipKit note) did **not** bite here. Dismissing the previous tip re-rendered the same view, so the successor presented in place. The lag only matters when a rule `@Parameter` changes, not when a predecessor is dismissed.
+
+Getting there needed no saved template — the header anchor renders whenever `hasArchivedGame` is true, so the earlier "needs a saved template" theory for why it wouldn't present was wrong. The likelier reason it was never seen before is that the earlier attempt reset the tour and went straight to Positions without dismissing `ReuseApplyTemplateTip` on the Lineup tab first.
 
 ### 9b. Standing work
 
