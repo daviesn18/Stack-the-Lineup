@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 230 passing unit tests. Every intent in 3.3 scope is delivered.**
+**Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 232 passing unit tests. Every intent in 3.3 scope is delivered.**
 
 A coach can now ask what their own rules are without opening the app: "How many innings do I need to play someone in the infield?" and "how many days rest does 33 pitches buy?" both answer by voice, free, from that team's stored config. `1216543825469858` is delivered — but note it shipped **team-scoped rather than league-scoped**, which is a scope change from the original ticket; see section 6.
 
@@ -62,7 +62,7 @@ Why they were cut: `InningAssignment` is `[UUID: FieldPosition]` — one positio
 
 ## 2. Phase 0 — DONE
 
-Build clean and verified end to end on both device idioms (section 6). Test count at the time of this phase was 135; the suite now stands at **230 passing, 0 failures**.
+Build clean and verified end to end on both device idioms (section 6). Test count at the time of this phase was 135; the suite now stands at **232 passing, 0 failures**.
 
 ### 2a. `Lineup Builder/TeamStorage.swift` (new)
 
@@ -320,7 +320,9 @@ Both of these were found by *looking at the result*, not by reading the code —
 - A spoken issue naming six players ("Jake Rivera, Tyler Nguyen, Drew Santos, Eli Park, Nate Coleman, and Leo Huang never played the outfield") is not something anyone can hold onto. The dialog now names three and counts the rest; the snippet still names everyone. Hence `RecapIssue` carrying names-plus-predicate rather than a finished sentence.
 - **A snippet view clips at a fixed height — it does not scroll.** Ten stacked batting-order rows pushed the fair-play verdict off the bottom entirely. The batting order is now one wrapping line, fair play sits *above* it (the reverse of the spoken order, for the opposite reason: spoken, nothing gets cut and last is what people remember), and the issue list caps at two with "+N more in the app".
 
-**Known limit:** in the Spotlight presentation the snippet gets whatever height is left after the dialog, and a recap with several fair-play issues still clips partway through the fair-play block. The dialog above it carries the complete answer, so nothing is lost — but the snippet is not the place to put anything load-bearing. Not checked in the Shortcuts app's (taller) result card.
+**Known limit — RESOLVED in Phase 4, see 6e.** In the Spotlight presentation the snippet gets whatever height is left after the dialog, and a recap with several fair-play issues clipped partway through the fair-play block. The cause was the dialog itself: it restated the entire recap in a paragraph above the snippet, eating the height. Moving to `IntentDialog(full:supporting:)` shrank the dialog to one line, and the same recap (Test Team vs Eagles, 3 pitchers, 3 issues) now renders the whole pitching table and both shown issues without clipping. Re-verified on iPhone 17 Pro.
+
+The batting order is still below the fold in this presentation, which is by design — it's last precisely because it's the least load-bearing thing to lose. The snippet is still not the place to put anything critical. Not checked in the Shortcuts app's (taller) result card.
 
 ### 5e. `GameLogEntity`
 
@@ -394,6 +396,8 @@ Both passed every unit test and were still wrong on screen.
 
 - **The rest ladder read the same four thresholds three times.** A roster of 9-to-13-year-olds resolves to three brackets that share one ladder under the preset, so the spoken answer was ~90 words of near-identical text. `grouped(_:by:)` now collapses *adjacent* brackets whose answer is word-for-word identical into one "Ages 9-14" line. Adjacency is load-bearing: if 9-10 differs while 7-8 and 13-14 match, merging them would produce "7 to 14", which would be a lie about 9-10. There's a test pinning that.
 - **The dialog and the snippet were saying everything twice.** Spotlight renders the dialog as a paragraph *above* the table, so every number appeared twice and the table was buried (Nick, on seeing it: *"This is a ton of words… redundant and overwhelming"*). Fixed with `IntentDialog(full:supporting:)` — `full` is the complete spoken answer for a voice-only surface with no table to read, `supporting` is one short line ("Your rest day thresholds for Test Team.") for when the snippet is on screen. `TeamRulesAnswer` exposes both as `spokenSummary` and `shortSummary`.
+
+**`GameRecapIntent` had the identical bug and is now fixed the same way** (`GameRecap.shortSummary` → "Your recap of the Eagles game."). This is the general rule for **any** intent returning `ProvidesDialog & ShowsSnippetView`, not a quirk of one screen. It also turned out to be the cause of the snippet clipping recorded as a known limit in 5d: the dialog was eating the height the table needed. Both are re-verified on device idiom — the same recap that used to cut off mid-sentence now renders its whole fair-play block.
 
 ### 6f. Shortcut phrases: three tiles, no topic slot
 

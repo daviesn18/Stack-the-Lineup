@@ -89,8 +89,16 @@ struct GameRecapIntent: AppIntent {
             "fairPlayClean": recap.isFairPlayClean ? "true" : "false"
         ])
 
+        // `full` is what a voice-only surface says — the whole recap, since
+        // there's no snippet to read there. `supporting` is what appears when
+        // the snippet IS on screen, where restating every pitcher and issue
+        // above the table prints each one twice and squeezes the table into
+        // whatever height is left. See GameRecap.shortSummary.
         return .result(
-            dialog: IntentDialog(stringLiteral: recap.spokenSummary),
+            dialog: IntentDialog(
+                full: LocalizedStringResource(stringLiteral: recap.spokenSummary),
+                supporting: LocalizedStringResource(stringLiteral: recap.shortSummary)
+            ),
             view: GameRecapSnippetView(recap: recap)
         )
     }

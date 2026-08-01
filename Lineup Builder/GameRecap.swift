@@ -112,6 +112,23 @@ nonisolated struct GameRecap {
         return parts.joined(separator: " ")
     }
 
+    /// What to say when the snippet is on screen next to it.
+    ///
+    /// Spotlight renders the dialog as a paragraph *above* the snippet, so
+    /// speaking the full recap there prints every pitcher, pitch count and
+    /// fair-play issue twice and pushes the table down under it. This names the
+    /// game and lets the snippet carry the facts; `spokenSummary` stays the
+    /// complete answer for the voice-only case, where there is nothing to read.
+    ///
+    /// It also buys back height: the snippet gets whatever is left after the
+    /// dialog, which is what made a multi-issue recap clip partway through the
+    /// fair-play block.
+    var shortSummary: String {
+        opponent.isEmpty
+            ? "Your recap of the game \(Self.dateVerbPhrase(gameDate))."
+            : "Your recap of the \(opponent) game."
+    }
+
     private var fieldingMinimumSkippedNote: String {
         "fielding-innings minimum"
     }

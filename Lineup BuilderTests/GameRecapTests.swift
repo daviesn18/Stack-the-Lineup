@@ -454,4 +454,42 @@ final class GameRecapTests: XCTestCase {
         XCTAssertTrue(recap.spokenSummary.hasPrefix("Your game today went 1 inning."),
                       "Got: \(recap.spokenSummary)")
     }
+
+    // MARK: - Short summary
+    //
+    // What Spotlight shows above the snippet. Speaking the full recap there
+    // printed every pitcher, pitch count and fair-play issue twice and pushed
+    // the table down under a paragraph.
+
+    func testShortSummaryNamesTheGameWithoutRestatingIt() {
+        let jake = makePlayer("Jake", "Rivera")
+        let recap = GameRecap(
+            teamName: "Tigers", opponent: "Eagles", gameDate: Date(), inningsPlayed: 5,
+            battingOrder: ["Jake R."],
+            pitching: [RecapPitchingLine(playerID: jake.id, name: "Jake Rivera",
+                                         innings: 3, pitches: 55)],
+            fairPlayIssues: [RecapIssue(names: ["Marcus Bell"],
+                                        predicate: "never played the infield")],
+            fieldingMinimumSkipped: false
+        )
+
+        XCTAssertEqual(recap.shortSummary, "Your recap of the Eagles game.")
+        // None of what the snippet already renders.
+        XCTAssertFalse(recap.shortSummary.contains("55"), recap.shortSummary)
+        XCTAssertFalse(recap.shortSummary.contains("Jake"), recap.shortSummary)
+        XCTAssertFalse(recap.shortSummary.contains("Marcus"), recap.shortSummary)
+        // The full answer still carries everything, for the voice-only case.
+        XCTAssertTrue(recap.spokenSummary.contains("55 pitches"), recap.spokenSummary)
+        XCTAssertTrue(recap.spokenSummary.contains("Marcus Bell"), recap.spokenSummary)
+    }
+
+    func testShortSummaryFallsBackToTheDateWithNoOpponent() {
+        // "Your recap of the  game." would be the naive result of a blank opponent.
+        let recap = GameRecap(
+            teamName: "Tigers", opponent: "", gameDate: Date(), inningsPlayed: 5,
+            battingOrder: [], pitching: [], fairPlayIssues: [], fieldingMinimumSkipped: false
+        )
+
+        XCTAssertEqual(recap.shortSummary, "Your recap of the game today.")
+    }
 }
