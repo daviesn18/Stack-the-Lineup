@@ -156,6 +156,7 @@ enum STLIntentError: Error, CustomLocalizedStringResourceConvertible {
     case noActivePlayers(teamName: String)
     case noGames(teamName: String)
     case noSuchGame
+    case noSuchPlayer
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
@@ -171,6 +172,8 @@ enum STLIntentError: Error, CustomLocalizedStringResourceConvertible {
             return "\(teamName) doesn't have any archived games yet."
         case .noSuchGame:
             return "I couldn't find that game in Stack the Lineup."
+        case .noSuchPlayer:
+            return "I couldn't find that player on any of your rosters."
         }
     }
 }

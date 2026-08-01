@@ -78,5 +78,49 @@ nonisolated struct STLShortcuts: AppShortcutsProvider {
             shortTitle: "Game Recap",
             systemImageName: "sportscourt.fill"
         )
+
+        // Three tiles rather than one with a spoken topic slot. `topic` has nine
+        // cases whose names a coach would never say verbatim ("fielding
+        // minimum"), so leaning on a phrase slot to transcribe one is the least
+        // reliable part of the whole feature. Presetting the topic per tile
+        // makes each phrase a sentence someone would actually say, and the
+        // synonyms on RuleTopicAppEnum still cover the other cases for anyone
+        // who builds their own shortcut.
+        AppShortcut(
+            intent: FairPlayRuleIntent(topic: .overview),
+            phrases: [
+                "What are my rules in \(.applicationName)",
+                "My fair play rules in \(.applicationName)",
+                "Check my team rules in \(.applicationName)",
+            ],
+            shortTitle: "My Rules",
+            systemImageName: "checklist"
+        )
+
+        AppShortcut(
+            intent: FairPlayRuleIntent(topic: .pitchLimit),
+            phrases: [
+                "What's my pitch limit in \(.applicationName)",
+                "Pitch limits in \(.applicationName)",
+                "How many pitches are allowed in \(.applicationName)",
+            ],
+            shortTitle: "Pitch Limits",
+            systemImageName: "figure.baseball"
+        )
+
+        // No pitch count in the phrase, so this answers with the whole rest
+        // ladder — which is the right answer to a question asked without a
+        // number in it. A coach who has a specific count in mind sets it in
+        // Shortcuts, where a typed number doesn't have to survive transcription.
+        AppShortcut(
+            intent: FairPlayRuleIntent(topic: .restDays),
+            phrases: [
+                "How many days rest in \(.applicationName)",
+                "Rest day rules in \(.applicationName)",
+                "When can my pitcher pitch again in \(.applicationName)",
+            ],
+            shortTitle: "Rest Days",
+            systemImageName: "moon.zzz.fill"
+        )
     }
 }
