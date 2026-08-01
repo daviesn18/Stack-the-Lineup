@@ -581,7 +581,7 @@ Typing "Can Jake Rivera pitch" into Spotlight returns nothing, and "Can They Pit
 Two things that had been flagged as risks and turned out not to be:
 
 - The triple anchor on the bolt holds — three `.tourTip` modifiers on one control, and only the expected one presented.
-- The one-cycle `currentTip` lag (see the TipKit note) did **not** bite here. Dismissing the previous tip re-rendered the same view, so the successor presented in place. The lag only matters when a rule `@Parameter` changes, not when a predecessor is dismissed.
+- The one-cycle `currentTip` lag did **not** bite here, but do not read that as "dismissal is safe." `GameLogDetailView` hit exactly this bug on iPad (fixed 2026-07-26): two anchors from one ordered group, reading `currentTip` synchronously in body, and dismissing the first left the second permanently unpresented because nothing re-rendered the view. `DefensiveGridView` gets away with the synchronous read only because the popover dismissal happens to re-render it. **The standing rule still holds — a view hosting two or more anchors from the same ordered group should mirror `currentTip` through `currentTipUpdates` into `@State` rather than read it in body.** The bolt's three anchors are working on luck, not on design, and should be converted if that view's rendering ever changes.
 
 Getting there needed no saved template — the header anchor renders whenever `hasArchivedGame` is true, so the earlier "needs a saved template" theory for why it wouldn't present was wrong. The likelier reason it was never seen before is that the earlier attempt reset the tour and went straight to Positions without dismissing `ReuseApplyTemplateTip` on the Lineup tab first.
 
