@@ -776,11 +776,15 @@ struct DefensiveGridView: View {
             .onAppear { autoFill.prewarm(for: store.activeTeam) }
             .onDisappear { autoFill.teardown() }
         }
-        // Both tips point at the bolt: arc 1 introduces it, arc 2 introduces
-        // the natural-language instructions inside its popover.
+        // Three tips point at the bolt, in the order a coach meets the idea:
+        // arc 1 introduces the button, arc 2 introduces the natural-language
+        // instructions inside its popover, then how to skip the button and just
+        // ask Siri.
         .tourTip(Tour.positions.currentTip as? PositionsAutoFillTip, arrowEdge: .top,
                  enabled: isTourTabActive)
         .tourTip(Tour.secondGame.currentTip as? AutoFillConstraintsTip, arrowEdge: .top,
+                 enabled: isTourTabActive)
+        .tourTip(Tour.secondGame.currentTip as? AskSiriTip, arrowEdge: .top,
                  enabled: isTourTabActive)
     }
 

@@ -335,6 +335,29 @@ struct AutoFillConstraintsTip: Tip {
     }
 }
 
+/// Arc 2 rather than arc 1, and on purpose.
+///
+/// Every voice action is worth more to a coach who already has a season going:
+/// Game Recap needs an archived game to recap, and the pitching answers need
+/// recorded pitch counts to be about anything. Arc 1 is a tight path to a first
+/// game and doesn't need a second way to do things in it.
+///
+/// Shares the bolt with `PositionsAutoFillTip` (arc 1) and
+/// `AutoFillConstraintsTip` (arc 2), which is the natural progression on one
+/// control: here's the button, here's what you can tell it, here's how to skip
+/// the button entirely.
+struct AskSiriTip: Tip {
+    var title: Text { tourTitle("Or just ask") }
+    var message: Text? {
+        Text("\"Hey Siri, fill my lineup in Stack the Lineup.\" Siri can also recap your last game and check whether a pitcher is rested. The full list is in Settings.")
+    }
+    var image: Image? { Image(systemName: "mic.fill") }
+    var actions: [Action] { doneAction }
+    var rules: [Rule] {
+        [#Rule(TourState.$hasArchivedGame) { $0 == true }]
+    }
+}
+
 struct ShareTeamTip: Tip {
     var title: Text { tourTitle("Bring in an assistant", pro: true) }
     var message: Text? {
@@ -393,9 +416,13 @@ enum Tour {
         PositionsWarningsTip()
     }
 
+    // AskSiriTip follows AutoFillConstraintsTip because they share the bolt
+    // anchor and read as one thought there. ShareTeamTip stays last: its anchor
+    // is elsewhere, and an ordered group shouldn't leave the page mid-arc.
     static let secondGame = TipGroup(.ordered) {
         ReuseApplyTemplateTip()
         AutoFillConstraintsTip()
+        AskSiriTip()
         ShareTeamTip()
     }
 

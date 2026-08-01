@@ -122,5 +122,20 @@ nonisolated struct STLShortcuts: AppShortcutsProvider {
             shortTitle: "Rest Days",
             systemImageName: "moon.zzz.fill"
         )
+
+        // The one rules-adjacent intent that *does* take a parameter in its
+        // phrases. A player name is the entity type already proven to resolve
+        // through EntityStringQuery in Spotlight, and unlike a spoken inning
+        // number a wrong match is obvious in the answer rather than silent.
+        AppShortcut(
+            intent: PitchEligibilityIntent(),
+            phrases: [
+                "Can \(\.$player) pitch in \(.applicationName)",
+                "Is \(\.$player) eligible to pitch in \(.applicationName)",
+                "Check \(\.$player)'s pitch eligibility in \(.applicationName)",
+            ],
+            shortTitle: "Can They Pitch",
+            systemImageName: "figure.baseball"
+        )
     }
 }

@@ -8,6 +8,7 @@ struct SettingsView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
     @State private var showingQuickTips = false
+    @State private var showingSiriShortcuts = false
     @State private var showingResetConfirmation = false
     @State private var showingPaywall = false
     @State private var showingSeedConfirmation = false
@@ -110,6 +111,15 @@ struct SettingsView: View {
                     } label: {
                         Label("Quick Tips", systemImage: "lightbulb.fill")
                     }
+
+                    // The permanent home for the phrase list. AskSiriTip fires
+                    // once and points here; without this row the voice features
+                    // are only findable by guessing the right words.
+                    Button {
+                        showingSiriShortcuts = true
+                    } label: {
+                        Label("Siri Shortcuts", systemImage: "mic.fill")
+                    }
                 }
 
                 // MARK: - About
@@ -204,6 +214,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingQuickTips) {
                 QuickTipsView()
+            }
+            .sheet(isPresented: $showingSiriShortcuts) {
+                SiriShortcutsView()
             }
             .fullScreenCover(isPresented: $showingPaywall) {
                 ProGate(source: "settings", navTitle: "Stack the Lineup Pro")
