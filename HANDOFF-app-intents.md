@@ -2,7 +2,9 @@
 
 ## TL;DR
 
-**Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 232 passing unit tests. Every intent in 3.3 scope is delivered.**
+**Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 248 passing unit tests. Every intent in 3.3 scope is delivered, plus a follow-on pitch-eligibility intent and the discovery surfaces (section 6bis).**
+
+> **Two things are waiting on Nick — see 9a.** `ShortcutsLink` renders the wrong app name on the new Settings screen (a one-line build-setting change, but it's shipping bundle metadata). And parameterized Siri phrases don't surface in typed Spotlight, which makes the physical-device voice check a blocker rather than a nice-to-have. Neither is a code defect; both need a decision.
 
 A coach can now ask what their own rules are without opening the app: "How many innings do I need to play someone in the infield?" and "how many days rest does 33 pitches buy?" both answer by voice, free, from that team's stored config. `1216543825469858` is delivered — but note it shipped **team-scoped rather than league-scoped**, which is a scope change from the original ticket; see section 6.
 
@@ -62,7 +64,7 @@ Why they were cut: `InningAssignment` is `[UUID: FieldPosition]` — one positio
 
 ## 2. Phase 0 — DONE
 
-Build clean and verified end to end on both device idioms (section 6). Test count at the time of this phase was 135; the suite now stands at **232 passing, 0 failures**.
+Build clean and verified end to end on both device idioms (section 6). Test count at the time of this phase was 135; the suite now stands at **248 passing, 0 failures**.
 
 ### 2a. `Lineup Builder/TeamStorage.swift` (new)
 
@@ -427,6 +429,49 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 ---
 
+## 6bis. Follow-on — Pitch eligibility and discovery (DONE, commit `b542805`)
+
+Not part of the original 3.3 scope. Item 3 of the old next-session list, plus the discovery gap that list didn't mention.
+
+### 6bis-a. THE `.eligible` CONFLATION — the reason `PitchEligibility.swift` exists
+
+`PitchEligibilityEngine.status(for:...)` returns `.eligible` for **three different situations**:
+
+1. genuinely rested,
+2. `config.rulesEnabled == false` — nothing was checked,
+3. no `ageLimits` entry for their bracket — nothing was checked.
+
+For the roster badge that conflation is harmless: no rules configured, no warning to show. **Spoken it is not**, because all three come out as "Yes, Bobby can pitch" — a sentence that sounds like the app checked when in two of the three cases it didn't, and the consequence lands on a kid's arm.
+
+`EligibilityVerdict` splits them into `.clear` / `.limited` / `.blocked` / `.notTracked`, and `PitchEligibilityAnswerBuilder` decides which applies **before** consulting the engine rather than trying to read it back out of an `.eligible`. Six of the sixteen tests sit on that boundary. A `.notTracked` answer also drops `lastOuting`, because reciting "they last threw 55 pitches" under "I'm not tracking pitch counts" contradicts the sentence it's attached to.
+
+If the engine ever grows a fourth meaning for `.eligible`, this file is what has to change with it.
+
+### 6bis-b. Discovery: the tip is arc 2, deliberately
+
+`AskSiriTip` anchors on the Auto-Fill bolt, joining `PositionsAutoFillTip` (arc 1) and `AutoFillConstraintsTip` (arc 2) — three `.tourTip` modifiers on one control, reading as one progression: here's the button, here's what you can tell it, here's how to skip it entirely.
+
+Arc 2 rather than arc 1 because every voice action is worth more once a season is underway: Game Recap needs an archived game to recap, and the pitching answers need recorded counts to be about anything. Arc 1 is a tight path to a first game.
+
+Safe by construction on the triple anchor: both arc-2 tips read `Tour.secondGame.currentTip as? <Type>`, so at most one is ever non-nil.
+
+`SiriShortcutsView` (Settings › Help & Support › Siri Shortcuts) is the permanent home for the phrase list — a tour tip fires once. **Its phrase strings are hand-copied from `STLShortcuts` and there is no way to read an `AppShortcut`'s phrases back at runtime, so the two files have to be edited together.** That warning is in the file header too.
+
+### Files added / touched
+
+```
+Lineup Builder/PitchEligibility.swift                    NEW  verdict, answer, builder
+Lineup Builder/AppIntents/PitchEligibilityIntent.swift   NEW  intent + snippet
+Lineup Builder/SiriShortcutsView.swift                   NEW  the phrase list
+Lineup Builder/AppIntents/STLShortcuts.swift             +1 AppShortcut (9 total)
+Lineup Builder/ContextualTips.swift                      AskSiriTip, added to Tour.secondGame
+Lineup Builder/DefensiveGridView.swift                   third .tourTip on the bolt
+Lineup Builder/SettingsView.swift                        Siri Shortcuts row + sheet
+Lineup BuilderTests/PitchEligibilityAnswerTests.swift    NEW  16 tests
+```
+
+---
+
 ## 7. Environment facts
 
 - **Xcode 26.6, iOS 26.5 SDK. No iOS 27 SDK installed** — and it isn't needed. `AppIntent`/`AppEnum`/`EntityQuery`/`AppShortcutsProvider` are iOS 16; `AppEntity`/`IndexedEntity` (Spotlight semantic index) are iOS 18. Deployment target is already 26.x. Only *View Annotations* (Phase 3 of the parent ticket, out of scope) needs iOS 27.
@@ -492,11 +537,34 @@ Gated on Xcode 27's native tooling. Only stays cheap if Phases 1–4 are built l
 
 ## 9. Next session
 
-Every intent in 3.3 scope is built. What's left is verification and the parallel track.
+### 9a. OPEN — needs Nick's decision (2026-07-31)
+
+Two things left deliberately unresolved rather than decided unilaterally. Both are small; neither is a code question.
+
+**1. `ShortcutsLink` shows the wrong app name.**
+
+The button at the bottom of Settings › Siri Shortcuts reads **"Lineup Builder shortcuts"** — the Xcode target name — while every phrase above it says "Stack the Lineup". On a screen whose whole job is teaching the name a coach has to say out loud, that's the one wrong word on it.
+
+- Cause: `ShortcutsLink` labels itself from **`CFBundleName`**, which inherits `PRODUCT_NAME = $(TARGET_NAME)` = `Lineup Builder`. `CFBundleDisplayName` is already correctly `Stack the Lineup` (pbxproj lines 683 / 734), which is why the home screen and every `\(.applicationName)` phrase are right.
+- Fix: add `INFOPLIST_KEY_CFBundleName = "Stack the Lineup"` to the app target's Debug and Release build settings.
+- Why it wasn't just done: `CFBundleName` is shipping bundle metadata on a released app, and Apple recommends **≤ 15 characters** — "Stack the Lineup" is 16. It'll almost certainly render fine, but it's a product-identity call, not an engineering one.
+- If you'd rather not touch it: drop `ShortcutsLink` and use a plain `Button` opening `shortcuts://`, accepting that it lands on the Shortcuts home rather than this app's section.
+
+**2. Parameterized phrases don't surface in typed Spotlight — and two shortcuts now depend on them.**
+
+Typing "Can Jake Rivera pitch" into Spotlight returns nothing, and "Can They Pitch" isn't a tile either. Typed Spotlight matches App Shortcut **titles**; a shortcut whose every phrase carries an entity slot only surfaces through **spoken** Siri.
+
+- **This is not new and not a bug in Phase 4 or the follow-on.** `OpenPlayerIntent` and `OpenTeamIntent` have had the same shape since Phase 1, and section 8 has always recorded the voice path as unverified. What changed is the stake: two of the nine shortcuts are now voice-only, so "the phrases compile and register" no longer implies a coach can reach them.
+- Confirmed working the other way round: every **parameter-free** tile (Open Lineup, Fill Lineup, Game Recap, My Rules, Pitch Limits, Rest Days) resolves by title in typed Spotlight.
+- This makes item 2 below a blocker rather than a nice-to-have. Until a physical device proves spoken entity resolution, `PitchEligibilityIntent` and `OpenPlayerIntent` are only reachable by building a shortcut by hand.
+
+**Also unverified, and worth knowing before trusting it:** `AskSiriTip` has **not been seen on screen**. It sits third in the ordered `Tour.secondGame` group, so it only presents after `ReuseApplyTemplateTip` and `AutoFillConstraintsTip` are dismissed, and the first of those needs a saved template to reach its anchor. Resetting the tour and walking to Positions wasn't enough. The static argument is sound (both arc-2 tips on the bolt read `currentTip as? <Type>`, so at most one is non-nil, and two already coexisted there) — but every bug in this project so far was invisible until someone looked. Check it on the next pass that has a template saved.
+
+### 9b. Standing work
 
 1. **Localization is the long pole and it's overdue.** All four phases shipped `LocalizedStringResource` literals inline with **no string catalog in the repo** (`find . -name "*.xcstrings"` still returns nothing). Phase 4 added the most strings of any phase — nine `AppEnum` cases with synonyms, nine `shortLead` strings, and every sentence in `TeamRulesBuilder`. Note that the builder's phrasing is **assembled**, not literal ("Everyone active needs at least \(innings) in the infield"), which does not translate by swapping a table: plural rules and word order differ per language. That's a real design question to settle before Spanish, not a mechanical pass. See `1214429900445010`.
-2. **Verify the Siri phrases on a physical device.** Still the only claim never proven in a simulator (section 8), and there are now 8 shortcut tiles resting on it. Blocked by the standing rule against debug builds on Nick's devices — needs a TestFlight build or an explicit exception.
-3. **Consider whether the rules intent should answer eligibility, not just rules.** "Can Bobby pitch on Saturday?" is one `PitchEligibilityEngine.status(for:gameLogs:config:)` call away and is probably the question a coach actually has. Deliberately left out of Phase 4, which is scoped to rules. Would need a new ticket.
+2. **Verify the Siri phrases on a physical device — now a blocker, see 9a.2.** Still the only claim never proven in a simulator (section 8), and there are now **9** shortcuts resting on it, two of which are voice-only. Blocked by the standing rule against debug builds on Nick's devices — needs a TestFlight build or an explicit exception.
+3. **Ship-readiness, not in any Asana ticket.** `MARKETING_VERSION` is still **3.2** (build 33), and `WhatsNewContent.all` tops out at a 3.2 entry. The registry is keyed on `CFBundleShortVersionString`, so shipping 3.3 without adding an entry means the What's New sheet **silently never appears**. Nothing user-facing mentions Siri except the new tip and Settings row.
 4. **Test every new intent cold, without Pro, and after rebooting the simulator.** See 2d-bis, 3e, 4c and the reboot gotcha in section 8 — every bug found across four phases was invisible warm, invisible with Pro, or invisible without a reboot.
 5. **Look at every intent's result, don't just test it.** Both Phase 4 bugs (6e) passed the full unit suite and were still wrong on screen. Two of the three Phase 3 findings were the same. A green suite says the facts are right, not that the answer is usable.
 
