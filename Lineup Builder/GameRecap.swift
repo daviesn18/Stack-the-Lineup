@@ -75,8 +75,7 @@ nonisolated struct GameRecap {
     /// "vs Rangers · 6 innings · Tuesday, Jul 28"
     var headline: String {
         let opponentPart = opponent.isEmpty ? "Game" : "vs \(opponent)"
-        let inningNoun = inningsPlayed == 1 ? "inning" : "innings"
-        return "\(opponentPart) · \(inningsPlayed) \(inningNoun) · \(Self.datePhrase(gameDate))"
+        return "\(opponentPart) · \(Plural.innings(inningsPlayed)) · \(Self.datePhrase(gameDate))"
     }
 
     /// What Siri says. The coach may be driving, so this leads with the
@@ -86,8 +85,7 @@ nonisolated struct GameRecap {
         var parts: [String] = []
 
         let opponentPhrase = opponent.isEmpty ? "Your game" : "Your game against \(opponent)"
-        let inningNoun = inningsPlayed == 1 ? "inning" : "innings"
-        parts.append("\(opponentPhrase) \(Self.dateVerbPhrase(gameDate)) went \(inningsPlayed) \(inningNoun).")
+        parts.append("\(opponentPhrase) \(Self.dateVerbPhrase(gameDate)) went \(Plural.innings(inningsPlayed)).")
 
         if let pitchingSentence = pitchingSentence {
             parts.append(pitchingSentence)
@@ -147,12 +145,10 @@ nonisolated struct GameRecap {
         guard !pitching.isEmpty else { return nil }
 
         let clauses = pitching.map { line -> String in
-            let inningNoun = line.innings == 1 ? "inning" : "innings"
             if let pitches = line.pitches {
-                let pitchNoun = pitches == 1 ? "pitch" : "pitches"
-                return "\(line.name) pitched \(line.innings) \(inningNoun) on \(pitches) \(pitchNoun)"
+                return "\(line.name) pitched \(Plural.innings(line.innings)) on \(Plural.pitches(pitches))"
             }
-            return "\(line.name) pitched \(line.innings) \(inningNoun)"
+            return "\(line.name) pitched \(Plural.innings(line.innings))"
         }
 
         return Self.sentence(joining: clauses)
@@ -313,9 +309,8 @@ nonisolated enum GameRecapBuilder {
             issues.append(RecapIssue(names: players.map(\.displayName), predicate: predicate))
         }
 
-        let inningNoun = findings.minimumFieldingInnings == 1 ? "inning" : "innings"
         add(findings.underFieldingMinimum,
-            "played fewer than \(findings.minimumFieldingInnings) fielding \(inningNoun)")
+            "played fewer than \(findings.minimumFieldingInnings) fielding \(Plural.inningNoun(findings.minimumFieldingInnings))")
         add(findings.withoutInfield, "never played the infield")
         add(findings.withoutOutfield, "never played the outfield")
         add(findings.backToBackBench, "sat two innings in a row")

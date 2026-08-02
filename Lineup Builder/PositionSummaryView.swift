@@ -959,7 +959,7 @@ struct PositionSummaryView: View {
                 if !underMinimum.isEmpty {
                     let min = config.minimumFieldingInnings
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Under \(min) Inning\(min == 1 ? "" : "s") Fielded").font(.caption.bold()).foregroundColor(.orange)
+                        Text("Under \(min) \(Plural.inningNoun(min).capitalized) Fielded").font(.caption.bold()).foregroundColor(.orange)
                         Text(underMinimum.map(\.displayName).joined(separator: ", ")).font(.caption).foregroundColor(.secondary)
                     }
                 }

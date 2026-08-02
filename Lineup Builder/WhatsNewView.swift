@@ -231,9 +231,11 @@ struct WhatsNewManager {
         UserDefaults.standard.set(content.version, forKey: lastSeenKey)
     }
 
-    /// Resets the last seen version so the sheet will show again on next launch.
-    /// Use during development to re-test the What's New flow.
-    static func resetForTesting() {
+    /// Forgets the last seen version so the sheet shows again on next launch.
+    /// Called from `SettingsView.resetOnboardingFlags()` — "Reset Welcome and
+    /// Tips" restored the welcome flow and the tour but left What's New
+    /// suppressed at its last-seen version, with no way to bring it back.
+    static func reset() {
         UserDefaults.standard.removeObject(forKey: lastSeenKey)
     }
 }

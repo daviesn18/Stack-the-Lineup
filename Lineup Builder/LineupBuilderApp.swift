@@ -1,6 +1,7 @@
 import CloudKit
 import SwiftUI
 import TelemetryDeck
+import os
 
 // MARK: - App
 
@@ -70,7 +71,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        print("📲 APNs registration succeeded")
+        Log.push.info("APNs registration succeeded")
         NotificationCenter.default.post(
             name: .apnsTokenReceived,
             object: deviceToken
@@ -81,7 +82,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        print("⚠️ APNs registration failed: \(error.localizedDescription)")
+        Log.push.error("APNs registration failed: \(error.localizedDescription, privacy: .public)")
     }
 }
 
@@ -99,7 +100,7 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
         _ windowScene: UIWindowScene,
         userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata
     ) {
-        print("🔵 windowScene userDidAcceptCloudKitShareWith fired")
+        Log.sync.info("Accepting CloudKit share from windowScene")
         Task {
             do {
                 try await CloudKitManager.shared.acceptShare(metadata: cloudKitShareMetadata)
@@ -107,7 +108,7 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
                     NotificationCenter.default.post(name: .cloudKitShareAccepted, object: nil)
                 }
             } catch {
-                print("⚠️ Failed to accept CloudKit share: \(error.localizedDescription)")
+                Log.sync.error("Failed to accept CloudKit share: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

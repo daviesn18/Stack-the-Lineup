@@ -1,5 +1,4 @@
 import SwiftUI
-import StoreKit
 
 // MARK: - HistoryGhostView
 // The teaser content for the History tab when the coach isn't Pro: a faded

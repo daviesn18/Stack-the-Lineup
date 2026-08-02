@@ -247,8 +247,7 @@ struct GameRecapSnippetView: View {
     }
 
     private func pitchingDetail(_ line: RecapPitchingLine) -> String {
-        let inningNoun = line.innings == 1 ? "inning" : "innings"
-        guard let pitches = line.pitches else { return "\(line.innings) \(inningNoun)" }
-        return "\(line.innings) \(inningNoun) · \(pitches) P"
+        guard let pitches = line.pitches else { return Plural.innings(line.innings) }
+        return "\(Plural.innings(line.innings)) · \(pitches) P"
     }
 }

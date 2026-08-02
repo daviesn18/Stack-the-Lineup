@@ -251,7 +251,7 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Resets the welcome cards and every tour tip so they appear again. Your data is not affected.")
+                Text("Resets the welcome cards, every tour tip, and the What's New sheet so they appear again. Your data is not affected.")
             }
             .alert("Onboarding Reset", isPresented: $showingResetTipsDoneAlert) {
                 Button("OK") {}
@@ -276,8 +276,13 @@ struct SettingsView: View {
 
     /// Clears the welcome cards, then wipes the TipKit datastore so every tour
     /// tip is eligible again.
+    /// Restores the whole first-run experience, not just part of it: the welcome
+    /// cover, the TipKit tour, and the What's New sheet. What's New was missing
+    /// here, so resetting left the release notes suppressed at their last-seen
+    /// version and there was no way to see them again.
     private func resetOnboardingFlags() {
         UserDefaults.standard.removeObject(forKey: "hasCompletedTutorial")
+        WhatsNewManager.reset()
         TipsConfigurator.restartTour()
     }
 }

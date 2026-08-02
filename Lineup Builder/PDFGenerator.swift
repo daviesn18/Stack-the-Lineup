@@ -174,15 +174,18 @@ class PDFGenerator {
         }
 
         // MARK: - Pitch Count Section
-        // Compute rows using the same logic as PositionSummaryView.pitchingRows(),
-        // scoped to lineup.gameDate (not today) so eligibility matches what the coach sees.
+        // Rows come from PitchEligibilityEngine, scoped to lineup.gameDate rather
+        // than today so the numbers match what the coach sees in the Pitching tab
+        // for this game. This file used to carry its own copy of that calculation
+        // ("exact port of PositionSummaryView.pitchingRows()"); the engine owns it
+        // now, so there's one place for the window maths to be right.
 
-        let pitchRows = buildPitchingRows(
-            players: players,
+        let pitchRows = PitchEligibilityEngine.coachesGuideSummary(
             gameLogs: gameLogs,
-            pitchingConfig: pitchingConfig,
-            gameDate: lineup.gameDate
-        )
+            players: players,
+            config: pitchingConfig,
+            referenceDate: lineup.gameDate
+        ) ?? []
 
         if !pitchRows.isEmpty {
             // Estimated height: divider+title (20) + header row (22) + rows in the taller column
@@ -213,97 +216,13 @@ class PDFGenerator {
         drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
     }
 
-    // MARK: - Pitch Rows Builder
-    // Exact port of PositionSummaryView.pitchingRows() — uses gameDate as reference,
-    // not Date(), so numbers match what the coach sees in the Pitching tab.
-
-    private struct PDFPitchingRow {
-        let player: Player
-        let windowPitches: Int
-        let dailyMax: Int
-        let available: Int   // min(dailyMax, weeklyRemaining)
-        let status: PitchEligibilityStatus
-    }
-
-    private static func buildPitchingRows(
-        players: [Player],
-        gameLogs: [GameLog],
-        pitchingConfig: PitchingConfig,
-        gameDate: Date
-    ) -> [PDFPitchingRow] {
-        guard pitchingConfig.rulesEnabled else { return [] }
-
-        let pitchablePlayers = players.filter {
-            $0.positionPreferences[.pitcher] != .never
-        }
-        guard !pitchablePlayers.isEmpty else { return [] }
-
-        let cal = Calendar.current
-        let gameDayStart = cal.startOfDay(for: gameDate)
-
-        let windowStart: Date = {
-            switch pitchingConfig.rollingWindowType {
-            case .calendarWeek:
-                var comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: gameDayStart)
-                comps.weekday = 2
-                return cal.date(from: comps) ?? gameDayStart
-            case .rolling:
-                return cal.date(byAdding: .day,
-                    value: -(pitchingConfig.rollingWindowDays - 1), to: gameDayStart) ?? gameDayStart
-            }
-        }()
-
-        let rows: [PDFPitchingRow] = pitchablePlayers.map { player in
-            let key = player.id.uuidString
-            // Window pitches = logs from windowStart up to (not including) game day
-            let windowPitches = gameLogs
-                .filter {
-                    let d = cal.startOfDay(for: $0.gameDate)
-                    return d >= windowStart && d < gameDayStart
-                }
-                .reduce(0) { $0 + ($1.pitchCounts[key] ?? 0) }
-
-            let dailyMax: Int = {
-                guard let age = player.leagueAge,
-                      let bracket = PitchingAgeBracket.bracket(for: age),
-                      let limits = pitchingConfig.ageLimits[bracket] else { return 0 }
-                return limits.dailyMax
-            }()
-
-            // Available = min(dailyMax, weeklyRemaining) — mirrors in-app calculation exactly
-            var available = dailyMax
-            if pitchingConfig.weeklyLimitEnabled && pitchingConfig.weeklyLimit > 0 {
-                let weeklyRemaining = max(0, pitchingConfig.weeklyLimit - windowPitches)
-                available = min(dailyMax, weeklyRemaining)
-            }
-
-            let status = PitchEligibilityEngine.status(
-                for: player, gameLogs: gameLogs, config: pitchingConfig,
-                referenceDate: gameDate
-            )
-
-            return PDFPitchingRow(
-                player: player,
-                windowPitches: windowPitches,
-                dailyMax: dailyMax,
-                available: available,
-                status: status
-            )
-        }
-
-        return rows.sorted { a, b in
-            if a.status.isRestricted != b.status.isRestricted { return !a.status.isRestricted }
-            return a.available > b.available
-        }
-    }
-
     // MARK: - Pitch Count Section Helper
     // Renders as two side-by-side mini-tables so the section stays on one page
     // regardless of roster size. Left table gets the first half of rows, right
     // gets the second half. Both share the same column proportions.
 
     private static func drawPitchCountSection(
-        rows: [PDFPitchingRow],
+        rows: [PitchingGuideSummaryRow],
         y: inout CGFloat,
         pageWidth: CGFloat,
         pageHeight: CGFloat,
@@ -335,9 +254,9 @@ class PDFGenerator {
         let miniWidth = (tableWidth - gap) / 2
 
         // Column proportions within each mini-table
-        // Player | Thrown | Avail | Status
-        let pct: (player: CGFloat, thrown: CGFloat, avail: CGFloat, status: CGFloat) =
-            (0.38, 0.15, 0.15, 0.32)
+        // Player | Thrown | Avail | Rest | Status
+        let pct: (player: CGFloat, thrown: CGFloat, avail: CGFloat, rest: CGFloat, status: CGFloat) =
+            (0.32, 0.13, 0.13, 0.12, 0.30)
 
         let rowHeight: CGFloat = 20
         let headerBg  = UIColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1.0)
@@ -345,7 +264,7 @@ class PDFGenerator {
 
         // Helper: draw one mini-table starting at (originX, originY)
         // Returns the Y of the bottom of the last row.
-        func drawMiniTable(originX: CGFloat, originY: CGFloat, tableRows: [PDFPitchingRow]) -> CGFloat {
+        func drawMiniTable(originX: CGFloat, originY: CGFloat, tableRows: [PitchingGuideSummaryRow]) -> CGFloat {
             var ty = originY
             let w = miniWidth
 
@@ -353,12 +272,14 @@ class PDFGenerator {
             let xPlayer = originX
             let xThrown = originX + w * pct.player
             let xAvail  = xThrown + w * pct.thrown
-            let xStatus = xAvail  + w * pct.avail
+            let xRest   = xAvail  + w * pct.avail
+            let xStatus = xRest   + w * pct.rest
 
             // Column widths
             let wPlayer = w * pct.player
             let wThrown = w * pct.thrown
             let wAvail  = w * pct.avail
+            let wRest   = w * pct.rest
 
             // Header row
             let hRect = CGRect(x: originX, y: ty, width: w, height: rowHeight)
@@ -373,6 +294,9 @@ class PDFGenerator {
                              font: .boldSystemFont(ofSize: 8), color: .darkGray)
             drawCenteredText("Avail",
                              in: CGRect(x: xAvail, y: ty, width: wAvail, height: rowHeight),
+                             font: .boldSystemFont(ofSize: 8), color: .darkGray)
+            drawCenteredText("Rest",
+                             in: CGRect(x: xRest, y: ty, width: wRest, height: rowHeight),
                              font: .boldSystemFont(ofSize: 8), color: .darkGray)
             drawText("Status",
                      x: xStatus + 4, y: ty + 5,
@@ -407,7 +331,7 @@ class PDFGenerator {
                          font: nameFont, color: .black)
 
                 // Thrown
-                drawCenteredText("\(row.windowPitches)",
+                drawCenteredText("\(row.pitchesInWindow)",
                                  in: CGRect(x: xThrown, y: ty, width: wThrown, height: rowHeight),
                                  font: .systemFont(ofSize: 9), color: .darkGray)
 
@@ -416,6 +340,16 @@ class PDFGenerator {
                 drawCenteredText(availText,
                                  in: CGRect(x: xAvail, y: ty, width: wAvail, height: rowHeight),
                                  font: .boldSystemFont(ofSize: 9), color: availColor)
+
+                // Rest owed from their last outing. Only meaningful while they're
+                // still inside it — once the days have elapsed the status flips to
+                // eligible and the number is noise, so it's suppressed there.
+                let restText = row.status.isRestricted && row.restDaysRequired > 0
+                    ? "\(row.restDaysRequired)d"
+                    : "—"
+                drawCenteredText(restText,
+                                 in: CGRect(x: xRest, y: ty, width: wRest, height: rowHeight),
+                                 font: .systemFont(ofSize: 9), color: .darkGray)
 
                 // Status
                 drawText(row.status.displayLabel,
@@ -437,7 +371,7 @@ class PDFGenerator {
         y = max(leftBottom, rightBottom)
 
         y += 4
-        drawText("Available is the lower of the daily max and pitches remaining in the current weekly window.",
+        drawText("Available is the lower of the daily max and pitches remaining in the current weekly window. Rest is days still owed from the last outing.",
                  x: margin, y: y,
                  font: .italicSystemFont(ofSize: 7), color: .gray)
         y += 10
@@ -494,12 +428,6 @@ class PDFGenerator {
         let x = rect.midX - textSize.width / 2
         let y = rect.midY - textSize.height / 2
         text.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
-    }
-
-    private static func drawColoredDot(color: UIColor, x: CGFloat, y: CGFloat) {
-        let dotPath = UIBezierPath(ovalIn: CGRect(x: x, y: y, width: 8, height: 8))
-        color.setFill()
-        dotPath.fill()
     }
 
     private static func drawFooter(pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat) {

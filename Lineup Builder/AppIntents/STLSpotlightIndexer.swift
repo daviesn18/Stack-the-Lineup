@@ -1,6 +1,7 @@
 import AppIntents
 import CoreSpotlight
 import Foundation
+import os
 
 // MARK: - STLSpotlightIndexer
 //
@@ -60,7 +61,7 @@ nonisolated enum STLSpotlightIndexer {
             try await index.indexAppEntities(teamEntities)
             await signatures.recordSuccess(signature)
         } catch {
-            print("⚠️ Spotlight reindex failed: \(error.localizedDescription)")
+            Log.spotlight.error("Spotlight reindex failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

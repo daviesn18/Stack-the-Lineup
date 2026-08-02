@@ -60,3 +60,8 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# App Store screenshot exports — regenerated from the simulator via the
+# 7-tap Seed Sample History gate, so there's no reason to carry the PNGs.
+AppStore-Screenshots - iPhone/
+AppStore-Screenshots-iPad/

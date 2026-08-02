@@ -690,6 +690,8 @@ struct DefensiveGridView: View {
         }
     }
 
+    /// What's wrong with the inning currently on screen. Deliberately overlaps
+    /// nothing in `gameWideIssueCount` — the toolbar label adds the two together.
     var currentInningIssueCount: Int {
         let activePlayers = store.lineup.activePlayers(from: store.players)
         let openPos = store.lineup.openPositions(inning: selectedInning, players: activePlayers, config: store.fairPlayConfig)
@@ -697,54 +699,61 @@ struct DefensiveGridView: View {
         return openPos.count + dupPos.count
     }
 
+    /// What's wrong with the game as a whole, counted the way a coach thinks
+    /// about it: one number per player to go fix, not one per rule broken.
+    ///
+    /// Reads `Lineup.fairPlayFindings` — the same call the iPad dashboard, the
+    /// iPad nav bar, the Lineup tab and the game recap make — so every surface
+    /// reports the same number for the same lineup. This used to sum the
+    /// per-rule counts, which showed a player missing both infield and outfield
+    /// as 2 on iPhone and 1 everywhere else.
+    ///
+    /// The selected inning's open slots are excluded because
+    /// `currentInningIssueCount` already counts them and `warningsToolbarLabel`
+    /// adds both terms — one unfilled shortstop in the inning you're looking at
+    /// used to read as 2 issues.
     var gameWideIssueCount: Int {
-        let activePlayers = store.lineup.activePlayers(from: store.players)
-        let config = store.fairPlayConfig
-        var count = 0
-        // Open positions across all innings (any inning that has at least one assignment
-        // but is still missing one or more field positions)
-        for inningIndex in 0..<store.lineup.innings.count {
-            guard !store.lineup.innings[inningIndex].assignments.isEmpty else { continue }
-            let open = store.lineup.openPositions(inning: inningIndex, players: activePlayers, config: config)
-            count += open.count
-        }
-        if config.minimumInfieldInnings > 0 {
-            count += store.lineup.playersWithoutInfield(players: activePlayers).count
-        }
-        if config.minimumOutfieldInnings > 0 {
-            count += store.lineup.playersWithoutOutfield(players: activePlayers).count
-        }
-        if config.noConsecutiveBench {
-            count += store.lineup.playersWithBackToBackBench(from: store.players).count
-        }
-        count += store.lineup.playersUnderFieldingMinimum(players: activePlayers, minimumInnings: config.minimumFieldingInnings).count
-        count += store.lineup.playersViolatingCatcherToPitcher(players: activePlayers, threshold: config.catcherToPitcherThreshold).count
-        count += store.lineup.playersViolatingPitcherToCatcher(players: activePlayers, threshold: config.pitcherToCatcherThreshold).count
-
-        // Pitch eligibility violations: assigned pitchers who are on rest or unknown age
-        if store.pitchingConfig.rulesEnabled {
-            let assignedPitcherIDs = Set(
-                store.lineup.innings.flatMap { inning in
-                    inning.assignments.compactMap { (pid, pos) -> UUID? in pos == .pitcher ? pid : nil }
-                }
-            )
-            for playerID in assignedPitcherIDs {
-                guard let player = store.players.first(where: { $0.id == playerID }) else { continue }
-                let status = PitchEligibilityEngine.status(
-                    for: player,
-                    gameLogs: store.gameLogs,
-                    config: store.pitchingConfig,
-                    referenceDate: store.lineup.gameDate
-                )
-                if status.blocksAssignment { count += 1 }
-            }
-        }
-
-        return count
+        fairPlayFindings.implicatedPlayerIDs.count
+            + openPositionCount(excludingInning: selectedInning)
+            + blockedPitcherCount
     }
 
-    var allWarningCount: Int {
-        return currentInningIssueCount + gameWideIssueCount
+    /// Every fair-play rule the team has switched on, evaluated once.
+    /// Rules that are off come back empty, so nothing here re-checks the config.
+    var fairPlayFindings: FairPlayFindings {
+        store.lineup.fairPlayFindings(players: store.players, config: store.fairPlayConfig)
+    }
+
+    /// Open field slots across the game. Innings with no assignments at all are
+    /// skipped — an inning nobody has started isn't missing anything yet.
+    func openPositionCount(excludingInning excluded: Int) -> Int {
+        let activePlayers = store.lineup.activePlayers(from: store.players)
+        let config = store.fairPlayConfig
+        return store.lineup.innings.indices.reduce(into: 0) { count, index in
+            guard index != excluded, !store.lineup.innings[index].assignments.isEmpty else { return }
+            count += store.lineup.openPositions(inning: index, players: activePlayers, config: config).count
+        }
+    }
+
+    /// Assigned pitchers the pitching rules say can't take the mound — counted
+    /// per player, not per inning, so a blocked pitcher listed three times is
+    /// still one thing to fix.
+    var blockedPitcherCount: Int {
+        guard store.pitchingConfig.rulesEnabled else { return 0 }
+        let assignedPitcherIDs = Set(
+            store.lineup.innings.flatMap { inning in
+                inning.assignments.compactMap { (pid, pos) -> UUID? in pos == .pitcher ? pid : nil }
+            }
+        )
+        return assignedPitcherIDs.filter { playerID in
+            guard let player = store.players.first(where: { $0.id == playerID }) else { return false }
+            return PitchEligibilityEngine.status(
+                for: player,
+                gameLogs: store.gameLogs,
+                config: store.pitchingConfig,
+                referenceDate: store.lineup.gameDate
+            ).blocksAssignment
+        }.count
     }
 
     @ViewBuilder
@@ -1027,9 +1036,14 @@ struct DefensiveGridView: View {
                 InfieldDiamondShape()
                     .stroke(Color(.separator), lineWidth: 0.5)
 
+                // Computed once for the whole diamond rather than inside
+                // fieldSlot, which would re-scan the inning's assignments for
+                // each of the nine to eleven slots to answer the same question.
+                let duplicates = Set(store.lineup.duplicatePositionErrors(inning: selectedInning))
+
                 ForEach(store.lineup.activeFieldPositions(config: store.fairPlayConfig), id: \.self) { pos in
                     if let coord = diamondCoordinates(for: pos) {
-                        fieldSlot(pos)
+                        fieldSlot(pos, duplicates: duplicates)
                             .position(
                                 x: geo.size.width * coord.x / 100,
                                 y: geo.size.height * coord.y / 100
@@ -1044,9 +1058,9 @@ struct DefensiveGridView: View {
     /// empty). Carries the same duplicate and pitch-eligibility flags as the old
     /// list rows. Tapping opens the player picker for the slot.
     @ViewBuilder
-    private func fieldSlot(_ pos: FieldPosition) -> some View {
+    private func fieldSlot(_ pos: FieldPosition, duplicates: Set<FieldPosition>) -> some View {
         let occupant = store.lineup.innings[selectedInning].player(at: pos, in: store.players)
-        let isDuplicate = store.lineup.duplicatePositionErrors(inning: selectedInning).contains(pos)
+        let isDuplicate = duplicates.contains(pos)
         let pitchWarning: Bool = {
             guard pos == .pitcher, let occupant, store.pitchingConfig.rulesEnabled else { return false }
             return PitchEligibilityEngine.status(
@@ -1557,10 +1571,13 @@ struct WarningsView: View {
                     }
                 }
 
+                // Excludes the inning above so a single unfilled slot isn't listed
+                // twice — the same split the toolbar badge makes between
+                // currentInningIssueCount and gameWideIssueCount.
                 let missingPositionWarnings = computeMissingPositionWarnings()
-                Section(header: ComplianceRulesHeader(title: "Missing Positions")) {
+                Section(header: ComplianceRulesHeader(title: "Other Innings")) {
                     if missingPositionWarnings.isEmpty {
-                        Label("All innings have positions filled.", systemImage: "checkmark.circle.fill")
+                        Label("No other inning is missing a position.", systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
                             .font(.callout)
                     } else {
@@ -1574,7 +1591,7 @@ struct WarningsView: View {
 
                 Section(header: ComplianceRulesHeader(title: "Overall Lineup")) {
                     if overallWarnings.isEmpty {
-                        Label("All players meet infield & outfield requirements.", systemImage: "checkmark.circle.fill")
+                        Label("No game-wide fair-play issues.", systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
                             .font(.callout)
                     } else {
@@ -1621,27 +1638,19 @@ struct WarningsView: View {
         let dupPos = store.lineup.duplicatePositionErrors(inning: inning)
         for pos in dupPos { warnings.append("Duplicate position: \(pos.displayName)") }
         for pos in openPos { warnings.append("Open position: \(pos.displayName)") }
-        if config.noConsecutiveBench {
-            for player in activePlayers {
-                if store.lineup.innings[inning].position(for: player) == .bench {
-                    let prevBench = inning > 0 && store.lineup.innings[inning - 1].position(for: player) == .bench
-                    let nextBench = inning < store.lineup.innings.count - 1 && store.lineup.innings[inning + 1].position(for: player) == .bench
-                    if prevBench {
-                        warnings.append("\(player.displayName): back-to-back bench (inn \(inning) & \(inning + 1))")
-                    } else if nextBench {
-                        warnings.append("\(player.displayName): back-to-back bench (inn \(inning + 1) & \(inning + 2))")
-                    }
-                }
-            }
-        }
+        // Back-to-back bench is a game-wide rule and now lives in
+        // computeOverallWarnings(), which names the innings itself. Listing it
+        // here as well would double-report the pair that touches this inning.
         return warnings
     }
 
+    /// Open slots in every inning *except* the one the sheet is opened on —
+    /// that inning has its own section above.
     func computeMissingPositionWarnings() -> [String] {
         var warnings: [String] = []
         let activePlayers = store.lineup.activePlayers(from: store.players)
         let config = store.fairPlayConfig
-        for i in 0..<store.lineup.innings.count {
+        for i in store.lineup.innings.indices where i != inning {
             guard !store.lineup.innings[i].assignments.isEmpty else { continue }
             let open = store.lineup.openPositions(inning: i, players: activePlayers, config: config)
             guard !open.isEmpty else { continue }
@@ -1651,37 +1660,40 @@ struct WarningsView: View {
         return warnings
     }
 
+    /// One line per player per broken rule, built from the same
+    /// `Lineup.fairPlayFindings` the toolbar badge counts — so the badge and
+    /// this list can't disagree, and a rule the coach switched off produces
+    /// nothing rather than being re-checked here.
+    ///
+    /// Back-to-back bench is included. It used to appear only in the selected
+    /// inning's section, so a violation in innings 4-5 counted toward the badge
+    /// and then showed up nowhere in the sheet the badge opens.
     func computeOverallWarnings() -> [String] {
-        var warnings: [String] = []
         let config = store.fairPlayConfig
-        let active = store.lineup.activePlayers(from: store.players)
-        if config.minimumInfieldInnings > 0 {
-            for player in store.lineup.playersWithoutInfield(players: active) {
-                warnings.append("\(player.displayName): no infield inning assigned")
-            }
+        let findings = store.lineup.fairPlayFindings(players: store.players, config: config)
+        var warnings: [String] = []
+
+        for player in findings.withoutInfield {
+            warnings.append("\(player.displayName): no infield inning assigned")
         }
-        if config.minimumOutfieldInnings > 0 {
-            for player in store.lineup.playersWithoutOutfield(players: active) {
-                warnings.append("\(player.displayName): no outfield inning assigned")
-            }
+        for player in findings.withoutOutfield {
+            warnings.append("\(player.displayName): no outfield inning assigned")
         }
-        let minimum = config.minimumFieldingInnings
-        if minimum > 0 {
-            for player in store.lineup.playersUnderFieldingMinimum(players: active, minimumInnings: minimum) {
-                warnings.append("\(player.displayName): under \(minimum) inning\(minimum == 1 ? "" : "s") fielded")
-            }
+        let minimum = findings.minimumFieldingInnings
+        for player in findings.underFieldingMinimum {
+            warnings.append("\(player.displayName): under \(Plural.innings(minimum)) fielded")
         }
-        let c2p = config.catcherToPitcherThreshold
-        if c2p > 0 {
-            for player in store.lineup.playersViolatingCatcherToPitcher(players: active, threshold: c2p) {
-                warnings.append("\(player.displayName): caught \(c2p)+ innings before pitching (C to P restriction)")
-            }
+        for player in findings.backToBackBench {
+            let pairs = store.lineup.backToBackBenchInnings(player: player)
+                .map { "\($0.first) & \($0.second)" }
+                .joined(separator: ", ")
+            warnings.append("\(player.displayName): back-to-back bench (inn \(pairs))")
         }
-        let p2c = config.pitcherToCatcherThreshold
-        if p2c > 0 {
-            for player in store.lineup.playersViolatingPitcherToCatcher(players: active, threshold: p2c) {
-                warnings.append("\(player.displayName): pitched \(p2c)+ innings before catching (P to C restriction)")
-            }
+        for player in findings.catcherThenPitcher {
+            warnings.append("\(player.displayName): caught \(config.catcherToPitcherThreshold)+ innings before pitching (C to P restriction)")
+        }
+        for player in findings.pitcherThenCatcher {
+            warnings.append("\(player.displayName): pitched \(config.pitcherToCatcherThreshold)+ innings before catching (P to C restriction)")
         }
         return warnings
     }
@@ -1714,15 +1726,20 @@ struct WarningsView: View {
             case .limited(let remaining):
                 warnings.append("\(player.displayName): limited to \(remaining) pitches today")
             case .mustRest(let date):
-                let formatter = DateFormatter()
-                formatter.dateFormat = "EEE M/d"
-                warnings.append("\(player.displayName): available \(formatter.string(from: date))")
+                warnings.append("\(player.displayName): available \(Self.restDateFormatter.string(from: date))")
             case .unknownAge:
                 warnings.append("\(player.displayName): league age not set, eligibility unknown")
             }
         }
         return warnings
     }
+
+    /// Static so a roster full of resting pitchers doesn't build a formatter each.
+    private static let restDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE M/d"
+        return f
+    }()
 }
 
 // MARK: - Position Picker Sheet

@@ -844,10 +844,17 @@ private struct NeverStripeDot: View {
 struct GameLogRow: View {
     let log: GameLog
 
-    private var dateString: String {
+    /// Static because this is a list row: building a DateFormatter is expensive
+    /// relative to formatting with one, and an instance property would allocate
+    /// a fresh one on every body evaluation of every row.
+    private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "EEE, MMM d"
-        return f.string(from: log.gameDate)
+        return f
+    }()
+
+    private var dateString: String {
+        Self.dateFormatter.string(from: log.gameDate)
     }
 
     private var pitchCountPlayerCount: Int {

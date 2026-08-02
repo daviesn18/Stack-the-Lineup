@@ -1,12 +1,14 @@
 import CloudKit
 import UIKit
+import os
 
 // MARK: - DeviceTokenManager
 //
 // Registers for APNs, receives the device token, and writes it to CloudKit
 // so the Cloudflare Worker can look it up when sending push notifications.
 //
-// CloudKit schema — record type "DeviceToken" in privateDB:
+// CloudKit schema — record type "DeviceToken" in the PUBLIC database (the
+// Worker has to be able to read it, which it can't do in a user's private DB):
 //   teamID    (String) — the team this token belongs to
 //   coachName (String) — display name of the coach on this device
 //   apnsToken (String) — hex-encoded APNs device token
@@ -41,14 +43,18 @@ final class DeviceTokenManager {
     func didRegister(deviceToken: Data, store: LineupStore) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         cachedTokenHex = hex
-        print("📲 APNs device token: \(hex.prefix(16))...")
+        Log.push.info("Received APNs device token")
         Task {
             await saveTokenForAllTeams(tokenHex: hex, store: store)
         }
     }
 
-    /// Called when the coach switches teams — ensures the new team also has
-    /// a token record so it can send notifications to this device.
+    /// Called from `LineupStore.switchTeam(to:)` — ensures the newly active team
+    /// also has a token record so it can send notifications to this device.
+    ///
+    /// No-ops before APNs has handed us a token. That's the launch ordering, not
+    /// an error: `didRegister` writes every team the coach already had, and this
+    /// covers the ones added afterwards.
     func refreshTokenForCurrentTeam(store: LineupStore) {
         guard let hex = cachedTokenHex else { return }
         Task {
@@ -75,10 +81,7 @@ final class DeviceTokenManager {
     private func saveToken(tokenHex: String, teamID: String, coachName: String) async {
         let db = CKContainer(identifier: containerID).publicCloudDatabase
 
-        // Use a deterministic record name so the same device always updates
-        // the same record rather than creating duplicates.
-        let recordName = "devicetoken-\(teamID)-\(tokenHex.prefix(16))"
-        let recordID   = CKRecord.ID(recordName: recordName)
+        let recordID = CKRecord.ID(recordName: Self.recordName(teamID: teamID, tokenHex: tokenHex))
 
         // Fetch existing record or create new one.
         let record: CKRecord
@@ -95,33 +98,50 @@ final class DeviceTokenManager {
 
         do {
             try await db.save(record)
-            print("✅ DeviceToken saved to CloudKit for team \(teamID.prefix(8))...")
+            Log.push.info("DeviceToken saved for team \(teamID)")
         } catch {
-            print("⚠️ DeviceToken save failed: \(error.localizedDescription)")
+            Log.push.error("DeviceToken save failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     // MARK: - Token Cleanup
 
-    /// Removes all device token records for a specific team from this device.
-    /// Call when a coach leaves a shared team so they stop receiving its notifications.
+    /// Removes **this device's** token record for a team.
+    ///
+    /// Called from `LineupStore.deleteTeam(id:)`. Skipping it leaves the record
+    /// in the public database, and the Worker keeps finding it — so a coach who
+    /// leaves a shared team goes on receiving that team's notifications.
+    ///
+    /// Deletes by the deterministic record name rather than querying on
+    /// `teamID`. That is not a micro-optimization: the DeviceToken record type
+    /// lives in the PUBLIC database, so a `teamID == %@` query returns every
+    /// coach's token for that team, and deleting the results would silence
+    /// notifications for the whole roster because one person left.
+    ///
+    /// No-ops when APNs hasn't handed us a token this launch — without it we
+    /// can't name our own record, and there is nothing to remove anyway if this
+    /// device never registered.
     func removeTokens(for teamID: String) async {
-        let db = CKContainer(identifier: containerID).publicCloudDatabase
+        guard let hex = cachedTokenHex else {
+            Log.push.info("No APNs token held; nothing to remove for this team")
+            return
+        }
 
-        // Query for all tokens belonging to this team on this device.
-        let predicate = NSPredicate(format: "teamID == %@", teamID)
-        let query = CKQuery(recordType: recordType, predicate: predicate)
+        let db = CKContainer(identifier: containerID).publicCloudDatabase
+        let recordID = CKRecord.ID(recordName: Self.recordName(teamID: teamID, tokenHex: hex))
 
         do {
-            let (results, _) = try await db.records(matching: query)
-            for (recordID, result) in results {
-                if case .success = result {
-                    _ = try? await db.deleteRecord(withID: recordID)
-                }
-            }
-            print("🗑️ Removed DeviceToken records for team \(teamID.prefix(8))...")
+            _ = try await db.deleteRecord(withID: recordID)
+            Log.push.info("Removed this device's DeviceToken for team \(teamID)")
         } catch {
-            print("⚠️ DeviceToken removal failed: \(error.localizedDescription)")
+            Log.push.error("DeviceToken removal failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// One record per (team, device). Deterministic so re-registering updates in
+    /// place instead of creating duplicates — and so removal can address the
+    /// record directly.
+    private static func recordName(teamID: String, tokenHex: String) -> String {
+        "devicetoken-\(teamID)-\(tokenHex.prefix(16))"
     }
 }

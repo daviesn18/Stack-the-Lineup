@@ -425,4 +425,91 @@ final class FairPlayValidationTests: XCTestCase {
         XCTAssertFalse(lineup.isPastAndFinalized,
                        "A game scheduled for today should not yet be considered past")
     }
+
+    // MARK: - fairPlayFindings / implicatedPlayerIDs
+    //
+    // This is what every warning badge counts. The iPhone Positions tab used to
+    // sum the per-rule counts instead, so one player breaking two rules showed
+    // as 2 there and 1 on iPad for the same lineup.
+
+    func testAPlayerBreakingTwoRulesIsCountedOnce() {
+        // Alice fields all 4 innings and sees both infield and outfield — clean.
+        // Bob sits one inning, so he's under the 4-inning fielding minimum AND
+        // never plays the outfield. Two rules, one player to go fix.
+        let alice = makePlayer("Alice")
+        let bob = makePlayer("Bob")
+        var lineup = makeLineup(innings: 4)
+        for (i, pos) in [FieldPosition.leftField, .leftField, .shortstop, .shortstop].enumerated() {
+            lineup.innings[i].assign(player: alice, position: pos)
+        }
+        for (i, pos) in [FieldPosition.shortstop, .shortstop, .shortstop, .bench].enumerated() {
+            lineup.innings[i].assign(player: bob, position: pos)
+        }
+
+        let findings = lineup.fairPlayFindings(players: [alice, bob], config: FairPlayConfig())
+
+        XCTAssertTrue(findings.withoutOutfield.contains { $0.id == bob.id })
+        XCTAssertTrue(findings.underFieldingMinimum.contains { $0.id == bob.id })
+        XCTAssertEqual(findings.implicatedPlayerIDs, [bob.id],
+                       "Bob breaks two rules but is one thing to go fix")
+    }
+
+    func testRulesSwitchedOffContributeNoImplicatedPlayers() {
+        // A lineup that trips several rules under the defaults, with every rule
+        // switched off — nothing should be implicated.
+        let bob = makePlayer("Bob")
+        var lineup = makeLineup(innings: 2)
+        lineup.innings[0].assign(player: bob, position: .shortstop)
+        lineup.innings[1].assign(player: bob, position: .shortstop)
+
+        var config = FairPlayConfig()
+        config.minimumInfieldInnings = 0
+        config.minimumOutfieldInnings = 0
+        config.minimumFieldingInnings = 0
+        config.noConsecutiveBench = false
+        config.catcherToPitcherThreshold = 0
+        config.pitcherToCatcherThreshold = 0
+
+        let findings = lineup.fairPlayFindings(players: [bob], config: config)
+
+        XCTAssertTrue(findings.isEmpty,
+                      "A team with every rule off should have nothing to report")
+    }
+
+    // MARK: - backToBackBenchInnings
+
+    func testBackToBackBenchInningsNamesThePairsOneBased() {
+        // Bench in innings 1-2 and again in 5-6, as a coach counts them.
+        let alice = makePlayer("Alice")
+        var lineup = makeLineup(innings: 7)
+        for i in [0, 1, 4, 5] {
+            lineup.innings[i].assign(player: alice, position: .bench)
+        }
+
+        let pairs = lineup.backToBackBenchInnings(player: alice)
+
+        XCTAssertEqual(pairs.map(\.first), [1, 5])
+        XCTAssertEqual(pairs.map(\.second), [2, 6])
+    }
+
+    func testBackToBackBenchInningsIsEmptyForAlternatingBench() {
+        let alice = makePlayer("Alice")
+        var lineup = makeLineup(innings: 4)
+        lineup.innings[0].assign(player: alice, position: .bench)
+        lineup.innings[1].assign(player: alice, position: .leftField)
+        lineup.innings[2].assign(player: alice, position: .bench)
+
+        XCTAssertTrue(lineup.backToBackBenchInnings(player: alice).isEmpty)
+        XCTAssertFalse(lineup.hasBackToBackBench(player: alice))
+    }
+
+    func testBackToBackBenchSurvivesALineupWithNoInnings() {
+        // A truncated or hand-edited blob can decode to an empty innings array.
+        // The old `0..<innings.count - 1` trapped on it.
+        let alice = makePlayer("Alice")
+        let lineup = Lineup(innings: [])
+
+        XCTAssertTrue(lineup.backToBackBenchInnings(player: alice).isEmpty)
+        XCTAssertFalse(lineup.hasBackToBackBench(player: alice))
+    }
 }

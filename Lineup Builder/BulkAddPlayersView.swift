@@ -118,7 +118,7 @@ struct BulkAddPlayersView: View {
                                 .padding(.vertical, 2)
                             }
                         } header: {
-                            Text("\(parsedPlayers.count) player\(parsedPlayers.count == 1 ? "" : "s") to add")
+                            Text("\(Plural.players(parsedPlayers.count)) to add")
                         }
                     }
                     .listStyle(.insetGrouped)
@@ -131,7 +131,7 @@ struct BulkAddPlayersView: View {
                     } label: {
                         Text(parsedPlayers.isEmpty
                              ? "Add Players"
-                             : "Add \(parsedPlayers.count) Player\(parsedPlayers.count == 1 ? "" : "s")")
+                             : "Add \(Plural.players(parsedPlayers.count).capitalized)")
                             .font(.body.bold())
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)

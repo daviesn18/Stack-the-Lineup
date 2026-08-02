@@ -132,8 +132,6 @@ struct AutoFillNLParseResult {
 
     static let empty = AutoFillNLParseResult(constraints: .empty, diagnostics: [])
 
-    var hasDiagnostics: Bool { !diagnostics.isEmpty }
-
     /// Coach-readable lines, ready to append to the engine's own
     /// constraint-notice message in the existing alert.
     var diagnosticMessage: String? {

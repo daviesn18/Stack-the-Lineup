@@ -24,20 +24,19 @@ struct GameLogDetailView: View {
     /// never gets a chance to present. Same fix as GameLogsView's lead tip.
     @State private var currentHistoryTip: (any Tip)?
 
-    private var archivedAtString: String {
+    private static let archivedAtFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
         f.timeStyle = .short
-        return "Archived \(f.string(from: log.archivedAt))"
+        return f
+    }()
+
+    private var archivedAtString: String {
+        "Archived \(Self.archivedAtFormatter.string(from: log.archivedAt))"
     }
 
     private var orderedPlayers: [PlayerSnapshot] {
         log.battingOrder.compactMap { id in log.snapshot(for: id) }
-    }
-
-    private var benchOnlyPlayers: [PlayerSnapshot] {
-        let orderedIDs = Set(log.battingOrder)
-        return log.playerSnapshot.filter { !orderedIDs.contains($0.id) }
     }
 
     /// Pitch count entries resolved to display names, sorted by pitches descending.

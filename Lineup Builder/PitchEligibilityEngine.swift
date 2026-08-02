@@ -302,6 +302,12 @@ struct PitchingGuideSummaryRow {
     let player: Player
     let pitchesInWindow: Int
     let dailyMax: Int
+    /// The lower of the daily max and what's left in the weekly window — what
+    /// the player can actually throw today, which is the number a coach plans
+    /// against. Equals `dailyMax` when no weekly limit is enabled.
+    let available: Int
+    /// Rest days owed from their most recent outing. 0 once the rest has
+    /// elapsed, so it's only meaningful alongside a restricted `status`.
     let restDaysRequired: Int
     let status: PitchEligibilityStatus
 }
@@ -310,8 +316,13 @@ extension PitchEligibilityEngine {
 
     /// Builds rows for the Coaches Guide pitching summary table.
     /// Excludes players with Pitcher preference set to Never.
-    /// Sorted: eligible/limited first (alphabetical by last name), then restricted.
     /// Returns nil if pitching rules are disabled or no eligible pitchers exist.
+    ///
+    /// Sorted the way a coach reads the table: who can throw, most available
+    /// first, with restricted players last. `PDFGenerator` used to hold its own
+    /// hand-rolled copy of this ("exact port of PositionSummaryView") which
+    /// sorted that way; this is now the single implementation, so the ordering
+    /// came with it. Ties break on last name for a stable page.
     static func coachesGuideSummary(
         gameLogs: [GameLog],
         players: [Player],
@@ -356,20 +367,28 @@ extension PitchEligibilityEngine {
                 limits.map { $0.restDaysRequired(for: entry.pitches) }
             } ?? 0
 
+            let dailyMax = limits?.dailyMax ?? 0
+
+            // What they can actually throw today. The weekly window only
+            // constrains when the coach has enabled a limit.
+            var available = dailyMax
+            if config.weeklyLimitEnabled && config.weeklyLimit > 0 {
+                available = min(dailyMax, max(0, config.weeklyLimit - windowPitches))
+            }
+
             return PitchingGuideSummaryRow(
                 player: player,
                 pitchesInWindow: windowPitches,
-                dailyMax: limits?.dailyMax ?? 0,
+                dailyMax: dailyMax,
+                available: available,
                 restDaysRequired: restDays,
                 status: statuses[player.id] ?? .eligible
             )
         }
 
-        // Eligible/limited players first (alphabetical), restricted last
         return rows.sorted { a, b in
-            let aRestricted = a.status.isRestricted
-            let bRestricted = b.status.isRestricted
-            if aRestricted != bRestricted { return !aRestricted }
+            if a.status.isRestricted != b.status.isRestricted { return !a.status.isRestricted }
+            if a.available != b.available { return a.available > b.available }
             return a.player.lastName < b.player.lastName
         }
     }

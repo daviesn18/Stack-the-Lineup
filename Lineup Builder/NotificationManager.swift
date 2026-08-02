@@ -1,4 +1,5 @@
 import UserNotifications
+import os
 
 // MARK: - NotificationManager
 //
@@ -78,14 +79,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             do {
                 let granted = try await UNUserNotificationCenter.current()
                     .requestAuthorization(options: [.alert, .sound, .badge])
-                print("🔔 Notification permission granted: \(granted)")
+                Log.push.info("Notification permission granted: \(granted, privacy: .public)")
                 if granted {
                     await MainActor.run {
                         DeviceTokenManager.shared.registerForRemoteNotifications()
                     }
                 }
             } catch {
-                print("⚠️ Notification permission error: \(error)")
+                Log.push.error("Notification permission request failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -116,7 +117,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
         guard let url = URL(string: workerURL),
               let body = try? JSONSerialization.data(withJSONObject: payload) else {
-            print("⚠️ NotificationManager: invalid Worker URL or payload")
+            Log.push.error("Invalid Worker URL or payload; event not sent")
             return
         }
 
@@ -129,14 +130,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
                 if let http = response as? HTTPURLResponse {
-                    print("🔔 Worker response: \(http.statusCode) for \(eventType)")
+                    Log.push.info("Worker responded \(http.statusCode, privacy: .public) for \(eventType, privacy: .public)")
                     Analytics.signal("push.sent", parameters: [
                         "eventType": eventType,
                         "status": "\(http.statusCode)"
                     ])
                 }
             } catch {
-                print("⚠️ Worker POST failed: \(error.localizedDescription)")
+                Log.push.error("Worker POST failed: \(error.localizedDescription, privacy: .public)")
                 Analytics.signal("push.sent", parameters: [
                     "eventType": eventType,
                     "status": "network_error"

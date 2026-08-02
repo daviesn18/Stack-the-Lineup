@@ -151,7 +151,7 @@ struct TemplatePickerView: View {
                 }
                 Spacer()
                 if !template.positionLocks.isEmpty {
-                    Text("\(template.positionLocks.count) lock\(template.positionLocks.count == 1 ? "" : "s")")
+                    Text(Plural.locks(template.positionLocks.count))
                         .font(.caption.bold())
                         .foregroundColor(.blue)
                         .padding(.horizontal, 8)

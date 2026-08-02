@@ -340,33 +340,35 @@ struct QuickSetSheet: View {
             )
             if status.blocksAssignment {
                 pendingCommit = { [sortedInnings] in
-                    for inning in sortedInnings {
-                        store.assignPosition(player: player, inning: inning, position: position)
-                    }
+                    store.assignPosition(player: player, innings: sortedInnings, position: position)
                     dismiss()
                 }
                 pendingPitchStatus = status
                 return
             }
         }
-        for inning in sortedInnings {
-            store.assignPosition(player: player, inning: inning, position: position)
-        }
+        store.assignPosition(player: player, innings: sortedInnings, position: position)
         dismiss()
     }
 
+    // Quick Set touches every selected inning at once, so it uses the store's
+    // bulk mutators — the per-inning versions would encode the whole teams blob
+    // and fire a CloudKit push once per inning.
     private func clearSelection() {
         switch origin {
         case .player(let player):
-            for inning in sortedInnings {
-                store.removeAssignment(player: player, inning: inning)
-            }
+            store.removeAssignments(player: player, innings: sortedInnings)
         case .position(let position, _):
+            // Different innings can hold different occupants at this position,
+            // so group by player and clear each one's innings in a single save.
             let players = store.lineup.displayPlayers(from: store.players)
+            var inningsByOccupant: [UUID: (player: Player, innings: [Int])] = [:]
             for inning in sortedInnings {
-                if let occupant = store.lineup.innings[inning].player(at: position, in: players) {
-                    store.removeAssignment(player: occupant, inning: inning)
-                }
+                guard let occupant = store.lineup.innings[inning].player(at: position, in: players) else { continue }
+                inningsByOccupant[occupant.id, default: (occupant, [])].innings.append(inning)
+            }
+            for (_, entry) in inningsByOccupant {
+                store.removeAssignments(player: entry.player, innings: entry.innings)
             }
         }
         dismiss()

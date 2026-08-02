@@ -67,16 +67,6 @@ nonisolated struct PitchEligibilityAnswer: Equatable {
 
     var headline: String { "Can \(playerFirstName) pitch?" }
 
-    /// The one-word answer, for the snippet's value column.
-    var shortVerdict: String {
-        switch verdict {
-        case .clear:            return "Yes"
-        case .limited:          return "Yes, limited"
-        case .blocked:          return "Not yet"
-        case .notTracked:       return "Not tracked"
-        }
-    }
-
     /// What Siri says. Leads with the yes or no — a coach asking this is
     /// standing somewhere deciding, and the qualifier is no use before the
     /// verdict it qualifies.

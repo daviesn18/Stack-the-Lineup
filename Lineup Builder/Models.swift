@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import os
 
 // MARK: - PDF Types
 
@@ -731,9 +732,21 @@ struct Lineup: Codable, Sendable {
     /// hasConsecutiveBench(player:assigningBenchToInning:), which is predictive
     /// ("would assigning bench here create a back-to-back").
     nonisolated func hasBackToBackBench(player: Player) -> Bool {
-        (0..<innings.count - 1).contains { i in
-            innings[i].position(for: player) == .bench &&
-            innings[i + 1].position(for: player) == .bench
+        !backToBackBenchInnings(player: player).isEmpty
+    }
+
+    /// The 1-based inning pairs where the player sits twice in a row, e.g. `[(3, 4)]`.
+    /// `hasBackToBackBench` answers *whether*; this answers *where*, so warning copy
+    /// can name the innings rather than just the player.
+    ///
+    /// The count guard matters: `0..<innings.count - 1` traps on an empty innings
+    /// array, which a hand-edited or truncated blob can produce.
+    nonisolated func backToBackBenchInnings(player: Player) -> [(first: Int, second: Int)] {
+        guard innings.count > 1 else { return [] }
+        return (0..<innings.count - 1).compactMap { i in
+            guard innings[i].position(for: player) == .bench,
+                  innings[i + 1].position(for: player) == .bench else { return nil }
+            return (i + 1, i + 2)
         }
     }
 
@@ -1062,8 +1075,8 @@ struct Team: Identifiable, Codable {
     var gameLogs: [GameLog] = []
     var createdAt: Date = Date()
     /// Per-team game length. Common values: 5 (younger divisions), 6 (Cal Ripken Minor),
-    /// 7 (Little League Majors+). Drives the size of new lineups created via clearAll(),
-    /// clearPositions(), and the inningsPlayed clamp at archive time. Existing archived
+    /// 7 (Little League Majors+). Drives the size of new lineups created via
+    /// clearPositions() and the inningsPlayed clamp at archive time. Existing archived
     /// games keep their original inning count baked into the GameLog. Migrates to 7
     /// for any team decoded without this key.
     var gameInningCount: Int = 7
@@ -1280,7 +1293,7 @@ class LineupStore: ObservableObject {
                     }
                 }
             } catch {
-                print("⚠️ CloudKit save failed: \(error.localizedDescription)")
+                Log.sync.error("CloudKit save failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -1327,7 +1340,7 @@ class LineupStore: ObservableObject {
                 // copy stays frozen at its old timestamp, so applyStoredData()
                 // keeps preferring the newer local blob instead of the stale
                 // KV one.
-                print("⚠️ Teams blob exceeds iCloud KV safety threshold. Storing locally only.")
+                Log.storage.notice("Teams blob exceeds the iCloud KV safety threshold; storing locally only")
             }
             #endif
 
@@ -1393,7 +1406,7 @@ class LineupStore: ObservableObject {
             } catch {
                 // Deferral (e.g. no iCloud account) is expected and non-fatal.
                 // The gate flag was not set, so migration retries on next launch.
-                print("⚠️ CloudKit migration deferred: \(error.localizedDescription)")
+                Log.sync.notice("CloudKit migration deferred: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -1434,7 +1447,7 @@ class LineupStore: ObservableObject {
             // DO NOT fall through to migration — that would overwrite iCloud
             // with an empty team. Leave teams as-is and wait for a future
             // successful sync or manual recovery.
-            print("⚠️ stl_teams data exists but failed to decode. Aborting load to protect existing data.")
+            Log.storage.fault("stl_teams exists but failed to decode; aborting load to protect existing data")
             return
         case .loaded(let loaded, let activeID):
             decodedTeams  = loaded
@@ -1497,10 +1510,10 @@ class LineupStore: ObservableObject {
     ///   Deleted records: remove only read-only teams (owned deletions are explicit user actions).
     ///   New shared teams: append if not already present by ckRecordName.
     func fetchCloudKitChanges() async {
-        print("🔵 fetchCloudKitChanges called")
+        Log.sync.debug("fetchCloudKitChanges called")
         // Zone creation is idempotent and cheap after the first call.
         do { try await CloudKitManager.shared.ensureZoneExists() } catch {
-            print("⚠️ CloudKit ensureZoneExists failed: \(error.localizedDescription)")
+            Log.sync.error("CloudKit ensureZoneExists failed: \(error.localizedDescription, privacy: .public)")
         }
 
         // Run private and shared fetches independently so a failure in one
@@ -1516,13 +1529,13 @@ class LineupStore: ObservableObject {
         do {
             privateChanges = try await CloudKitManager.shared.fetchChanges()
         } catch {
-            print("⚠️ CloudKit private fetch failed: \(error.localizedDescription)")
+            Log.sync.error("CloudKit private fetch failed: \(error.localizedDescription, privacy: .public)")
         }
 
         do {
             sharedTeams = try await CloudKitManager.shared.fetchSharedTeams()
         } catch {
-            print("⚠️ CloudKit shared fetch failed: \(error.localizedDescription)")
+            Log.sync.error("CloudKit shared fetch failed: \(error.localizedDescription, privacy: .public)")
         }
 
         await MainActor.run {
@@ -1837,19 +1850,48 @@ class LineupStore: ObservableObject {
     // MARK: - Lineup Operations
 
     func assignPosition(player: Player, inning: Int, position: FieldPosition) {
+        assignPosition(player: player, innings: [inning], position: position)
+    }
+
+    /// Assigns one player to the same position across several innings in a
+    /// single save.
+    ///
+    /// Every `save()` encodes the whole `[Team]` array, writes UserDefaults and
+    /// the iCloud KV store, rewrites the widget snapshot and fires a CloudKit
+    /// push — so calling the single-inning version in a loop cost six of each
+    /// for a six-inning Quick Set. Same reasoning as `addPlayers(_:)`, which
+    /// exists so roster import doesn't write once per player.
+    ///
+    /// Out-of-range innings are skipped rather than trapping: callers derive
+    /// them from UI state that can lag a game-length change.
+    func assignPosition(player: Player, innings: [Int], position: FieldPosition) {
+        guard !innings.isEmpty else { return }
         revertToDraftIfFinalized()
-        if !position.isBench,
-           let occupant = activeTeam.lineup.innings[inning].player(at: position, in: activeTeam.players),
-           occupant.id != player.id {
-            activeTeam.lineup.innings[inning].removeAssignment(for: occupant)
+        for inning in innings where activeTeam.lineup.innings.indices.contains(inning) {
+            // Evicting the current occupant is per-inning: the same position can
+            // be held by a different player in each one.
+            if !position.isBench,
+               let occupant = activeTeam.lineup.innings[inning].player(at: position, in: activeTeam.players),
+               occupant.id != player.id {
+                activeTeam.lineup.innings[inning].removeAssignment(for: occupant)
+            }
+            activeTeam.lineup.innings[inning].assign(player: player, position: position)
         }
-        activeTeam.lineup.innings[inning].assign(player: player, position: position)
         save()
     }
 
     func removeAssignment(player: Player, inning: Int) {
+        removeAssignments(player: player, innings: [inning])
+    }
+
+    /// Clears one player from several innings in a single save. See
+    /// `assignPosition(player:innings:position:)` for why the bulk form exists.
+    func removeAssignments(player: Player, innings: [Int]) {
+        guard !innings.isEmpty else { return }
         revertToDraftIfFinalized()
-        activeTeam.lineup.innings[inning].removeAssignment(for: player)
+        for inning in innings where activeTeam.lineup.innings.indices.contains(inning) {
+            activeTeam.lineup.innings[inning].removeAssignment(for: player)
+        }
         save()
     }
 
@@ -1859,20 +1901,6 @@ class LineupStore: ObservableObject {
         // Nothing from the default template survives an explicit clear, so the
         // grid stops being attributable to it. (archiveCurrentLineup re-applies
         // the default immediately after calling this, which re-sets the link.)
-        activeTeam.lineup.defaultTemplateID = nil
-        save()
-    }
-
-    func clearBattingOrder() {
-        revertToDraftIfFinalized()
-        activeTeam.lineup.battingOrder = []
-        save()
-    }
-
-    func clearAll() {
-        revertToDraftIfFinalized()
-        activeTeam.lineup.innings = Array(repeating: InningAssignment(), count: activeTeam.gameInningCount)
-        activeTeam.lineup.battingOrder = []
         activeTeam.lineup.defaultTemplateID = nil
         save()
     }
@@ -2337,6 +2365,14 @@ class LineupStore: ObservableObject {
         if activeTeamID == id {
             activeTeamID = teams.first?.id
         }
+
+        // Drop this device's push token for the team we just left. Without it the
+        // record stays in the public database and the Worker keeps finding it, so
+        // a coach who leaves a shared team goes on receiving its notifications
+        // forever. Fire-and-forget: the local delete has already happened and a
+        // CloudKit failure here shouldn't block it.
+        Task { await DeviceTokenManager.shared.removeTokens(for: id.uuidString) }
+
         Analytics.signal("team.deleted", parameters: ["remainingTeams": "\(teams.count)"])
         save()
     }
@@ -2345,6 +2381,12 @@ class LineupStore: ObservableObject {
         guard teams.contains(where: { $0.id == id }) else { return }
         activeTeamID = id
         let isSharedTeam = teams.first(where: { $0.id == id })?.isSharedParticipant ?? false
+
+        // Tokens are otherwise only written by didRegister() at launch, so a team
+        // created or joined mid-session has no token record until the next cold
+        // start. No-ops when APNs hasn't handed us a token yet.
+        DeviceTokenManager.shared.refreshTokenForCurrentTeam(store: self)
+
         Analytics.signal("team.switched", parameters: [
             "teamCount": "\(teams.count)",
             "shared": isSharedTeam ? "true" : "false"

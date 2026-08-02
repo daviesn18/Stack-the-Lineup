@@ -70,14 +70,6 @@ nonisolated enum RuleTopic: String, CaseIterable, Sendable {
         case .restDays:        return "Your rest day thresholds"
         }
     }
-
-    /// True for the two topics that read PitchingConfig rather than FairPlayConfig.
-    var isPitching: Bool {
-        switch self {
-        case .pitchLimit, .restDays: return true
-        default:                     return false
-        }
-    }
 }
 
 // MARK: - Rule Line
@@ -646,14 +638,14 @@ nonisolated enum TeamRulesBuilder {
     }
 
     // MARK: Phrasing
+    //
+    // `innings` and `pitches` used to live here as private helpers. They're now
+    // `Plural.innings` / `Plural.pitches`, shared with the recap, the grid
+    // warnings and the roster sheets — same output, one place to fix it.
 
-    private static func innings(_ count: Int) -> String {
-        count == 1 ? "1 inning" : "\(count) innings"
-    }
+    private static func innings(_ count: Int) -> String { Plural.innings(count) }
 
-    private static func pitches(_ count: Int) -> String {
-        count == 1 ? "1 pitch" : "\(count) pitches"
-    }
+    private static func pitches(_ count: Int) -> String { Plural.pitches(count) }
 
     private static func restPhrase(_ days: Int) -> String {
         switch days {
