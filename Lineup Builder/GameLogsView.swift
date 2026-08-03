@@ -66,7 +66,16 @@ struct GameLogsView: View {
 
     private var historyContent: some View {
         Group {
-            if !purchaseManager.isPro {
+            if !purchaseManager.isResolved {
+                // StoreKit hasn't answered yet. Deliberately NOT the locked
+                // branch: `isPro` is false while undetermined, so falling
+                // through would render LockedHistoryView for a paying coach and
+                // — worse — arm the 0.35s timer below that auto-presents the
+                // paywall. On a slow or offline cold launch the entitlement
+                // doesn't beat that timer, and the coach gets asked to buy
+                // something they already own.
+                entitlementResolvingState
+            } else if !purchaseManager.isPro {
                 LockedHistoryView(
                     teamColor: store.teamColor,
                     showingPaywall: $showingPaywall,
@@ -134,6 +143,20 @@ struct GameLogsView: View {
     }
 
     // MARK: - Empty State
+
+    /// Shown for the moment between launch and StoreKit answering. Says nothing
+    /// about whether the coach has Pro, because at this point nothing knows.
+    /// Usually invisible; on a cold offline launch it is what stands in for the
+    /// paywall that used to appear here.
+    private var entitlementResolvingState: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text("Checking your subscription…")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var emptyState: some View {
         ScrollView {

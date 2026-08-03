@@ -118,6 +118,7 @@ struct iPadDashboardView: View {
         .onChange(of: router.request) { _, _ in
             consumePendingRoute()
         }
+        .remoteDeletionPrompt(store: store)
     }
 
     // Deep links, Spotlight results and App Intents were previously dropped on

@@ -1,3 +1,4 @@
+import os
 import AppIntents
 import CoreSpotlight
 import Foundation
@@ -201,7 +202,16 @@ nonisolated struct PlayerEntityQuery: EntityQuery, EntityStringQuery {
     }
 
     func entities(matching string: String) async throws -> [PlayerEntity] {
-        PlayerSearch.matches(query: string, in: PlayerEntity.allFromStorage())
+        let roster = PlayerEntity.allFromStorage()
+        let hits = PlayerSearch.matches(query: string, in: roster)
+        // Counts are public; the spoken name is not — it's whatever Siri
+        // transcribed of a child's name. `roster: 0` is the answer to "why
+        // didn't it find anyone": the install has no players, so no query can
+        // match. That looks identical to a resolution failure from the outside.
+        Log.intents.info(
+            "Player lookup: roster \(roster.count, privacy: .public), matches \(hits.count, privacy: .public), query \(string)"
+        )
+        return hits
     }
 
     /// What Shortcuts shows before the coach types anything. The active roster

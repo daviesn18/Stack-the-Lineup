@@ -1,3 +1,4 @@
+import os
 import AppIntents
 import CoreSpotlight
 import Foundation
@@ -93,7 +94,12 @@ nonisolated struct TeamEntityQuery: EntityQuery, EntityStringQuery {
     }
 
     func entities(matching string: String) async throws -> [TeamEntity] {
-        TeamSearch.matches(query: string, in: TeamEntity.allFromStorage())
+        let teams = TeamEntity.allFromStorage()
+        let hits = TeamSearch.matches(query: string, in: teams)
+        Log.intents.info(
+            "Team lookup: teams \(teams.count, privacy: .public), matches \(hits.count, privacy: .public), query \(string)"
+        )
+        return hits
     }
 
     /// Most coaches have exactly one team, so listing all of them is the whole

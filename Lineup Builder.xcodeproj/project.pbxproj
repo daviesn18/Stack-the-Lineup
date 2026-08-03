@@ -64,7 +64,7 @@
 		720774412FDCAAE300D4E8CE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		720774432FDCAAE300D4E8CE /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		7207745B2FDCABBE00D4E8CE /* STLWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = STLWidgetExtension.entitlements; sourceTree = "<group>"; };
-		720846F72F53C48900F70E89 /* Lineup Builder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Lineup Builder.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		720846F72F53C48900F70E89 /* Stack the Lineup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Stack the Lineup.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		720CE3CE2F68AEC400116C0A /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.2.sdk/System/Library/Frameworks/FoundationModels.framework; sourceTree = DEVELOPER_DIR; };
@@ -185,7 +185,7 @@
 		720846F82F53C48900F70E89 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				720846F72F53C48900F70E89 /* Lineup Builder.app */,
+				720846F72F53C48900F70E89 /* Stack the Lineup.app */,
 				720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */,
 				7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */,
 				728924FE2FA11FCC0088F25D /* StackTheLineupTests.xctest */,
@@ -251,7 +251,7 @@
 				72546BC92F80860600EE5B9E /* TelemetryDeck */,
 			);
 			productName = "Lineup Builder";
-			productReference = 720846F72F53C48900F70E89 /* Lineup Builder.app */;
+			productReference = 720846F72F53C48900F70E89 /* Stack the Lineup.app */;
 			productType = "com.apple.product-type.application";
 		};
 		720847032F53C48B00F70E89 /* Lineup BuilderTests */ = {
@@ -671,7 +671,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "Lineup Builder/Lineup Builder.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 33;
+				CURRENT_PROJECT_VERSION = 34;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
 				ENABLE_APP_SANDBOX = YES;
@@ -697,7 +697,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 3.2;
+				MARKETING_VERSION = 3.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder";
 				PRODUCT_MODULE_NAME = Lineup_Builder;
 				PRODUCT_NAME = "Stack the Lineup";
@@ -723,7 +723,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "Lineup Builder/Lineup Builder.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 33;
+				CURRENT_PROJECT_VERSION = 34;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
 				ENABLE_APP_SANDBOX = YES;
@@ -749,7 +749,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 3.2;
+				MARKETING_VERSION = 3.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder";
 				PRODUCT_MODULE_NAME = Lineup_Builder;
 				PRODUCT_NAME = "Stack the Lineup";

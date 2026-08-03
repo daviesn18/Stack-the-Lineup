@@ -36,4 +36,14 @@ nonisolated enum Log {
 
     /// CoreSpotlight indexing.
     static let spotlight = Logger(subsystem: subsystem, category: "spotlight")
+
+    /// StoreKit entitlement resolution. Deliberately logs *counts and product
+    /// IDs*, never anything about the account — enough to tell "StoreKit
+    /// returned nothing" apart from "StoreKit returned something we didn't
+    /// recognise", which are the two ways a paying coach gets shown a paywall
+    /// and which look identical from the outside.
+    static let purchase = Logger(subsystem: subsystem, category: "purchase")
+
+    /// App Intent entity lookups — what Siri asked for and what matched.
+    static let intents = Logger(subsystem: subsystem, category: "intents")
 }

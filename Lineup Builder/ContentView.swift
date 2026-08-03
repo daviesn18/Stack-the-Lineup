@@ -270,6 +270,7 @@ struct ContentView: View {
         } message: {
             Text(nudgeAlertMessage)
         }
+        .remoteDeletionPrompt(store: store)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 // Re-apply iCloud KV data immediately so changes from another device
@@ -291,7 +292,13 @@ struct ContentView: View {
             guard let tokenData = notification.object as? Data else { return }
             DeviceTokenManager.shared.didRegister(deviceToken: tokenData, store: store)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { note in
+            // A coach re-invited to a team they previously left still has its
+            // tombstone, which would make mergeCloudKitChanges refuse the share.
+            // Accepting an invite is an explicit re-add, so clear it first.
+            if let rootRecordName = note.userInfo?["rootRecordName"] as? String {
+                store.tombstones.forget(teamID: nil, recordName: rootRecordName)
+            }
             // Capture current team IDs so we can detect the newly added shared
             // team after the fetch completes and switch to it automatically.
             let teamIDsBefore = Set(store.teams.map { $0.id })

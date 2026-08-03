@@ -1,6 +1,7 @@
 import StoreKit
 import SwiftUI
 import Combine
+import os
 
 // MARK: - PurchaseManager
 // Handles the "Stack the Lineup Pro" entitlement.
@@ -24,7 +25,44 @@ class PurchaseManager: ObservableObject {
     // Auto-renewable subscription sold going forward.
     static let subscriptionProductID = "com.stackthelineup.pro.yearly"
 
-    @Published var isPro: Bool = false
+    /// Three states, because "not Pro" and "we haven't asked yet" are different
+    /// facts and treating them as one shows a paying coach a paywall.
+    ///
+    /// StoreKit answers asynchronously, so every cold launch begins in
+    /// `.undetermined` — including for someone who has paid. Before this
+    /// existed, `isPro` simply started `false`, and `GameLogsView` read that as
+    /// "locked" and auto-presented the paywall 0.35s later. On a fast launch
+    /// StoreKit usually beat the timer; on a slow or offline one it didn't.
+    enum ProStatus: Equatable {
+        /// StoreKit hasn't answered yet. NOT the same as `.free`.
+        case undetermined
+        case pro
+        case free
+
+        /// Unlock a paid feature? Only on a confirmed entitlement.
+        var grantsPro: Bool { self == .pro }
+
+        /// Safe to show a paywall or a locked screen? Not until we've asked.
+        var isResolved: Bool { self != .undetermined }
+    }
+
+    @Published private(set) var status: ProStatus = .undetermined
+
+    /// True only once StoreKit has confirmed Pro. Stays `false` while
+    /// `.undetermined`, which is the safe direction for *unlocking* — a feature
+    /// should never open before the entitlement is known.
+    ///
+    /// It is the wrong test for *locking*. Anything that shows a paywall, a
+    /// locked screen, or an upsell must check `isResolved` first, or it will
+    /// show it to someone who has already paid. The many cosmetic uses of this
+    /// property (tinting a button blue rather than grey) are fine as they are —
+    /// a few hundred milliseconds of grey is invisible, a paywall is not.
+    var isPro: Bool { status.grantsPro }
+
+    /// False only during the launch window before StoreKit answers. Gate
+    /// paywalls and locked states on this; see `isPro`.
+    var isResolved: Bool { status.isResolved }
+
     @Published var subscriptionProduct: Product? = nil
     @Published var purchaseError: String? = nil
     @Published var isLoading: Bool = false
@@ -84,15 +122,38 @@ class PurchaseManager: ObservableObject {
         // Any active/owned entitlement for the legacy purchase OR the
         // subscription grants Pro. currentEntitlements already excludes expired
         // subscriptions and refunded purchases, so presence here is sufficient.
+        var seen = 0
+        var unverified = 0
+        var granting = false
+
         for await result in Transaction.currentEntitlements {
-            guard case .verified(let tx) = result else { continue }
-            if productGrantsPro(tx.productID) { return true }
+            seen += 1
+            guard case .verified(let tx) = result else {
+                unverified += 1
+                continue
+            }
+            // Product IDs are our own constants, not account data — public so
+            // they're readable in Console when diagnosing a "why am I not Pro".
+            Log.purchase.debug("Entitlement: \(tx.productID, privacy: .public)")
+            if productGrantsPro(tx.productID) { granting = true }
         }
-        return false
+
+        // The whole diagnostic in one line. `seen: 0` means StoreKit returned an
+        // empty entitlement set — which is what a local .storekit test config,
+        // a sandbox account with no purchase, or a first launch before sync all
+        // look like. It is NOT the same as owning a product we didn't match,
+        // which would show seen > 0 with granting false.
+        Log.purchase.info(
+            "Entitlement check: seen \(seen, privacy: .public), unverified \(unverified, privacy: .public), pro \(granting, privacy: .public)"
+        )
+        return granting
     }
 
+    /// Resolves `status` out of `.undetermined` for good. Called on launch and
+    /// again on every `Transaction.updates` event, so a lapse or refund moves
+    /// this back to `.free` rather than leaving stale Pro behind.
     func checkEntitlement() async {
-        isPro = await Self.isProNow()
+        status = await Self.isProNow() ? .pro : .free
     }
 
     // MARK: - Display Copy
@@ -175,7 +236,7 @@ class PurchaseManager: ObservableObject {
             case .success(let verification):
                 if case .verified(let tx) = verification {
                     await tx.finish()
-                    isPro = true
+                    status = .pro
                     Analytics.signal("paywall.converted", parameters: ["source": lastPaywallSource])
                 } else {
                     purchaseError = "Couldn't verify that purchase. Try Restore Purchase, and contact support if it still doesn't unlock."

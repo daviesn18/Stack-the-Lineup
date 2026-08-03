@@ -44,6 +44,37 @@
 	</array>
 	<key>CKSharingSupported</key>
 	<true/>
+	<!-- Names Siri should accept besides CFBundleDisplayName. Without these,
+	     only the exact display name resolves: device testing on 2 Aug 2026
+	     found that every phrase ending "...in Stack the Lineup" failed unless
+	     the coach said all three words precisely, and two of them lost to
+	     Siri's own app-launching and media handlers instead. "Lineup Builder"
+	     is here because it is the app's former name and still the title on
+	     the Lineup tab, so coaches do say it.
+
+	     THREE IS THE MAXIMUM. A fourth is not ignored — installd rejects the
+	     whole bundle at install time with TooManyAlternativeAppNames
+	     (MIInstallerErrorDomain 132), which reads as "Unable to Install" and
+	     looks nothing like a plist problem. Cut one before adding one. -->
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Stack Lineup</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>stack line up</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Lineup Builder</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>line up builder</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>The Lineup App</string>
+		</dict>
+	</array>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>gamechanger</string>

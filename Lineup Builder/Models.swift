@@ -1217,6 +1217,30 @@ class LineupStore: ObservableObject {
     // MARK: - Published State
     @Published var teams: [Team] = []
     @Published var activeTeamID: UUID?
+
+    /// Teams deleted on this device. Persisted immediately on every change —
+    /// a tombstone that only lived in memory would be gone by the relaunch
+    /// where it matters most. See `TeamTombstones`.
+    var tombstones: TeamTombstones = TeamStorage.loadTombstones() {
+        didSet {
+            guard tombstones != oldValue else { return }
+            TeamStorage.saveTombstones(tombstones)
+        }
+    }
+
+    /// Teams deleted on another device that this one still has. Drives the
+    /// "deleted elsewhere — delete here too?" prompt. In-memory: if the app
+    /// closes before the coach answers, the next fetch asks again.
+    @Published var pendingRemoteDeletions: [PendingRemoteDeletion] = []
+
+    /// Record names the coach chose to keep. Persisted so the prompt asks once
+    /// and then stops — a dialog that returns on every sync is worse than none.
+    var declinedRemoteDeletions: Set<String> = TeamStorage.loadDeclinedDeletions() {
+        didSet {
+            guard declinedRemoteDeletions != oldValue else { return }
+            TeamStorage.saveDeclinedDeletions(declinedRemoteDeletions)
+        }
+    }
     /// Drives the share-sheet roster import flow. Set when the app receives a
     /// CSV/.stlroster file via .onOpenURL. ContentView observes this and presents
     /// the team-picker and preview chain.
@@ -1559,17 +1583,41 @@ class LineupStore: ObservableObject {
                 updated.coachName = teams[idx].coachName
                 teams[idx] = updated
             } else {
+                // No local match. Before this check that meant "new team, add
+                // it" — including on a fresh install, where nothing matches and
+                // every record the coach ever deleted came back.
+                guard !tombstones.blocks(teamID: serverTeam.id, recordName: serverTeam.ckRecordName) else {
+                    Log.sync.info("Ignored a server team this device deleted")
+                    continue
+                }
                 teams.append(serverTeam)
             }
             didChange = true
         }
 
-        // Remove read-only teams whose CloudKit records were deleted.
-        // Owned team deletions are always explicit user actions — never auto-remove them.
-        for recordName in changes.deletedRecordNames {
-            let before = teams.count
-            teams.removeAll { $0.ckRecordName == recordName && $0.isReadOnly }
-            if teams.count != before { didChange = true }
+        // A record deleted on the server means two different things depending on
+        // whose team it is.
+        //
+        // Read-only (shared) teams are removed outright — the owner deleted it,
+        // and a participant's copy has no independent existence.
+        //
+        // Owned teams are NOT auto-removed. That rule predates this code and is
+        // right: a spurious or misread deletion would silently destroy a coach's
+        // roster. But leaving it at that meant the other device just kept the
+        // team forever and re-uploaded it. So we ask instead.
+        let outcome = Self.classifyRemoteDeletions(
+            recordNames: changes.deletedRecordNames,
+            teams: teams,
+            declined: declinedRemoteDeletions
+        )
+
+        if !outcome.autoRemove.isEmpty {
+            teams.removeAll { outcome.autoRemove.contains($0.id) }
+            didChange = true
+        }
+
+        for pending in outcome.prompt where !pendingRemoteDeletions.contains(where: { $0.id == pending.id }) {
+            pendingRemoteDeletions.append(pending)
         }
 
         // Merge shared teams from the shared database.
@@ -1592,6 +1640,14 @@ class LineupStore: ObservableObject {
                 teams[idx] = updated
                 didChange = true
             } else {
+                // Same guard as the private path: a coach who left a shared team
+                // shouldn't have it reappear from the next shared fetch.
+                // `acceptShare` clears the tombstone, so a genuine re-invite
+                // still works.
+                guard !tombstones.blocks(teamID: sharedTeam.id, recordName: sharedTeam.ckRecordName) else {
+                    Log.sync.info("Ignored a shared team this device left")
+                    continue
+                }
                 var newTeam = sharedTeam
                 newTeam.coachName = UIDevice.current.name
                 newTeam.isSharedParticipant = true
@@ -2359,11 +2415,128 @@ class LineupStore: ObservableObject {
         save()
     }
 
+    // MARK: - Remote Deletions
+
+    /// A team deleted on another device that this one still holds, waiting on
+    /// the coach to say whether it should go here too.
+    nonisolated struct PendingRemoteDeletion: Identifiable, Equatable {
+        let teamID: UUID
+        let teamName: String
+        let recordName: String
+
+        /// Keyed on the record, not the team — the record name is what CloudKit
+        /// reported and what the declined ledger remembers.
+        var id: String { recordName }
+
+        var displayName: String { teamName.isEmpty ? "This team" : teamName }
+    }
+
+    /// What a batch of server-side deletions means for the teams held here.
+    ///
+    /// Pure and static so the rule can be tested without CloudKit: shared teams
+    /// vanish, owned teams ask first, teams the coach already chose to keep stay
+    /// quiet, and a record we don't recognise is ignored entirely.
+    nonisolated static func classifyRemoteDeletions(
+        recordNames: [String],
+        teams: [Team],
+        declined: Set<String>
+    ) -> (autoRemove: [UUID], prompt: [PendingRemoteDeletion]) {
+        var autoRemove: [UUID] = []
+        var prompt: [PendingRemoteDeletion] = []
+
+        for recordName in recordNames where !recordName.isEmpty {
+            guard let team = teams.first(where: { $0.ckRecordName == recordName }) else { continue }
+
+            if team.isReadOnly {
+                autoRemove.append(team.id)
+            } else if !declined.contains(recordName) {
+                prompt.append(
+                    PendingRemoteDeletion(
+                        teamID: team.id,
+                        teamName: team.name,
+                        recordName: recordName
+                    )
+                )
+            }
+        }
+
+        return (autoRemove, prompt)
+    }
+
+    /// Removes the team here too. The CKRecord is already gone — that's what
+    /// started this — so there is nothing to delete server-side, only a
+    /// tombstone to leave so it can't come back through the merge.
+    func confirmRemoteDeletion(_ pending: PendingRemoteDeletion) {
+        pendingRemoteDeletions.removeAll { $0.id == pending.id }
+        guard teams.count > 1 else {
+            // Never leave the coach with no team. Keep it and stop asking.
+            declineRemoteDeletion(pending)
+            return
+        }
+        teams.removeAll { $0.id == pending.teamID }
+        if activeTeamID == pending.teamID {
+            activeTeamID = teams.first?.id
+        }
+        tombstones.remember(teamID: pending.teamID, recordName: pending.recordName)
+        Analytics.signal("team.remote_deletion.accepted")
+        save()
+    }
+
+    /// Keeps the local copy. Remembered so the same deletion doesn't ask again
+    /// on every fetch — a prompt that reappears is worse than no prompt.
+    func declineRemoteDeletion(_ pending: PendingRemoteDeletion) {
+        pendingRemoteDeletions.removeAll { $0.id == pending.id }
+        declinedRemoteDeletions.insert(pending.recordName)
+        Analytics.signal("team.remote_deletion.declined")
+    }
+
+    /// The CloudKit record this team's deletion should remove, or nil if none.
+    ///
+    /// THE NIL CASES ARE THE POINT. A shared team's record belongs to the coach
+    /// who created it — deleting it would destroy their team and every other
+    /// participant's copy, from a coach who only meant to leave. Leaving a
+    /// shared team is a local removal and nothing more.
+    ///
+    /// Static and pure so `TeamTombstoneTests` can hold it to that without a
+    /// CloudKit session.
+    nonisolated static func recordNameToDelete(for team: Team) -> String? {
+        guard !team.isReadOnly, !team.isSharedParticipant else { return nil }
+        guard let recordName = team.ckRecordName, !recordName.isEmpty else { return nil }
+        return recordName
+    }
+
     func deleteTeam(id: UUID) {
         guard teams.count > 1 else { return }
+        guard let team = teams.first(where: { $0.id == id }) else { return }
+
+        let recordToDelete = Self.recordNameToDelete(for: team)
+
         teams.removeAll { $0.id == id }
         if activeTeamID == id {
             activeTeamID = teams.first?.id
+        }
+
+        // Remember the deletion before attempting it. The CKRecord outlived the
+        // local delete until now, and `mergeCloudKitChanges` appends any server
+        // team with no local match — so without this, a delete that fails
+        // (offline, throttled) or a record another device re-uploads brings the
+        // team straight back at the next sync.
+        //
+        // Recorded for shared teams too: leaving one shouldn't have it reappear
+        // from the next shared-database fetch either.
+        tombstones.remember(teamID: id, recordName: team.ckRecordName)
+
+        if let recordToDelete {
+            // Fire-and-forget: the local delete has already happened, and the
+            // tombstone covers us if this never lands.
+            Task {
+                do {
+                    try await CloudKitManager.shared.deleteTeam(recordName: recordToDelete)
+                    Log.sync.info("Deleted team record from CloudKit")
+                } catch {
+                    Log.sync.error("Team record delete failed, tombstone holds: \(error.localizedDescription, privacy: .public)")
+                }
+            }
         }
 
         // Drop this device's push token for the team we just left. Without it the

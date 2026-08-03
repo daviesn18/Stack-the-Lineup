@@ -24,6 +24,38 @@ nonisolated enum TeamStorage {
     static let savedAtKey    = "stl_teams_saved_at"
     static let activeTeamKey = "stl_active_team_id"
 
+    /// Teams this device deleted. Local-only and deliberately NOT mirrored to
+    /// the iCloud KV store: it guards this device against its own delete failing
+    /// or being deferred, and pushing it to the shared KV blob would let a debug
+    /// build's tombstones suppress teams on a real device.
+    static let tombstonesKey = "stl_deleted_teams"
+
+    // MARK: - Tombstones
+
+    static func loadTombstones(defaults: UserDefaults = .standard) -> TeamTombstones {
+        guard let data = defaults.data(forKey: tombstonesKey),
+              let decoded = try? JSONDecoder().decode(TeamTombstones.self, from: data)
+        else { return TeamTombstones() }
+        return decoded
+    }
+
+    static func saveTombstones(_ tombstones: TeamTombstones, defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(tombstones) else { return }
+        defaults.set(data, forKey: tombstonesKey)
+    }
+
+    /// Record names for teams deleted elsewhere that the coach chose to keep
+    /// here. Local-only for the same reason as the tombstones.
+    static let declinedDeletionsKey = "stl_declined_remote_deletions"
+
+    static func loadDeclinedDeletions(defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: declinedDeletionsKey) ?? [])
+    }
+
+    static func saveDeclinedDeletions(_ names: Set<String>, defaults: UserDefaults = .standard) {
+        defaults.set(Array(names), forKey: declinedDeletionsKey)
+    }
+
     // MARK: - Load Result
 
     /// The three outcomes callers must handle differently.

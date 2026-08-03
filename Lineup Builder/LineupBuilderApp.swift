@@ -104,8 +104,17 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
         Task {
             do {
                 try await CloudKitManager.shared.acceptShare(metadata: cloudKitShareMetadata)
+                // Accepting an invite is the coach deliberately re-adding a team.
+                // If they had left this one before, its tombstone would make the
+                // merge refuse the share — silently, and forever. Clear it before
+                // the refresh runs.
+                let rootRecordName = cloudKitShareMetadata.hierarchicalRootRecordID?.recordName
                 await MainActor.run {
-                    NotificationCenter.default.post(name: .cloudKitShareAccepted, object: nil)
+                    NotificationCenter.default.post(
+                        name: .cloudKitShareAccepted,
+                        object: nil,
+                        userInfo: rootRecordName.map { ["rootRecordName": $0] }
+                    )
                 }
             } catch {
                 Log.sync.error("Failed to accept CloudKit share: \(error.localizedDescription, privacy: .public)")

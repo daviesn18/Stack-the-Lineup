@@ -668,4 +668,25 @@ actor CloudKitManager {
             Analytics.signal("team.share.accepted")
         }
     }
+
+    // MARK: - Deletion
+
+    /// Removes a team's record from the private database.
+    ///
+    /// Callers must go through `LineupStore.recordNameToDelete(for:)` rather
+    /// than passing `team.ckRecordName` directly — a shared team's record
+    /// belongs to the coach who created it, and deleting it here would destroy
+    /// their team and every other participant's copy.
+    ///
+    /// A record that is already gone is success, not failure: CloudKit reports
+    /// `unknownItem`, and treating that as an error would keep a tombstone
+    /// alive for something that no longer exists.
+    func deleteTeam(recordName: String) async throws {
+        let recordID = CKRecord.ID(recordName: recordName, zoneID: ckZone.zoneID)
+        do {
+            _ = try await privateDB.deleteRecord(withID: recordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            return
+        }
+    }
 }
