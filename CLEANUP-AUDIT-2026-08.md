@@ -2,6 +2,8 @@
 
 **Status: all findings actioned on 1 Aug 2026.** This document is now the record of what was found and what was done about it. The second audit pass; the first is `CLEANUP-AUDIT.md` (19 Jul 2026).
 
+*Addendum, 6 Aug 2026:* the July audit's **Phase 2 and Phase 3** lists are now closed out — see the Follow-ups section. Phase 2 had three items genuinely open: the empty `StackTheLineupTests` target (7.2), the double CloudKit save on every Edit Team submission (6.1a, new), and the last duplicated What's New key literal (1.11). Phase 3 had two: the duplicated bench/absent chip (2.4) and the back-to-back bench triplication (2.5). Consolidating the chip turned up **2.4a — iPad had no read-only enforcement at all**, so a view-only participant in a shared team could edit positions and finalize the lineup. That is the most user-visible thing in this document and the one to verify on a device before shipping.
+
 *Addendum, 2 Aug 2026:* finding 8.3's open question — whether the Cloudflare Worker accepts the four unused event constants — is closed; it does, and they stay. Answering it turned up **8.3a**: the Worker was pinned to the APNs sandbox host, which would have silently killed every shared-team push on the next App Store build. Fixed, along with a stale duplicate of its entry point. Those changes are in `~/Desktop/stl-worker` and **are not live until it is redeployed**.
 
 Verification for every change below: `xcodebuild build` → **BUILD SUCCEEDED**, `Lineup BuilderTests` → **TEST SUCCEEDED**, including five new tests written for the badge fix.
@@ -80,6 +82,8 @@ Also corrected: the file header said these records live in `privateDB`. They're 
 
 Settings → "Reset Welcome and Tips" cleared `hasCompletedTutorial` and restarted the tour but left `lastSeenWhatsNewVersion` set, so What's New stayed suppressed with no way to bring it back. Now called from `resetOnboardingFlags()`; the confirmation copy mentions What's New.
 
+*Finished 6 Aug 2026:* the July audit's point (its finding 8.3) was the duplicated key literal, not just the missing call, and `SettingsView.resetAllData()` still cleared `"lastSeenWhatsNewVersion"` by hand. It calls `WhatsNewManager.reset()` now too, so the key exists in exactly one place and renaming it can't silently break a reset path.
+
 **1.12 — Coaches Guide summary: shipped (see 2.2, which is what it turned into).**
 
 **1.9 — `CloudKitManager.fetchAllTeams()` / `isAccountAvailable()`: kept untouched, by decision.**
@@ -113,6 +117,34 @@ Rather than adding a second table, `PDFGenerator` now calls `PitchEligibilityEng
 
 **2.2a — a third copy remains, and I left it.** `PositionSummaryView.pitchingRows()` still hand-rolls the same window maths. It differs in ways that matter: it adds `assignedInnings`, doesn't filter `.never` pitcher preferences itself, and has different rules-disabled behaviour. Folding it in would change a Pro-visible surface that has no test coverage, on the strength of assumptions rather than evidence. That is a change worth making on purpose, not as the tail end of a cleanup pass. **Recommend: consolidate `PositionSummaryView.pitchingRows()` onto `coachesGuideSummary` as its own change, with tests for the Pitching tab first.**
 
+**2.4 — The bench/absent chip had two implementations, and the iPad one had lost its read-only guards. Fixed (6 Aug 2026).**
+
+The July audit's Phase 3 item 4. `DefensiveGridView.playerChip` and `iPadDashboardView.playerChip` were the same ~48-line `@ViewBuilder` in two files, and they had already drifted by hand — `HStack(spacing: 6)` vs `7`, badge `minHeight: 20` vs `18`. The drift was the finding; what it was hiding was worse (see 2.4a).
+
+Now one `PlayerChip` (`PlayerChip.swift`), taking the player, the inning, `isReadOnly` and an `onTap` closure — the closure is what the two panes actually needed to differ on, since each tracks its own sheet state and the iPhone also dismisses its undo bar. Two incidental cleanups came with it: the stringly-typed `badge: String` compared against `"BN"`/`"ABS"` at four points became a `Kind` enum that owns its label and colour, and the back-to-back-bench check is now `Lineup.hasConsecutiveBench` (see 2.5). Cosmetics unify on the iPhone values, so **iPad chips change very slightly**: 1pt tighter badge spacing, 2pt taller badge.
+
+**2.4a — iPad had no read-only enforcement at all. Fixed (6 Aug 2026).**
+
+The July note guessed the missing `isReadOnly` guard on the iPad chip "may be gated upstream." It wasn't, and the gap was much wider than the chip: `iPadDashboardView.swift` contained **zero** references to `isReadOnly`. The picker sheets don't help — `PositionPickerView` and `PlayerPickerView` have no read-only handling of their own, because iPhone gates every one of their call sites instead.
+
+So a coach with view-only access to a shared team could, on iPad: reassign any position (field slots, by-position matrix, bench/absent chips, add-chips), run Auto-Fill, assign pitchers, reorder the batting order, add players, clear all positions, and **finalize the lineup** — which pushes a notification to the whole team. Every one of those is blocked on iPhone.
+
+Gated to match iPhone, per surface:
+
+- `iPadPositionsPane` — new `isReadOnly`; guards plus `.disabled` on matrix cells, bench-well chips, field slots and pitching rows; Auto-Fill and the two add-chips hidden, as the iPhone hides its bolt button.
+- `SidebarRosterView` — the Add Player / Bulk Add menu hidden; `.onMove` takes a nil handler, which is what actually removes the drag affordance (`.disabled` on a List row doesn't).
+- `DetailPaneView` — "Clear positions" hidden, a `ReadOnlyBanner` above the positions tab, and `isReadOnly` passed to `LineupStatusStrip`, which already knew how to render a "View only" badge in place of Finalize/Reopen and was simply never told.
+
+**Not verified on a device.** The suite passes and both simulators build, but nothing here exercises a real shared-team participant — see the test plan at the end of this document.
+
+**2.5 — Back-to-back bench: three hand-rolled copies, now one helper.**
+
+The July audit's Phase 3 item 6. `Lineup.hasConsecutiveBench(player:assigningBenchToInning:)` already existed and three sites re-derived it as `prev || next`: both `playerChip` copies (now the shared `PlayerChip`) and `PositionSummaryView.isBackToBackBench`, which keeps only its local "this cell is bench" guard.
+
+Pinned before the refactor, as the July note asked: four new `FairPlayValidationTests` cases covering the previous inning, the next inning, the boundary innings, and — the semantic that let the copies drift in the first place — that the predicate deliberately ignores the inning it's asked about.
+
+`AutoFillEngine.benchedLastInning` looks like a fourth copy and isn't: it is backward-only on purpose, because the engine fills innings in order and the next one doesn't exist yet. Left alone.
+
 **2.3 — Singular/plural phrasing: one helper.**
 
 `count == 1 ? "inning" : "innings"` and siblings appeared in eight places. New `Plural` enum (`Plural.swift`), promoted from `TeamRulesBuilder`'s private helpers, now used by `GameRecap`, `GameRecapIntent`, `DefensiveGridView`, `PositionSummaryView`, `TemplatePickerView` and `BulkAddPlayersView`. Deliberately not a general pluralization engine — every phrase is written out, because a naive `+ "s"` is how you get "1 catchs". Output is byte-identical, which is what let the existing `GameRecapTests` and `TeamRulesTests` assertions stand unchanged as the regression check.
@@ -139,6 +171,19 @@ Four loops called a per-inning store mutator, each ending in `save()` — which 
 
 The position-clearing path needed care: different innings can hold different occupants at the same position, so it groups by player and issues one save per distinct occupant rather than one per inning.
 
+**6.1a — Edit Team fired two full saves per submission. Fixed (6 Aug 2026).**
+
+Carried over from the July audit's Phase 2 (item 6) and not addressed by the August pass. `PlayersView.commitSave()` mutated `store.teams[idx]` by hand, called `updateGameInningCount` — which ends in `save()` — and then called `save()` again. Two whole-blob CloudKit uploads for one tap of Save. The `.add` branch had the same shape: `addTeam` saves, then `updateGameInningCount` may save again.
+
+Not a line to delete: `updateGameInningCount` early-returns when the count is unchanged, so on that path — the common one — the trailing `save()` is the only thing persisting the name, colour and coach-name edits. Deleting it would have silently stopped Edit Team from saving a rename.
+
+Split the resize half of `updateGameInningCount` into a non-saving `applyGameInningCount(_:at:)` that reports whether it changed anything, so `updateGameInningCount` still saves exactly when it always did. On top of it:
+
+- `updateTeamDetails(id:name:color:coachName:gameInningCount:)` — the whole Edit Team submission in one save. Always saves, because the other three fields have no equivalent early return.
+- `addTeam` gained an optional `gameInningCount:`, so creating a team with a non-default game length is also one save. Omitted, it behaves exactly as before (`DebugDataSeeder` is unchanged).
+
+Six new tests in `LineupStoreTests`, including the one the July note called for by name: **editing the team name without changing the inning count still persists the name.**
+
 **6.2 — Debounced CloudKit push: deferred, by decision.**
 
 70 `save()` call sites, no debounce anywhere. Every position drag is a CloudKit round-trip. 6.1 removes the worst burst on its own. A real debounce needs a trailing-edge flush on `scenePhase` and opens a window where a crash loses the last write — on the sync path that caused the July incident. Worth doing deliberately, later.
@@ -149,18 +194,15 @@ The position-clearing path needed care: different innings can hold different occ
 
 Proven, not inferred: Xcode's file lists for all four building targets name 90 of the repo's 91 `.swift` files, and never this one. The widget compiles `Lineup Builder/WidgetSnapshot.swift` instead, pulled in by a membership exception; the copy next to `STLWidget.swift` is excluded. Byte-identical (`md5 d8f273e4…`). Build confirms the widget still resolves the type.
 
-**7.2 — `StackTheLineupTests` target: left for you, on purpose.**
+**7.2 — `StackTheLineupTests` target: removed (6 Aug 2026).**
 
-Declared in `project.pbxproj` with no `fileSystemSynchronizedGroups` and no source directory — it produces no `SwiftFileList` at all. Still in `xcodebuild -list`, and still in the shared scheme's `TestAction`, so every test run builds and launches an empty `.xctest`.
+Declared in `project.pbxproj` with no `fileSystemSynchronizedGroups` and no source directory — it produced no `SwiftFileList` at all. It was still in `xcodebuild -list` and still carried a `TestableReference` in the shared scheme (`skipped = "YES"`, so it wasn't actually being run — the original note overstated that part).
 
-Removing it means editing `project.pbxproj` in six places, and a bad edit there fails quietly and conflicts loudly. Do it in Xcode:
+Removed from `project.pbxproj` and the scheme rather than left for Xcode's UI. Ten objects, all reachable from the target's own UUIDs: the `PBXNativeTarget`, its three empty build phases, its `PBXTargetDependency` and `PBXContainerItemProxy`, the `.xctest` `PBXFileReference` and its entry in the Products group, both `XCBuildConfiguration`s and their `XCConfigurationList`, plus the `TargetAttributes` entry and the `targets` list line. −116 lines, and the diff touches nothing outside that set.
 
-1. Project navigator → select the **Lineup Builder** project → **Targets** list.
-2. Right-click **StackTheLineupTests** → **Delete**.
-3. **Product → Scheme → Edit Scheme → Test** — confirm no empty entry is left in the test list.
-4. Build and run the tests once to confirm the scheme is still valid.
+The reason this was safe to do by hand and the July note said not to: the removal is verifiable rather than inspectable. `plutil -lint` parses the file, `xcodebuild -list` now shows four targets, and the app (simulator *and* `generic/platform=iOS`), the widget scheme, and the full `Lineup BuilderTests` suite all build and pass afterwards.
 
-While you're in there, the exception set for the `STLWidget` folder that references this target is inert and goes with it.
+The `STLWidget` exception set the July note expected to go with it doesn't reference this target — it belongs to `STLWidgetExtension`. It does still list `WidgetSnapshot.swift`, which 7.1 deleted, so that one entry is now inert; left alone, since it costs nothing and editing membership exceptions by hand is the part of `project.pbxproj` that actually bites.
 
 ### 8. Tech Debt
 
@@ -185,14 +227,34 @@ While you're in there, the exception set for the `STLWidget` folder that referen
 
 ## Follow-ups
 
-Three things are open, each by a deliberate decision rather than an oversight:
+Two things are open, each by a deliberate decision rather than an oversight:
 
-1. **`StackTheLineupTests` target** — four steps in Xcode, above (7.2).
-2. **`PositionSummaryView.pitchingRows()`** — the third copy of the pitch-window maths (2.2a). Its own change, with tests first.
-3. **Debounced CloudKit push** (6.2) — needs a `scenePhase` trailing flush, and it touches the sync path behind the July incident. A deliberate design pass, not a cleanup.
+1. **`PositionSummaryView.pitchingRows()`** — the third copy of the pitch-window maths (2.2a). Its own change, with tests first.
+2. **Debounced CloudKit push** (6.2) — needs a `scenePhase` trailing flush, and it touches the sync path behind the July incident. A deliberate design pass, not a cleanup.
+
+**Closed 6 Aug 2026 — the July audit's Phase 3, finished.** Six of its eight items were already resolved (`DebugDataSeeder` gating, the `DeviceTokenManager` wire-ups, the Coaches Guide section, the `parseAutoFillPromptWithTimeout` duplication — now `AutoFillCoordinator` — `fetchAllTeams` kept by decision, and `roadmap.jsx`, which is gone from the repo). The two open ones are done: the bench/absent chip is one `PlayerChip` (2.4) and back-to-back bench detection runs through one helper (2.5). Consolidating the chip surfaced 2.4a, the iPad read-only gap, which is fixed but **needs the device test plan below run before submission**. Verification: app builds on iPhone and iPad simulators; `Lineup BuilderTests` → **295 passed, 0 failed**, with four new pinning tests.
+
+**Closed 6 Aug 2026 — the July audit's Phase 2, finished.** Working back through `CLEANUP-AUDIT.md`'s Phase 2 list, four of its seven items had already been resolved by this audit (the duplicate `WidgetSnapshot.swift`, `drawColoredDot`, `clearBattingOrder`, `InfoToolbarButton`) and one was kept by decision (`isAccountAvailable`, 1.9). The remaining three are now done: the `StackTheLineupTests` target is removed (7.2), Edit Team saves once instead of twice (6.1a), and the last hand-written `lastSeenWhatsNewVersion` literal is gone (1.11). Verification: `xcodebuild -list` shows four targets; app, widget and `generic/platform=iOS` builds succeed; `Lineup BuilderTests` → **TEST SUCCEEDED** with six new tests.
 
 **Closed since:** the Worker's event vocabulary (8.3) — answered on 2 Aug 2026 by reading `stl-worker`; all five constants stay. That read also turned up 8.3a, two Worker fixes, one of them a shipping blocker.
 
 **Not done by this audit, and needed before the next submission:** `npm run deploy` in `stl-worker`, after confirming the `DeviceToken` record type exists in **Production** CloudKit. See 8.3a.
 
 Worth a manual look before shipping: the warnings badge on the iPhone Positions tab. The numbers it shows will change for some lineups — that's the fix, but it's user-visible. `Settings → 7 taps on Version → Seed Sample History` gives you a team to check it against.
+
+---
+
+## Test plan: iPad read-only (2.4a)
+
+Nothing in the automated suite exercises a shared-team participant, so this needs two devices and a real share. Everything below is expected to be **blocked** on iPad, and already is on iPhone.
+
+**Setup.** On device A, share a team. On device B (an iPad), accept as a **view-only** participant, then open Positions.
+
+1. **Banner and strip** — a read-only banner sits above the status strip, and the strip shows "View only" where Finalize/Reopen would be. Neither Finalize nor Reopen is reachable.
+2. **By Inning** — tapping a field slot does nothing; no picker sheet appears. Bench and absent chips don't respond. "+ Bench" and "+ Absent" are absent. Auto-Fill is absent.
+3. **By Position** — tapping any matrix cell does nothing, including the benched-player chips in the gray wells.
+4. **Pitching** — tapping a row does not open the pitching assignment sheet.
+5. **Sidebar** — no "+" add-players menu; batting-order rows cannot be dragged.
+6. **Clear positions** — the button is absent below the pane.
+7. **Regression, same iPad, editable team** — switch to a team you own and confirm every one of the above works normally. This is the check that matters most; the gating is per-team, not per-device.
+8. **Chip cosmetics** — bench/absent chips on iPad are now 1pt tighter and their badge 2pt taller. Compare against iPhone; they should look like the same component, because now they are.

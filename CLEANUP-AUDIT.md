@@ -289,26 +289,28 @@ No N+1 patterns found. `saveTokenForAllTeams` (`DeviceTokenManager.swift:64`) lo
 
 **Total: ~447 lines, 3 files.** All line-level edits are confined to `DefensiveGridView.swift`, which has no uncommitted working-tree changes.
 
-### Phase 2 — Verify, then remove
+### Phase 2 — Verify, then remove — ✅ **complete, 6 Aug 2026**
 
-1. `STLWidget/WidgetSnapshot.swift` — confirm empty Target Membership in Xcode, then delete and build `STLWidgetExtension`.
-2. Delete the empty `StackTheLineupTests` **target** via Xcode's project editor (never by editing `project.pbxproj` by hand).
-3. `CloudKitManager.isAccountAvailable()` (−5) and `PDFGenerator.drawColoredDot` (−5) — delete; build.
-4. `LineupStore.clearBattingOrder()` (−5) — confirm no test uses it, then delete.
-5. `WhatsNewManager.resetForTesting()` — wire `SettingsView.resetOnboardingFlags()` to call it instead of duplicating the key literal (finding 8.3).
-6. `PlayersView.swift:1175–1176` — restructure `commitSave()` so exactly one `save()` fires. **Test the "edit team name without changing inning count" path** — the naive delete breaks it.
-7. `InfoToolbarButton` / `View.infoButton(for:)` — adopt at the four hand-rolled sites, or delete both (−28).
+Items 1, 3 (`drawColoredDot`), 4 and 7 were done by the August audit; see `CLEANUP-AUDIT-2026-08.md` findings 7.1 and section 1. The rest are resolved below.
 
-### Phase 3 — Manual review required
+1. ~~`STLWidget/WidgetSnapshot.swift`~~ — **deleted** (2026-08 audit, 7.1). Target membership was proven from Xcode's `SwiftFileList` rather than the inspector.
+2. ~~Delete the empty `StackTheLineupTests` **target**~~ — **removed 6 Aug 2026**, from `project.pbxproj` and the shared scheme. Done by hand after all, not in Xcode's editor: the ten objects are all reachable from the target's own UUIDs, and the result is checkable (`plutil -lint`, `xcodebuild -list`, then app + widget + device builds and the full test suite). See 7.2 in the August doc.
+3. ~~`PDFGenerator.drawColoredDot`~~ — **deleted** (2026-08 audit). `CloudKitManager.isAccountAvailable()` — **kept by decision**: it and `fetchAllTeams()` are the two halves of a manual iCloud re-sync, and building that affordance touches the July data-wipe path (2026-08 audit, 1.9).
+4. ~~`LineupStore.clearBattingOrder()`~~ — **deleted** (2026-08 audit).
+5. ~~`WhatsNewManager.resetForTesting()`~~ — **done.** Renamed `reset()` and called from `resetOnboardingFlags()` (2026-08 audit, 1.11); the second literal, in `resetAllData()`, was cleaned up 6 Aug 2026. The key now exists in one place.
+6. ~~`PlayersView` `commitSave()`~~ — **fixed 6 Aug 2026.** Restructured via a non-saving `applyGameInningCount` plus `LineupStore.updateTeamDetails(...)`, so one `save()` fires on both the add and edit paths. The "edit team name without changing inning count" path is now a test. See 6.1a in the August doc.
+7. ~~`InfoToolbarButton` / `View.infoButton(for:)`~~ — **deleted**; neither symbol exists in the repo any more.
+
+### Phase 3 — Manual review required — ✅ **complete, 6 Aug 2026**
 
 1. ~~**`DebugDataSeeder` release gating (8.1)**~~ — **closed.** Trigger changed to a 7-tap sequence on the Version row. The seeder stays in release builds by design (App Store screenshots and marketing material), and its syncing to the author's own devices is accepted behavior (8.4). Nothing outstanding.
-2. **`DeviceTokenManager.refreshTokenForCurrentTeam` and `removeTokens`** — almost certainly missing wire-ups, not dead code. Test the join/leave shared-team notification paths before deciding.
-3. **`PitchEligibilityEngine` Coaches Guide section (−79)** — ship it or cut it.
-4. **`playerChip` duplication** — consolidate; separately verify whether the iPad copy's missing `isReadOnly` guard is a real bug.
-5. **`parseAutoFillPromptWithTimeout` duplication (−33)** — extract onto `AutoFillNLConstraintService`.
-6. **Back-to-back bench triplication** — route all three sites through `Lineup.hasConsecutiveBench`; add a per-cell test first.
-7. **`CloudKitManager.fetchAllTeams`** — wire it to a "Force full re-sync" affordance or delete it, once sync hardening lands.
-8. **`roadmap.jsx`** — refresh, relocate, or retire.
+2. ~~**`DeviceTokenManager.refreshTokenForCurrentTeam` and `removeTokens`**~~ — **done** (2026-08 audit, 1.10). Both were missing wire-ups, as suspected; wiring `removeTokens` up also exposed a query that deleted *every* coach's token for the team (1.10a).
+3. ~~**`PitchEligibilityEngine` Coaches Guide section**~~ — **shipped** (2026-08 audit, 2.2). It turned out the feature was already live via a hand-ported copy in `PDFGenerator`; the engine's version won and the port is gone.
+4. ~~**`playerChip` duplication**~~ — **consolidated 6 Aug 2026** into `PlayerChip.swift`, used by both platforms. The read-only gap was real, and far wider than the chip: `iPadDashboardView` had no read-only enforcement anywhere, so a view-only participant could reassign positions, reorder the batting order, clear positions and finalize the lineup. All gated. See 2.4 / 2.4a in the August doc, and its test plan.
+5. ~~**`parseAutoFillPromptWithTimeout` duplication**~~ — **done.** Both copies are gone; the parse, engine call and message composition now live in `AutoFillCoordinator`, shared by the iPhone grid, the iPad pane and `FillLineupIntent`.
+6. ~~**Back-to-back bench triplication**~~ — **done 6 Aug 2026.** All three sites route through `Lineup.hasConsecutiveBench`, with the per-cell tests written first as this item asked. See 2.5.
+7. ~~**`CloudKitManager.fetchAllTeams`**~~ — **kept by decision** (2026-08 audit, 1.9). It and `isAccountAvailable()` are the two halves of a manual re-sync; building that affordance touches the July data-wipe path and belongs in its own change.
+8. ~~**`roadmap.jsx`**~~ — **retired**; the file is no longer in the repo.
 
 ---
 
