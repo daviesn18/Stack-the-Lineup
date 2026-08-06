@@ -314,6 +314,10 @@ Items 1, 3 (`drawColoredDot`), 4 and 7 were done by the August audit; see `CLEAN
 
 ---
 
-## Cleanup Script
+## Cleanup Script — applied and removed
 
-See `cleanup-phase1.sh` in the repo root. Phase 1 items only. Review the diff and run the test suite before merging.
+`cleanup-phase1.sh` and `cleanup-phase1.patch` sat in the repo root from 19 Jul 2026. Phase 1 was applied from them, and all three phases are now complete, so both were deleted on 6 Aug 2026.
+
+They had stopped being merely inert: the script deletes files that no longer exist and applies a patch to `DefensiveGridView.swift` written against a version of that file three passes out of date. Its `git apply --check` guard means running it would fail rather than corrupt anything — but a runnable-looking script that can only fail is a trap for whoever finds it next.
+
+Recoverable from git history if the record is ever wanted.
