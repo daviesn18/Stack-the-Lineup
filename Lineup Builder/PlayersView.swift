@@ -1156,16 +1156,15 @@ struct TeamFormView: View {
         let trimmed = teamName.trimmingCharacters(in: .whitespaces)
         switch mode {
         case .add:
-            store.addTeam(name: trimmed, color: teamColor)
-            store.updateGameInningCount(gameInningCount)
+            store.addTeam(name: trimmed, color: teamColor, gameInningCount: gameInningCount)
         case .edit(let id):
-            if let idx = store.teams.firstIndex(where: { $0.id == id }) {
-                store.teams[idx].name = trimmed
-                store.teams[idx].color = teamColor
-                store.teams[idx].coachName = coachName.trimmingCharacters(in: .whitespaces)
-            }
-            store.updateGameInningCount(gameInningCount, for: id)
-            store.save()
+            store.updateTeamDetails(
+                id: id,
+                name: trimmed,
+                color: teamColor,
+                coachName: coachName.trimmingCharacters(in: .whitespaces),
+                gameInningCount: gameInningCount
+            )
         }
         dismiss()
     }

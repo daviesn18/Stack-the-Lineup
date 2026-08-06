@@ -36,13 +36,6 @@
 			remoteGlobalIDString = 720846F62F53C48900F70E89;
 			remoteInfo = "Lineup Builder";
 		};
-		728925022FA11FCC0088F25D /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 720846EF2F53C48900F70E89 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 720846F62F53C48900F70E89;
-			remoteInfo = "Lineup Builder";
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -68,7 +61,6 @@
 		720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		720CE3CE2F68AEC400116C0A /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.2.sdk/System/Library/Frameworks/FoundationModels.framework; sourceTree = DEVELOPER_DIR; };
-		728924FE2FA11FCC0088F25D /* StackTheLineupTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StackTheLineupTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -159,13 +151,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		728924FB2FA11FCC0088F25D /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -188,7 +173,6 @@
 				720846F72F53C48900F70E89 /* Stack the Lineup.app */,
 				720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */,
 				7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */,
-				728924FE2FA11FCC0088F25D /* StackTheLineupTests.xctest */,
 				720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */,
 			);
 			name = Products;
@@ -300,26 +284,6 @@
 			productReference = 7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		728924FD2FA11FCC0088F25D /* StackTheLineupTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 728925042FA11FCC0088F25D /* Build configuration list for PBXNativeTarget "StackTheLineupTests" */;
-			buildPhases = (
-				728924FA2FA11FCC0088F25D /* Sources */,
-				728924FB2FA11FCC0088F25D /* Frameworks */,
-				728924FC2FA11FCC0088F25D /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				728925032FA11FCC0088F25D /* PBXTargetDependency */,
-			);
-			name = StackTheLineupTests;
-			packageProductDependencies = (
-			);
-			productName = StackTheLineupTests;
-			productReference = 728924FE2FA11FCC0088F25D /* StackTheLineupTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -344,10 +308,6 @@
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = 720846F62F53C48900F70E89;
 					};
-					728924FD2FA11FCC0088F25D = {
-						CreatedOnToolsVersion = 26.4.1;
-						TestTargetID = 720846F62F53C48900F70E89;
-					};
 				};
 			};
 			buildConfigurationList = 720846F22F53C48900F70E89 /* Build configuration list for PBXProject "Lineup Builder" */;
@@ -370,7 +330,6 @@
 				720846F62F53C48900F70E89 /* Lineup Builder */,
 				720847032F53C48B00F70E89 /* Lineup BuilderTests */,
 				7208470D2F53C48B00F70E89 /* Lineup BuilderUITests */,
-				728924FD2FA11FCC0088F25D /* StackTheLineupTests */,
 				7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */,
 			);
 		};
@@ -399,13 +358,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7208470C2F53C48B00F70E89 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		728924FC2FA11FCC0088F25D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -443,13 +395,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		728924FA2FA11FCC0088F25D /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -467,11 +412,6 @@
 			isa = PBXTargetDependency;
 			target = 720846F62F53C48900F70E89 /* Lineup Builder */;
 			targetProxy = 7208470F2F53C48B00F70E89 /* PBXContainerItemProxy */;
-		};
-		728925032FA11FCC0088F25D /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 720846F62F53C48900F70E89 /* Lineup Builder */;
-			targetProxy = 728925022FA11FCC0088F25D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -873,53 +813,6 @@
 			};
 			name = Release;
 		};
-		728925052FA11FCC0088F25D /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6R6HA6RU2S;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nickdavies.LineupBuilder.StackTheLineupTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stack the Lineup.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Stack the Lineup";
-			};
-			name = Debug;
-		};
-		728925062FA11FCC0088F25D /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6R6HA6RU2S;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nickdavies.LineupBuilder.StackTheLineupTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stack the Lineup.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Stack the Lineup";
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -964,15 +857,6 @@
 			buildConfigurations = (
 				7208471F2F53C48B00F70E89 /* Debug */,
 				720847202F53C48B00F70E89 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		728925042FA11FCC0088F25D /* Build configuration list for PBXNativeTarget "StackTheLineupTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				728925052FA11FCC0088F25D /* Debug */,
-				728925062FA11FCC0088F25D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -255,9 +255,11 @@ struct WhatsNewManager {
     }
 
     /// Forgets the last seen version so the sheet shows again on next launch.
-    /// Called from `SettingsView.resetOnboardingFlags()` — "Reset Welcome and
+    /// Called from both reset paths in `SettingsView` — "Reset Welcome and
     /// Tips" restored the welcome flow and the tour but left What's New
-    /// suppressed at its last-seen version, with no way to bring it back.
+    /// suppressed at its last-seen version, with no way to bring it back, and
+    /// "Reset All Data" cleared the same key by hand-written literal, which
+    /// would have silently stopped working if the key were ever renamed.
     static func reset() {
         UserDefaults.standard.removeObject(forKey: lastSeenKey)
     }

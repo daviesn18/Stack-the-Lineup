@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Lineup_Builder
 
 // MARK: - LineupStore Tests
@@ -144,6 +145,68 @@ final class LineupStoreTests: XCTestCase {
 
         store.updateGameInningCount(99, for: id) // above max
         XCTAssertEqual(store.gameInningCount, 9)
+    }
+
+    // MARK: - updateTeamDetails
+    //
+    // Edit Team used to mutate teams[idx] by hand, call updateGameInningCount
+    // (which saves) and then save() again — two full CloudKit uploads per
+    // submission. The trailing save() was load-bearing on the path where the
+    // inning count didn't change, so the fix had to keep both fields persisting
+    // through one save rather than just dropping a line.
+
+    func testUpdateTeamDetailsAppliesEveryFieldWhenInningCountChanges() {
+        let id = store.activeTeamID!
+        store.updateTeamDetails(id: id, name: "Sharks", color: .red, coachName: "Alex", gameInningCount: 5)
+
+        XCTAssertEqual(store.teams[0].name, "Sharks")
+        // Assert on the stored hex, not the Color: `color` round-trips through
+        // colorHex, so the value read back is not `==` to the one passed in.
+        XCTAssertEqual(store.teams[0].colorHex, Color.red.toHex())
+        XCTAssertEqual(store.teams[0].coachName, "Alex")
+        XCTAssertEqual(store.teams[0].gameInningCount, 5)
+        XCTAssertEqual(store.teams[0].lineup.innings.count, 5, "Lineup should resize with the count")
+    }
+
+    func testUpdateTeamDetailsPersistsNameWhenInningCountUnchanged() {
+        let id = store.activeTeamID!
+        let unchanged = store.teams[0].gameInningCount
+
+        store.updateTeamDetails(id: id, name: "Sharks", color: .red, coachName: "Alex", gameInningCount: unchanged)
+
+        XCTAssertEqual(store.teams[0].name, "Sharks", "Name must still be applied when the count doesn't move")
+        XCTAssertEqual(store.teams[0].coachName, "Alex")
+        XCTAssertEqual(store.teams[0].gameInningCount, unchanged)
+    }
+
+    func testUpdateTeamDetailsIgnoresUnknownTeam() {
+        store.updateTeamDetails(id: UUID(), name: "Ghost", color: .red, coachName: "Nobody", gameInningCount: 5)
+
+        XCTAssertEqual(store.teams.count, 1)
+        XCTAssertEqual(store.teams[0].name, "Reds")
+    }
+
+    func testUpdateTeamDetailsClampsInningCount() {
+        let id = store.activeTeamID!
+        store.updateTeamDetails(id: id, name: "Reds", color: .blue, coachName: "", gameInningCount: 99)
+        XCTAssertEqual(store.teams[0].gameInningCount, 9)
+    }
+
+    // MARK: - addTeam
+
+    func testAddTeamAppliesGameInningCount() {
+        store.addTeam(name: "Blues", color: .green, gameInningCount: 5)
+
+        XCTAssertEqual(store.activeTeam.name, "Blues")
+        XCTAssertEqual(store.activeTeam.gameInningCount, 5)
+        XCTAssertEqual(store.activeTeam.lineup.innings.count, 5)
+    }
+
+    func testAddTeamWithoutInningCountKeepsTheDefault() {
+        store.addTeam(name: "Blues")
+
+        XCTAssertEqual(store.activeTeam.gameInningCount, Team().gameInningCount)
+        XCTAssertEqual(store.activeTeam.lineup.innings.count, Lineup.inningCount)
     }
 
     // MARK: - Player operations

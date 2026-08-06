@@ -2065,11 +2065,26 @@ class LineupStore: ObservableObject {
     /// If the new count is smaller, trailing innings are dropped. If larger,
     /// empty innings are appended. Past archived games are not affected.
     func updateGameInningCount(_ newCount: Int, for teamID: UUID? = nil) {
-        let clamped = max(1, min(9, newCount))
         let targetID = teamID ?? activeTeamID
         guard let targetID = targetID,
               let idx = teams.firstIndex(where: { $0.id == targetID }) else { return }
-        guard clamped != teams[idx].gameInningCount else { return }
+        if applyGameInningCount(newCount, at: idx) { save() }
+    }
+
+    /// The resize half of `updateGameInningCount`, without the `save()`.
+    ///
+    /// Split out so an edit that also changes the name, colour or coach name can
+    /// persist all of it in one `save()` — each `save()` is a full re-encode of
+    /// `[Team]` plus a CloudKit upload of the whole team blob, so Edit Team was
+    /// firing two of them for a single submission.
+    ///
+    /// Returns false when the count is already `clamped` and nothing was
+    /// touched, which is what keeps `updateGameInningCount` from saving on a
+    /// no-op the way it always has.
+    @discardableResult
+    private func applyGameInningCount(_ newCount: Int, at idx: Int) -> Bool {
+        let clamped = max(1, min(9, newCount))
+        guard clamped != teams[idx].gameInningCount else { return false }
 
         teams[idx].gameInningCount = clamped
 
@@ -2088,6 +2103,24 @@ class LineupStore: ObservableObject {
         }
 
         Analytics.signal("team.gameInningCount.changed", parameters: ["count": "\(clamped)"])
+        return true
+    }
+
+    /// Applies one Edit Team submission — name, colour, coach name and game
+    /// length — in a single save.
+    ///
+    /// Exists because the caller can't get this right by composing the
+    /// individual mutators: `updateGameInningCount` saves, but only when the
+    /// count actually changed, so a trailing `save()` for the other three fields
+    /// is load-bearing on the unchanged path and a duplicate upload on the
+    /// changed one. Always saves — name, colour and coach name have no
+    /// equivalent early return.
+    func updateTeamDetails(id: UUID, name: String, color: Color, coachName: String, gameInningCount: Int) {
+        guard let idx = teams.firstIndex(where: { $0.id == id }) else { return }
+        teams[idx].name = name
+        teams[idx].color = color
+        teams[idx].coachName = coachName
+        applyGameInningCount(gameInningCount, at: idx)
         save()
     }
 
@@ -2404,13 +2437,19 @@ class LineupStore: ObservableObject {
 
     // MARK: - Team Management
 
-    func addTeam(name: String, color: Color = .blue) {
+    /// Creates a team and makes it active. Pass `gameInningCount` to set the
+    /// game length as part of the same save — following it with
+    /// `updateGameInningCount` costs a second full-team upload.
+    func addTeam(name: String, color: Color = .blue, gameInningCount: Int? = nil) {
         var newTeam = Team()
         newTeam.name = name
         newTeam.color = color
         newTeam.coachName = UIDevice.current.name
         teams.append(newTeam)
         activeTeamID = newTeam.id
+        if let gameInningCount {
+            applyGameInningCount(gameInningCount, at: teams.count - 1)
+        }
         Analytics.signal("team.created", parameters: ["teamCount": "\(teams.count)"])
         save()
     }

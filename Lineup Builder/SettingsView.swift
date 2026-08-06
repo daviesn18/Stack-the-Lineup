@@ -271,7 +271,7 @@ struct SettingsView: View {
         store.updateTeamName("")
         store.updateTeamColor(.blue)
         UserDefaults.standard.set(false, forKey: "hasCompletedTutorial")
-        UserDefaults.standard.removeObject(forKey: "lastSeenWhatsNewVersion")
+        WhatsNewManager.reset()
     }
 
     /// Clears the welcome cards, then wipes the TipKit datastore so every tour
