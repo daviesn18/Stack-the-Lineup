@@ -737,6 +737,8 @@ struct SidebarRosterView: View {
     @State private var showingAddPlayer = false
     @State private var showingBulkAdd = false
 
+    private var isReadOnly: Bool { store.activeTeam.isReadOnly }
+
     private var orderedPlayers: [Player] {
         store.lineup.orderedPlayers(from: store.players)
     }
@@ -758,28 +760,31 @@ struct SidebarRosterView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                // Menu exposes both add options; Cmd+N shortcut on Add Player
-                Menu {
-                    Button {
-                        showingAddPlayer = true
-                    } label: {
-                        Label("Add Player", systemImage: "person.badge.plus")
-                    }
-                    .keyboardShortcut("n", modifiers: .command)
+                // Menu exposes both add options; Cmd+N shortcut on Add Player.
+                // Hidden for view-only participants, as on the Players tab.
+                if !isReadOnly {
+                    Menu {
+                        Button {
+                            showingAddPlayer = true
+                        } label: {
+                            Label("Add Player", systemImage: "person.badge.plus")
+                        }
+                        .keyboardShortcut("n", modifiers: .command)
 
-                    Button {
-                        showingBulkAdd = true
+                        Button {
+                            showingBulkAdd = true
+                        } label: {
+                            Label("Bulk Add from List", systemImage: "text.alignleft")
+                        }
                     } label: {
-                        Label("Bulk Add from List", systemImage: "text.alignleft")
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(.blue)
                     }
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.blue)
+                    .accessibilityLabel("Add Players")
+                    .tourTip(Tour.players.currentTip as? PlayersAddTip, arrowEdge: .top)
+                    .tourTip(Tour.players.currentTip as? PlayersImportTip, arrowEdge: .top)
                 }
-                .accessibilityLabel("Add Players")
-                .tourTip(Tour.players.currentTip as? PlayersAddTip, arrowEdge: .top)
-                .tourTip(Tour.players.currentTip as? PlayersImportTip, arrowEdge: .top)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -793,9 +798,11 @@ struct SidebarRosterView: View {
                         ForEach(Array(orderedPlayers.enumerated()), id: \.element.id) { index, player in
                             SidebarPlayerRow(player: player, battingIndex: index + 1)
                         }
-                        .onMove { from, to in
+                        // A nil handler is what removes the drag affordance —
+                        // `.disabled` on a List row wouldn't stop the reorder.
+                        .onMove(perform: isReadOnly ? nil : { from, to in
                             store.moveBattingOrder(from: from, to: to)
-                        }
+                        })
 
                         ForEach(unorderedPlayers) { player in
                             SidebarPlayerRow(player: player, battingIndex: nil)
@@ -998,6 +1005,8 @@ struct DetailPaneView: View {
     @State private var autoFillConstraintNoticeMessage: String = ""
     @StateObject private var autoFill = AutoFillCoordinator()
 
+    private var isReadOnly: Bool { store.activeTeam.isReadOnly }
+
     private var smartDefaultLastInning: Int {
         for i in stride(from: store.lineup.innings.count - 1, through: 0, by: -1) {
             if !store.lineup.innings[i].assignments.isEmpty { return i }
@@ -1103,9 +1112,15 @@ struct DetailPaneView: View {
                 switch selectedTab {
                 case .positions:
                     VStack(spacing: 0) {
-                        // Status strip — same as iPhone
+                        if isReadOnly { ReadOnlyBanner() }
+
+                        // Status strip — same as iPhone. isReadOnly swaps
+                        // Finalize/Reopen for a "View only" badge; the iPad
+                        // never passed it, so a view-only coach could finalize
+                        // a lineup and push a notification to the whole team.
                         LineupStatusStrip(
                             status: store.lineup.status,
+                            isReadOnly: isReadOnly,
                             onFinalize: { store.finalizeLineup() },
                             onReopen: { store.reopenLineup() }
                         )
@@ -1127,7 +1142,7 @@ struct DetailPaneView: View {
                         }
 
                         // Clear positions button — summary-only context, clears all innings
-                        if hasAnyAssignments {
+                        if hasAnyAssignments && !isReadOnly {
                             HStack {
                                 Spacer()
                                 Button {
@@ -1231,6 +1246,13 @@ private struct iPadPositionsPane: View {
 
     @State private var mode: PositionsPaneMode = .inning
     @State private var selectedInning: Int = 0
+
+    /// View-only participants in a shared team. The iPhone grid has gated every
+    /// mutating control on this since shared teams shipped; this pane never did,
+    /// and neither do the picker sheets it presents — `PositionPickerView` and
+    /// `PlayerPickerView` rely on their call sites for it — so a read-only coach
+    /// on iPad could reassign positions for real.
+    private var isReadOnly: Bool { store.activeTeam.isReadOnly }
 
     // Picker sheets — same targets as the iPhone diamond (DefensiveGridView).
     @State private var selectedSlot: DefensiveGridView.SlotTarget? = nil
@@ -1426,6 +1448,7 @@ private struct iPadPositionsPane: View {
         let tint: Color = pos.isOutfield ? Color.green.opacity(0.13) : Color.blue.opacity(0.12)
 
         return Button {
+            guard !isReadOnly else { return }
             quickSetTarget = QuickSetTarget(origin: .position(pos, benchIndex: nil), inning: inning)
         } label: {
             Group {
@@ -1453,6 +1476,7 @@ private struct iPadPositionsPane: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isReadOnly)
     }
 
     /// One gray well per inning holding a chip for each benched player.
@@ -1468,6 +1492,7 @@ private struct iPadPositionsPane: View {
                 VStack(spacing: 4) {
                     ForEach(benched) { player in
                         Button {
+                            guard !isReadOnly else { return }
                             quickSetTarget = QuickSetTarget(origin: .player(player), inning: inning)
                         } label: {
                             Text(player.firstName)
@@ -1481,6 +1506,7 @@ private struct iPadPositionsPane: View {
                                 .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
+                        .disabled(isReadOnly)
                     }
                 }
                 .padding(5)
@@ -1527,7 +1553,9 @@ private struct iPadPositionsPane: View {
                     .font(.title2.bold())
                 fillStatusLabel
                 Spacer()
-                autoFillButton
+                // Hidden rather than disabled when read-only, matching the
+                // iPhone grid's bolt button.
+                if !isReadOnly { autoFillButton }
             }
             .padding(.bottom, 16)
 
@@ -1708,6 +1736,7 @@ private struct iPadPositionsPane: View {
         }()
 
         Button {
+            guard !isReadOnly else { return }
             selectedSlot = DefensiveGridView.SlotTarget(position: pos, benchOccupant: nil)
         } label: {
             VStack(spacing: 4) {
@@ -1734,6 +1763,7 @@ private struct iPadPositionsPane: View {
             .fixedSize()
         }
         .buttonStyle(.plain)
+        .disabled(isReadOnly)
     }
 
     /// Solid position badge for a field slot, with the Emergency/Never
@@ -1801,61 +1831,29 @@ private struct iPadPositionsPane: View {
     private var benchChips: some View {
         ChipFlowLayout(spacing: 9) {
             ForEach(benchedPlayers) { player in
-                playerChip(player, badge: "BN", badgeColor: FieldPosition.bench.badgeColor)
+                chip(player, kind: .bench)
             }
-            addChip("+ Bench", target: .bench)
+            if !isReadOnly {
+                addChip("+ Bench", target: .bench)
+            }
         }
     }
 
     private var absentChips: some View {
         ChipFlowLayout(spacing: 9) {
             ForEach(absentPlayersThisInning) { player in
-                playerChip(player, badge: "ABS", badgeColor: FieldPosition.absent.badgeColor)
+                chip(player, kind: .absent)
             }
-            addChip("+ Absent", target: .absent)
+            if !isReadOnly {
+                addChip("+ Absent", target: .absent)
+            }
         }
     }
 
-    /// One bench/absent chip. Tapping opens the player-led position picker so
-    /// the coach can move that player onto the field. Bench chips carry the
-    /// back-to-back-bench flag.
-    @ViewBuilder
-    private func playerChip(_ player: Player, badge: String, badgeColor: Color) -> some View {
-        let backToBackBench: Bool = {
-            guard badge == "BN" else { return false }
-            let innings = store.lineup.innings
-            let prev = clampedInning > 0 && innings[clampedInning - 1].position(for: player) == .bench
-            let next = clampedInning < innings.count - 1 && innings[clampedInning + 1].position(for: player) == .bench
-            return prev || next
-        }()
-
-        Button {
+    private func chip(_ player: Player, kind: PlayerChip.Kind) -> some View {
+        PlayerChip(player: player, kind: kind, inning: clampedInning, isReadOnly: isReadOnly) {
             selectedPlayer = player
-        } label: {
-            HStack(spacing: 7) {
-                Text(badge)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(minWidth: 28, minHeight: 18)
-                    .background(badgeColor)
-                    .cornerRadius(5)
-                Text(player.displayName)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(badge == "ABS" ? .primary.opacity(0.9) : .primary)
-                if backToBackBench {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                }
-            }
-            .padding(.leading, 8)
-            .padding(.trailing, 12)
-            .padding(.vertical, 6)
-            .background(Color(.systemBackground))
-            .clipShape(Capsule())
-            .shadow(color: .black.opacity(0.06), radius: 2, x: 0, y: 1)
         }
-        .buttonStyle(.plain)
     }
 
     /// Dashed "+ Bench" / "+ Absent" chip — opens the picker targeting that slot.
@@ -1928,6 +1926,7 @@ private struct iPadPositionsPane: View {
                 } else {
                     ForEach(rows, id: \.player.id) { row in
                         Button {
+                            guard !isReadOnly else { return }
                             pitchingAssignmentPlayer = row.player
                         } label: {
                             HStack {
@@ -1950,6 +1949,7 @@ private struct iPadPositionsPane: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(isReadOnly)
 
                         if row.player.id != rows.last?.player.id {
                             Divider()

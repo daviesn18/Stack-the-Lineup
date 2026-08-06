@@ -503,6 +503,57 @@ final class FairPlayValidationTests: XCTestCase {
         XCTAssertFalse(lineup.hasBackToBackBench(player: alice))
     }
 
+    // MARK: - hasConsecutiveBench (per-cell, predictive)
+    //
+    // The variant the grid cells and bench chips ask: "would sitting this player
+    // in inning N put them on the bench twice in a row?" It deliberately does
+    // not look at inning N itself — callers establish that separately, which is
+    // what let three of them hand-roll `prev || next` instead of calling this.
+    // Pinned here before those sites were routed through it.
+
+    func testHasConsecutiveBenchSeesThePreviousInning() {
+        let alice = makePlayer("Alice")
+        var lineup = makeLineup(innings: 5)
+        lineup.innings[1].assign(player: alice, position: .bench)
+
+        XCTAssertTrue(lineup.hasConsecutiveBench(player: alice, assigningBenchToInning: 2))
+    }
+
+    func testHasConsecutiveBenchSeesTheNextInning() {
+        let alice = makePlayer("Alice")
+        var lineup = makeLineup(innings: 5)
+        lineup.innings[3].assign(player: alice, position: .bench)
+
+        XCTAssertTrue(lineup.hasConsecutiveBench(player: alice, assigningBenchToInning: 2))
+    }
+
+    func testHasConsecutiveBenchIgnoresTheInningItself() {
+        // Benched here, on the field either side: not a back-to-back.
+        let alice = makePlayer("Alice")
+        var lineup = makeLineup(innings: 5)
+        lineup.innings[1].assign(player: alice, position: .leftField)
+        lineup.innings[2].assign(player: alice, position: .bench)
+        lineup.innings[3].assign(player: alice, position: .leftField)
+
+        XCTAssertFalse(lineup.hasConsecutiveBench(player: alice, assigningBenchToInning: 2))
+    }
+
+    func testHasConsecutiveBenchAtTheBoundaryInningsLooksOneWay() {
+        let alice = makePlayer("Alice")
+        var lineup = makeLineup(innings: 4)
+        lineup.innings[1].assign(player: alice, position: .bench)
+        lineup.innings[2].assign(player: alice, position: .bench)
+
+        // First inning has no inning before it; last has none after it.
+        XCTAssertTrue(lineup.hasConsecutiveBench(player: alice, assigningBenchToInning: 0))
+        XCTAssertTrue(lineup.hasConsecutiveBench(player: alice, assigningBenchToInning: 3))
+
+        var clear = makeLineup(innings: 4)
+        clear.innings[2].assign(player: alice, position: .bench)
+        XCTAssertFalse(clear.hasConsecutiveBench(player: alice, assigningBenchToInning: 0),
+                       "Inning 1 must not be dragged into a pair by a non-adjacent bench")
+    }
+
     func testBackToBackBenchSurvivesALineupWithNoInnings() {
         // A truncated or hand-edited blob can decode to an empty innings array.
         // The old `0..<innings.count - 1` trapped on it.

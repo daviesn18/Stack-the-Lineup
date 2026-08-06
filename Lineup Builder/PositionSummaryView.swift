@@ -341,12 +341,12 @@ struct PositionSummaryView: View {
     /// True when this player's bench assignment in this inning is back-to-back
     /// with another bench inning (immediately before or after). Derived per-cell,
     /// not stored -- recomputed from the grid whenever it changes.
+    ///
+    /// The neighbour check is `Lineup.hasConsecutiveBench`; only the "this cell
+    /// is bench" guard is local. Both used to be hand-rolled here.
     private func isBackToBackBench(player: Player, inning: Int) -> Bool {
         guard store.lineup.innings[inning].position(for: player) == .bench else { return false }
-        let innings = store.lineup.innings
-        let prevIsBench = inning > 0 && innings[inning - 1].position(for: player) == .bench
-        let nextIsBench = inning < innings.count - 1 && innings[inning + 1].position(for: player) == .bench
-        return prevIsBench || nextIsBench
+        return store.lineup.hasConsecutiveBench(player: player, assigningBenchToInning: inning)
     }
 
     /// Small badge dot for Emergency/Never position-preference tiers (Pro only).

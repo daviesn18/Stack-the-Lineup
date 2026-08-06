@@ -1138,7 +1138,7 @@ struct DefensiveGridView: View {
     private var benchChipRail: some View {
         ChipFlowLayout(spacing: 8) {
             ForEach(benchedPlayers) { player in
-                playerChip(player, badge: "BN", badgeColor: FieldPosition.bench.badgeColor)
+                chip(player, kind: .bench)
             }
             if !isReadOnly {
                 addChip("+ Bench", target: .bench)
@@ -1149,7 +1149,7 @@ struct DefensiveGridView: View {
     private var absentChipRail: some View {
         ChipFlowLayout(spacing: 8) {
             ForEach(absentPlayersThisInning) { player in
-                playerChip(player, badge: "ABS", badgeColor: FieldPosition.absent.badgeColor)
+                chip(player, kind: .absent)
             }
             if !isReadOnly {
                 addChip("+ Absent", target: .absent)
@@ -1157,49 +1157,13 @@ struct DefensiveGridView: View {
         }
     }
 
-    /// One bench/absent chip. Tapping opens the player-led position picker so
-    /// the coach can move that player onto the field. Bench chips carry the
-    /// back-to-back-bench flag from the old list rows.
-    @ViewBuilder
-    private func playerChip(_ player: Player, badge: String, badgeColor: Color) -> some View {
-        let backToBackBench: Bool = {
-            guard badge == "BN" else { return false }
-            let innings = store.lineup.innings
-            let prev = selectedInning > 0 && innings[selectedInning - 1].position(for: player) == .bench
-            let next = selectedInning < innings.count - 1 && innings[selectedInning + 1].position(for: player) == .bench
-            return prev || next
-        }()
-
-        Button {
-            guard !isReadOnly else { return }
+    /// Tapping a chip opens the player-led position picker; the undo bar goes
+    /// away with it, since the action it would undo is no longer on screen.
+    private func chip(_ player: Player, kind: PlayerChip.Kind) -> some View {
+        PlayerChip(player: player, kind: kind, inning: selectedInning, isReadOnly: isReadOnly) {
             selectedPlayer = player
             showingUndo = false
-        } label: {
-            HStack(spacing: 6) {
-                Text(badge)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(minWidth: 28, minHeight: 20)
-                    .background(badgeColor)
-                    .cornerRadius(5)
-                Text(player.displayName)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(badge == "ABS" ? .primary.opacity(0.9) : .primary)
-                if backToBackBench {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                }
-            }
-            .padding(.leading, 8)
-            .padding(.trailing, 12)
-            .padding(.vertical, 6)
-            .background(Color(.systemBackground))
-            .clipShape(Capsule())
-            .shadow(color: .black.opacity(0.06), radius: 2, x: 0, y: 1)
         }
-        .buttonStyle(.plain)
-        .disabled(isReadOnly)
     }
 
     /// Dashed "+ Bench" / "+ Absent" chip — opens the picker targeting that slot.
