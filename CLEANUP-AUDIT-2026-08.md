@@ -1,16 +1,18 @@
 # Codebase Cleanup Audit — Stack the Lineup (Lineup Builder)
 
-**Status: all findings actioned on 1 Aug 2026.** This document is now the record of what was found and what was done about it. The second audit pass; the first is `CLEANUP-AUDIT.md` (19 Jul 2026).
+**Status: all findings actioned — this pass on 1 Aug 2026, the July audit's remaining phases on 6 Aug 2026.** This document is now the record of what was found and what was done about it. The second audit pass; the first is `CLEANUP-AUDIT.md` (19 Jul 2026), whose Phase 2 and Phase 3 lists are also closed out here.
 
 *Addendum, 6 Aug 2026:* the July audit's **Phase 2 and Phase 3** lists are now closed out — see the Follow-ups section. Phase 2 had three items genuinely open: the empty `StackTheLineupTests` target (7.2), the double CloudKit save on every Edit Team submission (6.1a, new), and the last duplicated What's New key literal (1.11). Phase 3 had two: the duplicated bench/absent chip (2.4) and the back-to-back bench triplication (2.5). Consolidating the chip turned up **2.4a — iPad had no read-only enforcement at all**, so a view-only participant in a shared team could edit positions and finalize the lineup. That is the most user-visible thing in this document and the one to verify on a device before shipping.
 
 *Addendum, 2 Aug 2026:* finding 8.3's open question — whether the Cloudflare Worker accepts the four unused event constants — is closed; it does, and they stay. Answering it turned up **8.3a**: the Worker was pinned to the APNs sandbox host, which would have silently killed every shared-team push on the next App Store build. Fixed, along with a stale duplicate of its entry point. Those changes are in `~/Desktop/stl-worker` and **are not live until it is redeployed**.
 
-Verification for every change below: `xcodebuild build` → **BUILD SUCCEEDED**, `Lineup BuilderTests` → **TEST SUCCEEDED**, including five new tests written for the badge fix.
+Verification for every change below: `xcodebuild build` → **BUILD SUCCEEDED**, `Lineup BuilderTests` → **TEST SUCCEEDED**. Fifteen tests were added across the two passes — five for the badge fix, six for the Edit Team save path, four pinning the per-cell bench predicate before it was consolidated. Final run: **295 passed, 0 failed**, on both the iPhone and iPad simulators.
+
+One thing here is **not** verified by that: the iPad read-only fix (2.4a) needs a real shared team on two devices. See the test plan at the end.
 
 ## Executive Summary
 
-- **Scope:** 91 Swift files, 33,539 LOC, plus `project.pbxproj`, the shared `.xcscheme`, 2 `.entitlements`, 2 `Info.plist`. Targets: `Lineup Builder`, `STLWidgetExtension`, `Lineup BuilderTests`, `Lineup BuilderUITests`, and a fifth — `StackTheLineupTests` — that compiles nothing (finding 7.2). Swift/SwiftUI only: no storyboards, no XIBs, no `@IBOutlet`/`@IBAction`. Exactly one selector in the repo (`#selector(iCloudDidUpdate)`, `Models.swift`) and it is live.
+- **Scope:** 91 Swift files, 33,539 LOC, plus `project.pbxproj`, the shared `.xcscheme`, 2 `.entitlements`, 2 `Info.plist`. Targets: `Lineup Builder`, `STLWidgetExtension`, `Lineup BuilderTests`, `Lineup BuilderUITests`, and — at the time of the audit — a fifth, `StackTheLineupTests`, that compiled nothing; removed 6 Aug 2026 (finding 7.2). Swift/SwiftUI only: no storyboards, no XIBs, no `@IBOutlet`/`@IBAction`. Exactly one selector in the repo (`#selector(iCloudDidUpdate)`, `Models.swift`) and it is live.
 - **Method:** target membership was read from Xcode's own `*.SwiftFileList` after a build rather than inferred from the project file — that is what makes finding 7.1 certain, and it corrected a backwards reading of `membershipExceptions`. On top of that: all 333 type declarations, all 726 `func` names and all 1,343 property names reference-counted repo-wide with comment-only matches excluded. That exclusion is what surfaced `clearAll()`, which a naive count missed.
 
 ### What changed
@@ -18,21 +20,24 @@ Verification for every change below: `xcodebuild build` → **BUILD SUCCEEDED**,
 | Category | Found | Outcome |
 |---|---|---|
 | 1. Dead code | 15 | 10 deleted, 5 wired up |
-| 2. Duplicate logic | 3 (+1 found during the fix) | 3 consolidated, 1 documented as follow-up |
+| 2. Duplicate logic | 5 (+1 found during the fix) | 5 consolidated, 1 documented as follow-up |
 | 3. Unused UI components | 0 | — |
 | 4. Overly complex implementations | 0 | — |
 | 5. Legacy code | 0 | — |
-| 6. Redundant queries / API calls | 2 | 1 fixed, 1 deferred by decision |
-| 7. Abandoned files | 2 | 1 deleted, 1 left for Xcode's UI |
+| 6. Redundant queries / API calls | 3 | 2 fixed, 1 deferred by decision |
+| 7. Abandoned files | 2 | 1 deleted, 1 target removed |
 | 8. Tech debt | 5 | 3 fixed, 2 kept — both questions now closed |
 
-Net: **−115 lines of dead code, +1 deleted file, 3 user-facing bugs fixed, 5 new tests.**
+Net: **−115 lines of dead code, −1 file, −1 build target, 4 user-facing bugs fixed, 15 new tests.**
 
-### The three that mattered
+Counts include the 6 Aug 2026 pass that closed the July audit's Phase 2 and Phase 3 (findings 2.4, 2.4a, 2.5, 6.1a, and the rewritten 7.2).
 
-1. **The iPhone warnings badge was wrong two ways** (2.1). Both terms of `inningIssues + gameIssues` counted the selected inning's open slots, so one missing shortstop in the inning you were looking at read as 2. And `gameWideIssueCount` summed per-rule counts where every other surface counts distinct players — the same lineup showed a different number on iPhone than iPad. Both fixed; the sheet behind the badge now lists exactly what the badge counts.
-2. **Deleting a shared team never stopped its push notifications** (1.10). `removeTokens(for:)` existed, documented for exactly this, and had no caller. Wired into `deleteTeam(id:)` — and see 1.10a, because wiring it up exposed a worse bug inside it.
-3. **`STLWidget/WidgetSnapshot.swift` was in no build target** (7.1). Flagged in July, still present, byte-identical to the copy the widget actually compiles. Deleted.
+### The four that mattered
+
+1. **A view-only coach could edit anything on iPad** (2.4a). `iPadDashboardView` had no read-only enforcement at all, and the picker sheets it presents don't carry their own — iPhone gates their call sites instead. A participant with view-only access to a shared team could reassign positions, reorder the batting order, clear positions and finalize the lineup, which notifies the whole team. Found by consolidating a duplicated chip; the biggest thing in this document, and the only one still unverified on hardware.
+2. **The iPhone warnings badge was wrong two ways** (2.1). Both terms of `inningIssues + gameIssues` counted the selected inning's open slots, so one missing shortstop in the inning you were looking at read as 2. And `gameWideIssueCount` summed per-rule counts where every other surface counts distinct players — the same lineup showed a different number on iPhone than iPad. Both fixed; the sheet behind the badge now lists exactly what the badge counts.
+3. **Deleting a shared team never stopped its push notifications** (1.10). `removeTokens(for:)` existed, documented for exactly this, and had no caller. Wired into `deleteTeam(id:)` — and see 1.10a, because wiring it up exposed a worse bug inside it.
+4. **`STLWidget/WidgetSnapshot.swift` was in no build target** (7.1). Flagged in July, still present, byte-identical to the copy the widget actually compiles. Deleted.
 
 ### Left alone deliberately
 
@@ -90,7 +95,7 @@ Settings → "Reset Welcome and Tips" cleared `hasCompletedTutorial` and restart
 
 33 lines, no call sites, clearly the two halves of a manual iCloud re-sync. Building that affordance touches the path that caused the July data wipe and belongs in its own change, not a cleanup pass. `fetchAllTeams` also carries a hard-won comment about `MainActor.run` trailing-closure syntax on iOS 26 that is worth keeping.
 
-### 2. Duplicate Logic — 3 consolidated
+### 2. Duplicate Logic — 5 consolidated
 
 **2.1 — The fair-play rule set had three implementations. Now one.**
 
@@ -116,6 +121,10 @@ Rather than adding a second table, `PDFGenerator` now calls `PitchEligibilityEng
 - The PDF gained a **Rest** column, the one thing the engine version uniquely computed. Shown only while a player is still inside their rest window; once it elapses the number is noise.
 
 **2.2a — a third copy remains, and I left it.** `PositionSummaryView.pitchingRows()` still hand-rolls the same window maths. It differs in ways that matter: it adds `assignedInnings`, doesn't filter `.never` pitcher preferences itself, and has different rules-disabled behaviour. Folding it in would change a Pro-visible surface that has no test coverage, on the strength of assumptions rather than evidence. That is a change worth making on purpose, not as the tail end of a cleanup pass. **Recommend: consolidate `PositionSummaryView.pitchingRows()` onto `coachesGuideSummary` as its own change, with tests for the Pitching tab first.**
+
+**2.3 — Singular/plural phrasing: one helper.**
+
+`count == 1 ? "inning" : "innings"` and siblings appeared in eight places. New `Plural` enum (`Plural.swift`), promoted from `TeamRulesBuilder`'s private helpers, now used by `GameRecap`, `GameRecapIntent`, `DefensiveGridView`, `PositionSummaryView`, `TemplatePickerView` and `BulkAddPlayersView`. Deliberately not a general pluralization engine — every phrase is written out, because a naive `+ "s"` is how you get "1 catchs". Output is byte-identical, which is what let the existing `GameRecapTests` and `TeamRulesTests` assertions stand unchanged as the regression check.
 
 **2.4 — The bench/absent chip had two implementations, and the iPad one had lost its read-only guards. Fixed (6 Aug 2026).**
 
@@ -144,10 +153,6 @@ The July audit's Phase 3 item 6. `Lineup.hasConsecutiveBench(player:assigningBen
 Pinned before the refactor, as the July note asked: four new `FairPlayValidationTests` cases covering the previous inning, the next inning, the boundary innings, and — the semantic that let the copies drift in the first place — that the predicate deliberately ignores the inning it's asked about.
 
 `AutoFillEngine.benchedLastInning` looks like a fourth copy and isn't: it is backward-only on purpose, because the engine fills innings in order and the next one doesn't exist yet. Left alone.
-
-**2.3 — Singular/plural phrasing: one helper.**
-
-`count == 1 ? "inning" : "innings"` and siblings appeared in eight places. New `Plural` enum (`Plural.swift`), promoted from `TeamRulesBuilder`'s private helpers, now used by `GameRecap`, `GameRecapIntent`, `DefensiveGridView`, `PositionSummaryView`, `TemplatePickerView` and `BulkAddPlayersView`. Deliberately not a general pluralization engine — every phrase is written out, because a naive `+ "s"` is how you get "1 catchs". Output is byte-identical, which is what let the existing `GameRecapTests` and `TeamRulesTests` assertions stand unchanged as the regression check.
 
 ### 3. Unused UI Components
 
