@@ -1,6 +1,6 @@
 # Handoff — v3.3 Siri & App Intents (2026-07-31)
 
-> **What's still open lives in [`BACKLOG.md`](BACKLOG.md), not here.** This document is the record of *why* — the dead ends, the measurements, the rules that came out of them. Section 9's remaining items are backlog 1.3 (Siri on a device — a submission blocker), 2.1, 2.2 and 4.4. Note that §9b.3's ship-readiness item is **done**: the version is `3.3 (34)` and the What's New registry has its 3.3 entry.
+> **What's still open lives in [`BACKLOG.md`](BACKLOG.md), not here.** This document is the record of *why* — the dead ends, the measurements, the rules that came out of them. Section 9's remaining items are backlog 1.3 (Siri on a device — a submission blocker), 2.1, 2.2 and 4.4. Note that §9b.3's ship-readiness item is **done**: the version is `3.3 (36)` and the What's New registry has its 3.3 entry.
 
 ## TL;DR
 

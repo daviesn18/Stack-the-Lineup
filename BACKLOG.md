@@ -1,8 +1,8 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 6 Aug 2026 (night, at the point of archiving).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 7 Aug 2026 (at the archive).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
-**The spine is the 3.3 submission.** Version is `3.3 (34)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
+**The spine is the 3.3 submission.** Version is `3.3 (36)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
 ---
 
@@ -10,12 +10,12 @@
 
 **Everything left before you can submit 3.3 is one TestFlight build and one device session.** Four items — 1.3, 1.4, 2.3, 2.4 — all want the same build on real hardware, plus 1.5, which is two commands against the archive itself. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
 
-1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was re-verified on 6 Aug — builds clean, app and widget both `3.3 (34)` in their built `Info.plist`s.
+1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build has since moved to **36**; both targets resolve to it from the project level. See the 7 Aug note in 1.1 — the drift came back once.
 2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
 3. **On device, in one sitting:** 1.3 (nine Siri phrases spoken aloud), 1.4 (iPad read-only with a real shared team, don't skip step 7), 2.3 (one tip transition), 2.4 (read tip copy at large Dynamic Type).
 4. **While a real shared team is set up for 1.4**, finalize a lineup and confirm a push actually arrives. That's the one part of the notification chain never exercised — see the caveat in 1.2.
 
-State of the repo: `main` is at the 6 Aug tip and pushed; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`, including the new `PitchingSummaryTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`, including the new `PitchingSummaryTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -114,13 +114,34 @@ Expected: `0`. Anything else — Edit Scheme → Test → Options → uncheck Co
 
 `STLWidgetExtension` was at `1` / `1.0` while the app was at `34` / `3.3`. App Store Connect rejects that at validation, so it would have cost an upload round-trip at the worst moment.
 
-Fixed as a single source of truth rather than a copied value: `CURRENT_PROJECT_VERSION = 34` and `MARKETING_VERSION = 3.3` now live in the **project-level** Debug and Release configurations, and the per-target overrides were deleted from both the app and the widget. Both targets resolve to `3.3 (34)` and the built `Info.plist`s agree — re-confirmed 6 Aug against a Release build for a device, which is the form validation actually sees.
+Fixed as a single source of truth rather than a copied value: `CURRENT_PROJECT_VERSION` and `MARKETING_VERSION = 3.3` now live in the **project-level** Debug and Release configurations, and the per-target overrides were deleted from both the app and the widget. Both targets resolve to the same values and the built `Info.plist`s agree — confirmed 6 Aug against a Release build for a device, which is the form validation actually sees. The build is now **36**.
+
+> 🔁 **The trap below fired, on 7 Aug, at the archive.** Bumping the build from 34 in **General → Identity** wrote `CURRENT_PROJECT_VERSION = 35` as a *target-level* override on the app (both configs) while the widget kept inheriting the project-level 34 — the identical validation-failing mismatch this item had already fixed once, roughly twelve hours later. Caught before upload by diffing `project.pbxproj`, not by anything Xcode said: the app's General tab reads `35`, the widget's reads `34`, and **nothing warns you**. Re-fixed by setting the project level to 36 and deleting both overrides.
+>
+> Worth knowing: there is **no** auto-increment anywhere — no run-script phases, no scheme pre/post actions, no `agvtool`. Every bump is manual, so every bump is a chance to re-open this.
 
 > **Correction (6 Aug, later):** this entry used to claim a clean build emits **zero** warnings. It doesn't. A Release build for `generic/platform=iOS` emits **14**, all pre-existing and none of them version-related: 12 Swift 6 actor-isolation warnings across `TeamRules`, `PitchEligibility`, `GameRecap`, `AutoFillCoordinator` and `PurchaseManager` — two of which say outright *"this is an error in the Swift 6 language mode"* — plus 2 `Text` `+` deprecations in `ContextualTips.swift:58` and `PaywallView.swift:177`. None block validation. The version work was clean; the build as a whole was never warning-free, and the original claim was probably scoped to the version warnings or measured in Debug.
 >
 > The Swift 6 dozen are a real future wall — a language-mode migration turns them into errors — but they belong after 3.3, not in it.
 
 > ⚠️ **Bump the version at the project level from now on.** Editing the Version or Build field in a target's General tab in Xcode writes a target-level override and silently re-opens the drift this removed.
+>
+> **How, concretely** — this is the part the warning was missing the first time, and it's why the trap fired anyway:
+>
+> 1. Project navigator → the blue **project** icon at the top.
+> 2. Editor sidebar → **"Lineup Builder" under PROJECT**, *not* under TARGETS.
+> 3. **Build Settings** → filter **All** → search `Current Project Version` → set it. Check Debug and Release both.
+> 4. If a target already overrides it: select that target → Build Settings → the value renders **bold** → select the row and press **Delete** to restore inheritance.
+>
+> Switch Build Settings from **Combined** to **Levels** to see this directly — done right, the value sits in the *Project* column and the *Target* column is empty. Treat General → Identity as read-only; it shows the resolved value, so it will look correct either way, and typing in it is what creates the override.
+>
+> Verify from the shell, which reads what the build actually resolves rather than what a text field displays:
+>
+> ```bash
+> for t in "Lineup Builder" "STLWidgetExtension"; do echo "$t: $(xcodebuild -project "Lineup Builder.xcodeproj" -target "$t" -configuration Release -showBuildSettings 2>/dev/null | grep -E "^\s+CURRENT_PROJECT_VERSION " | awk '{print $3}')"; done
+> ```
+>
+> Both must print the same number.
 
 ### ~~1.2 The Worker, and Production CloudKit~~ — ✅ fixed 6 Aug 2026
 
@@ -270,7 +291,7 @@ Things one of the docs still half-implies are open, that aren't:
 - **The `StackTheLineupTests` target** — removed from the project and the scheme.
 - **`cleanup-phase1.sh` / `.patch`** — deleted; they'd have failed if run.
 - **`roadmap.jsx`** — gone from the repo.
-- **3.3 ship-readiness** (`HANDOFF-app-intents.md` §9b.3) — that item says `MARKETING_VERSION` is still 3.2 with no 3.3 What's New entry. Both are done: version is `3.3 (34)` and the registry has its 3.3 entry, guarded by a test that fails the build if the version moves ahead of the registry.
+- **3.3 ship-readiness** (`HANDOFF-app-intents.md` §9b.3) — that item says `MARKETING_VERSION` is still 3.2 with no 3.3 What's New entry. Both are done: version is `3.3 (36)` and the registry has its 3.3 entry, guarded by a test that fails the build if the version moves ahead of the registry.
 - **`AskSiriTip` discovery** — verified on screen 1 Aug.
 - **The app-name cleanup** — `ShortcutsLink` and the `navigationTitle` (2.1) are both done. Nothing still says "Lineup Builder" in user-facing copy.
 - **The `stl-worker` housekeeping** — it's under version control, has a GitHub repo, a README, current tooling (wrangler 4.119), and Workers Logs enabled. The backlog used to note "not under version control" as a to-do; that's closed.
