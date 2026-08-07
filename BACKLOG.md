@@ -103,7 +103,9 @@ App Store Connect **rejects** this at validation. It is a build-settings edit, i
 
 **Also settled:** `CLOUDKIT_ENV = production` and the `api.push.apple.com` host are both live, so `CLEANUP-AUDIT-2026-08.md` §8.3a's "fixed in the file and **not live**" was wrong. The 2 Aug edit was deployed the same day.
 
-**Still worth knowing.** Cloudflare showed 0 errors and a 0% error rate the entire time it was broken — the Worker catches the throw and returns a 500 *response*, and only unhandled exceptions count as errors. Workers Logs and Traces are Disabled, so nothing was retained. Diagnosis needed a live `wrangler tail`. **Enabling Workers Logs is cheap insurance** and is not done.
+**Still worth knowing.** Cloudflare showed 0 errors and a 0% error rate the entire time it was broken — the Worker catches the throw and returns a 500 *response*, and only unhandled exceptions count as errors. Don't trust the error rate; watch Observability → Events, or the `sent` count.
+
+**Workers Logs are now enabled** (declared in `wrangler.toml`, so it's version controlled rather than a dashboard toggle that can drift). They were off throughout the outage, which is why diagnosis needed a live `wrangler tail`; log output is now retained and searchable after the fact. Verified on the dashboard 6 Aug. Traces remain off.
 
 **One caveat on what's verified:** this proves the CloudKit half end to end. The APNs half has still never sent a real push — a nonexistent team matches zero tokens, so nothing reaches Apple. That gets exercised the first time a real shared team finalizes a lineup, which is 1.4's device session.
 
