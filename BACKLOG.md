@@ -36,7 +36,7 @@ State of the repo: `main` and `feature/app-intents-phase-0` are both at `4cb258c
 | **2.3** | `ReuseSaveTemplateTip` live advance | S | A manual Xcode pass |
 | **2.4** | Tip copy at real size / large Dynamic Type | S | Device time |
 | **Stage 3 — deferred engineering (after 3.3 ships)** ||||
-| **3.0** | **Calendar-week window is empty on Sundays** | S | ⚠️ **New 6 Aug** — a real bug; decide if it blocks 3.3 |
+| ~~3.0~~ | ~~Calendar-week window is empty on Sundays~~ | — | ✅ **6 Aug** — found and fixed; 4 copies now share one derivation |
 | 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | **Stage 4 — decisions and long poles** ||||
@@ -151,19 +151,19 @@ The app ships as "Stack the Lineup". The one-time crash-report and dSYM naming d
 
 ## Stage 3 — deferred engineering (after 3.3)
 
-3.1 and 3.2 were deferred **on purpose**, with reasons that still hold. 3.0 is new, found while writing 3.1's tests, and is the one item here that might deserve to jump the queue — that's a call to make, not a default.
+3.1 and 3.2 were deferred **on purpose**, with reasons that still hold. Neither should jump the queue.
 
-### 3.0 The calendar-week window is empty on Sundays ⚠️ new
+### ~~3.0 The calendar-week window was empty on Sundays~~ — ✅ fixed 6 Aug 2026
 
-**Source:** found 6 Aug while writing the 3.1 tests. Pinned in `PitchingSummaryTests.testCalendarWeekWindowOnSundayStillCountsTheWeek`, with a full write-up at the foot of that file.
+Found while writing 3.1's tests. Every copy of the window arithmetic derived Monday by taking the reference date's `weekOfYear` and setting `weekday = 2`, which assumes the calendar's week starts on Monday. On the US default it starts Sunday, so the week containing a Sunday ran Sun–Sat, `weekday = 2` resolved to **the following Monday**, and `windowStart` landed a day in the future.
 
-`PitchEligibilityEngine.windowStartDate` derives Monday by taking the reference date's `weekOfYear` and setting `weekday = 2`. That assumes the calendar's week starts on Monday. On the US default it starts Sunday, so the week containing a Sunday runs Sun–Sat and `weekday = 2` resolves to **the following Monday** — `windowStart` lands a day in the future and the window matches nothing.
+**What it cost, on Sundays, for teams set to Calendar Week:** `pitchesInWindow` returned 0 no matter what was thrown that week, the weekly cap stopped applying, `.limited` and `.mustRest` never fired, and the Coaches Guide and PDF both showed a full ceiling. Sunday is a game day.
 
-**On Sundays, for teams set to Calendar Week:** `pitchesInWindow` returns 0 no matter what was thrown that week, the weekly cap stops applying, `.limited` and `.mustRest` never fire, and the Coaches Guide and PDF both show a full ceiling. Sunday is a game day. The same arithmetic is duplicated in `pitchingRows()`, so the tab agrees with the guide and nothing looks wrong from inside the app — this is another one that's invisible from where you'd normally look.
+`PitchEligibilityEngine.startOfPitchingWeek` is now the single derivation, counting back from the weekday rather than asking the locale where the week begins. **The audit called `pitchingRows()` the third copy of the pitch maths; there were four** — `DefensiveGridView.pitchesRemaining`, behind the inline pitcher-slot display, had it too. All four now route through the helper, which is a down payment on 3.1.
 
-Fix is small: anchor the week explicitly (a Gregorian calendar with `firstWeekday = 2`) instead of borrowing the locale's. Not done as part of the test pass — changing enforcement is its own change, and it wants a verification pass across both window types.
+Guarded by four tests, including one that sweeps `firstWeekday` 1–7 and one that pins the rolling window as untouched.
 
-**Decide:** it's pre-existing, not a 3.3 regression, so it doesn't have to block. But it's a safety feature returning the wrong answer one day in seven, and the fix is an afternoon. **Size: S.**
+> The pattern from 6 Aug held for a third time: every surface duplicated the same wrong arithmetic, so they all agreed with each other and nothing looked wrong from inside the app.
 
 ### 3.1 `PositionSummaryView.pitchingRows()`
 

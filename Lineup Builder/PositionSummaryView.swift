@@ -829,9 +829,7 @@ struct PositionSummaryView: View {
         let windowStart: Date = {
             switch store.pitchingConfig.rollingWindowType {
             case .calendarWeek:
-                var comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: gameDate)
-                comps.weekday = 2
-                return cal.date(from: comps) ?? gameDate
+                return PitchEligibilityEngine.startOfPitchingWeek(for: gameDate, calendar: cal)
             case .rolling:
                 return cal.date(byAdding: .day,
                     value: -(store.pitchingConfig.rollingWindowDays - 1), to: gameDate) ?? gameDate

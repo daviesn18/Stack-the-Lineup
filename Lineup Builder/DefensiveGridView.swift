@@ -2374,9 +2374,7 @@ func pitchesRemaining(
     let windowStart: Date = {
         switch config.rollingWindowType {
         case .calendarWeek:
-            var comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)
-            comps.weekday = 2
-            return cal.date(from: comps) ?? today
+            return PitchEligibilityEngine.startOfPitchingWeek(for: today, calendar: cal)
         case .rolling:
             return cal.date(byAdding: .day, value: -(config.rollingWindowDays - 1), to: today) ?? today
         }

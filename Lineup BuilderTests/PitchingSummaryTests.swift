@@ -200,28 +200,102 @@ final class PitchingSummaryTests: XCTestCase {
     func testCalendarWeekWindowOnSundayStillCountsTheWeek() throws {
         // Sun 9 Aug 2026, with 40 pitches thrown on the Thursday before.
         //
-        // KNOWN BUG — see the note at the end of this file. `windowStartDate`
-        // reconstructs Monday from the *calendar's* week, and on a US calendar
-        // (firstWeekday = Sunday) the week containing Sun 9 Aug runs 9-15 Aug,
-        // so weekday=2 resolves to Mon 10 Aug — tomorrow. windowStart lands in
-        // the future, the window matches nothing, and the weekly cap silently
-        // stops applying for the whole of Sunday.
-        //
-        // The assertion below is what the app *should* report. XCTExpectFailure
-        // keeps the suite green while pinning the intent: fix windowStartDate
-        // and this test starts passing (and strict mode then flags it, which is
-        // the signal to delete this wrapper).
+        // The regression test for the Sunday bug. Deriving Monday from the
+        // calendar's own week put windowStart on Mon 10 Aug — tomorrow — so the
+        // window matched nothing and the weekly cap stopped applying for the
+        // whole of Sunday, a game day. Monday now comes from weekday
+        // arithmetic, so the week behaves the same on all seven days.
         let sunday = Calendar.current.date(
             from: DateComponents(year: 2026, month: 8, day: 9)
         )!
         let bobby = player("Bobby", "Reyes")
 
-        XCTExpectFailure("windowStartDate resolves to next Monday on Sundays")
-
         let rows = PitchEligibilityEngine.coachesGuideSummary(
             gameLogs: [log(bobby, pitches: 40, daysAgo: 3, from: sunday)],
             players: [bobby],
             config: config(weeklyLimit: 100, windowType: .calendarWeek),
+            referenceDate: sunday
+        )
+
+        let subject = try row(rows, "Reyes")
+        XCTAssertEqual(subject.pitchesInWindow, 40)
+        XCTAssertEqual(subject.available, 60) // min(85, 100 - 40)
+    }
+
+    func testWeekStartIsMondayOnEveryDayOfTheWeek() {
+        // Mon 3 Aug 2026 through Sun 9 Aug 2026 all belong to the week that
+        // opened on Mon 3 Aug. Sunday was the failing case.
+        let cal = Calendar.current
+        let monday = cal.date(from: DateComponents(year: 2026, month: 8, day: 3))!
+
+        for offset in 0..<7 {
+            let day = cal.date(byAdding: .day, value: offset, to: monday)!
+            XCTAssertEqual(
+                PitchEligibilityEngine.startOfPitchingWeek(for: day), monday,
+                "week start wrong for offset \(offset)"
+            )
+        }
+
+        // The next Monday opens a new week rather than extending this one.
+        let nextMonday = cal.date(byAdding: .day, value: 7, to: monday)!
+        XCTAssertEqual(
+            PitchEligibilityEngine.startOfPitchingWeek(for: nextMonday), nextMonday
+        )
+    }
+
+    func testWeekStartIsUnaffectedByLocaleWeekStart() {
+        // The old derivation asked the calendar where the week began, so it
+        // changed answer with firstWeekday. Pin that it no longer does.
+        let base = Calendar.current
+        let sunday = base.date(from: DateComponents(year: 2026, month: 8, day: 9))!
+        let expected = base.date(from: DateComponents(year: 2026, month: 8, day: 3))!
+
+        for firstWeekday in 1...7 {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = base.timeZone
+            cal.firstWeekday = firstWeekday
+            XCTAssertEqual(
+                PitchEligibilityEngine.startOfPitchingWeek(for: sunday, calendar: cal),
+                expected,
+                "week start moved with firstWeekday = \(firstWeekday)"
+            )
+        }
+    }
+
+    func testWeeklyCapAppliesOnSunday() throws {
+        // The consequence that made the bug worth fixing: with the cap blown
+        // through, a Sunday lookup used to come back unrestricted.
+        let sunday = Calendar.current.date(
+            from: DateComponents(year: 2026, month: 8, day: 9)
+        )!
+        let bobby = player("Bobby", "Reyes")
+
+        let rows = PitchEligibilityEngine.coachesGuideSummary(
+            gameLogs: [log(bobby, pitches: 45, daysAgo: 4, from: sunday),
+                       log(bobby, pitches: 45, daysAgo: 2, from: sunday)],
+            players: [bobby],
+            config: config(weeklyLimit: 80, windowType: .calendarWeek),
+            referenceDate: sunday
+        )
+
+        let subject = try row(rows, "Reyes")
+        XCTAssertEqual(subject.pitchesInWindow, 90)
+        XCTAssertEqual(subject.available, 0)
+        XCTAssertTrue(subject.status.isRestricted)
+    }
+
+    func testRollingWindowWasNeverAffectedBySunday() throws {
+        // The rolling window does its own date maths and never touched the
+        // week start. Pinned so a future tidy-up doesn't route it through
+        // the shared helper by accident.
+        let sunday = Calendar.current.date(
+            from: DateComponents(year: 2026, month: 8, day: 9)
+        )!
+        let bobby = player("Bobby", "Reyes")
+
+        let rows = PitchEligibilityEngine.coachesGuideSummary(
+            gameLogs: [log(bobby, pitches: 40, daysAgo: 3, from: sunday)],
+            players: [bobby], config: config(weeklyLimit: 100),
             referenceDate: sunday
         )
 
@@ -427,23 +501,26 @@ final class PitchingSummaryTests: XCTestCase {
     }
 }
 
-// MARK: - Note: the Sunday window bug
+// MARK: - Note: the Sunday window bug (fixed 6 Aug 2026)
 //
-// `PitchEligibilityEngine.windowStartDate` derives Monday by taking the
-// reference date's `weekOfYear` and setting `weekday = 2`. That assumes the
-// calendar's week begins on Monday. On the US default (firstWeekday = Sunday)
-// the week containing a Sunday starts *on* that Sunday, so weekday = 2 resolves
-// to the following Monday and windowStart lands one day in the future.
+// Kept as the account of what the four tests above are guarding.
+//
+// Every copy of the window maths derived Monday by taking the reference date's
+// `weekOfYear` and setting `weekday = 2`, which assumes the calendar's week
+// begins on Monday. On the US default (firstWeekday = Sunday) the week
+// containing a Sunday starts *on* that Sunday, so `weekday = 2` resolved to the
+// following Monday and windowStart landed one day in the future.
 //
 // Effect, on Sundays only, for teams using Calendar Week:
-//   - pitchesInWindow returns 0 regardless of the week's actual games
-//   - the weekly cap does not apply, and .limited / .mustRest never trigger
-//   - the Coaches Guide and the PDF show a full `available` ceiling
+//   - pitchesInWindow returned 0 regardless of the week's actual games
+//   - the weekly cap did not apply, and .limited / .mustRest never triggered
+//   - the Coaches Guide and the PDF showed a full `available` ceiling
 //
-// Sunday is a game day in youth baseball, and the same arithmetic is duplicated
-// in PositionSummaryView.pitchingRows(), so the tab agrees with the guide and
-// nothing looks wrong. The fix is to anchor the week explicitly rather than
-// borrow the locale's, e.g. build a Gregorian calendar with firstWeekday = 2
-// inside windowStartDate. Deliberately not fixed here: this file is the test
-// pass that backlog 3.1 asks for first, and changing enforcement is a separate,
-// verifiable change.
+// Sunday is a game day in youth baseball. Because the arithmetic was duplicated
+// across the engine, the Pitching tab, and the inline pitcher slot, every
+// surface agreed with every other one and nothing looked wrong.
+//
+// `PitchEligibilityEngine.startOfPitchingWeek` is now the single derivation and
+// counts back from the weekday instead, which is locale-independent. Four call
+// sites route through it: windowStartDate, windowClearDate,
+// PositionSummaryView.pitchingRows, and DefensiveGridView.pitchesRemaining.

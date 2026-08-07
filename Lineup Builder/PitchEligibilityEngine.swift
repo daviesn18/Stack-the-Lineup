@@ -240,6 +240,24 @@ struct PitchEligibilityEngine {
             .reduce(0) { $0 + $1.pitches }
     }
 
+    /// Monday 00:00 of the week containing `date`.
+    ///
+    /// Derived by counting back from the weekday rather than by rebuilding the
+    /// date from `weekOfYear` with `weekday = 2`. That route asks the *locale's*
+    /// calendar where the week starts: on the US default it starts Sunday, so
+    /// the week containing a Sunday runs Sun–Sat and `weekday = 2` resolves to
+    /// the **following** Monday. The window then began in the future and matched
+    /// no games at all, so on Sundays the weekly cap silently stopped applying.
+    ///
+    /// Weekday arithmetic gives the same answer in every locale.
+    static func startOfPitchingWeek(for date: Date, calendar: Calendar = .current) -> Date {
+        let today = calendar.startOfDay(for: date)
+        // .weekday is 1 = Sunday ... 7 = Saturday, so Monday (2) maps to 0 days
+        // back and Sunday (1) to 6 — the Monday that *opened* the current week.
+        let daysSinceMonday = (calendar.component(.weekday, from: today) + 5) % 7
+        return calendar.date(byAdding: .day, value: -daysSinceMonday, to: today) ?? today
+    }
+
     /// Returns the start date of the current rolling window.
     /// Calendar week: Monday 00:00 of the current week.
     /// Rolling: today minus (rollingWindowDays - 1).
@@ -249,10 +267,7 @@ struct PitchEligibilityEngine {
 
         switch config.rollingWindowType {
         case .calendarWeek:
-            // ISO week starts Monday
-            var comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)
-            comps.weekday = 2 // Monday
-            return cal.date(from: comps) ?? today
+            return startOfPitchingWeek(for: today, calendar: cal)
 
         case .rolling:
             return cal.date(byAdding: .day, value: -(config.rollingWindowDays - 1), to: today) ?? today
@@ -287,9 +302,7 @@ struct PitchEligibilityEngine {
 
         case .calendarWeek:
             // Window clears at the start of next Monday
-            var comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)
-            comps.weekday = 2
-            guard let thisMonday = cal.date(from: comps) else { return nil }
+            let thisMonday = startOfPitchingWeek(for: today, calendar: cal)
             return cal.date(byAdding: .weekOfYear, value: 1, to: thisMonday)
         }
     }
