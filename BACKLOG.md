@@ -301,6 +301,7 @@ Things one of the docs still half-implies are open, that aren't:
 | Document | State |
 |---|---|
 | `BACKLOG.md` | This file. The index — the only place that says what's next. |
+| [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) | **Live.** The device session, step by step: 1.5, 1.3, 1.4, 2.3, 2.4 in the order to run them. Written 7 Aug. |
 | `HANDOFF-app-intents.md` | **Live.** The 3.3 reference; §9 is the open part (1.3, 4.4). |
 | `CLEANUP-AUDIT-2026-08.md` | **Closed**, except 3.1 / 3.2 and the iPad test plan for 1.4. ⚠️ **§8.3a is factually wrong** — see 1.2. |
 | `CLEANUP-AUDIT.md` | **Closed.** All three phases. Historical record. |
