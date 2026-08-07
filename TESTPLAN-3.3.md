@@ -19,19 +19,25 @@ Work top to bottom. §0 takes two minutes and can invalidate the whole build, so
 
 ## §0 — Archive checks (backlog 1.5)
 
-**Do these before anything else.** Neither shows up in Xcode's Issue navigator; one is a signing outcome, the other a build-setting consequence.
+**Do this before anything else.** Run every command in **Terminal**, from anywhere — they find the newest archive themselves.
 
-### 0a. Push environment
+### 0a. Is this even the right build? ← start here
 
 ```bash
-codesign -d --entitlements :- "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Products/Applications/Stack the Lineup.app" 2>/dev/null | grep -A1 aps-environment
+A=$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)
+APP="$A/Products/Applications/Stack the Lineup.app"
+echo "app:    $(plutil -extract CFBundleShortVersionString raw "$APP/Info.plist") ($(plutil -extract CFBundleVersion raw "$APP/Info.plist"))"
+W=$(ls -d "$APP/PlugIns/"*.appex | head -1)
+echo "widget: $(plutil -extract CFBundleShortVersionString raw "$W/Info.plist") ($(plutil -extract CFBundleVersion raw "$W/Info.plist"))"
 ```
 
-- [ ] Prints **`production`**
+- [ ] Both lines read **`3.3 (36)`**
 
-If it prints `development`, **stop**. The app will register against sandbox APNs, the tokens it writes to CloudKit will be invalid for the production host the Worker uses, and §3 will fail in a way that looks exactly like a broken Worker. Fix the signing and re-archive before going further.
+They must match each other. A mismatch is the 1.1 bug and App Store Connect rejects it at validation. If they differ, or the number isn't 36, **re-archive** — you're looking at a stale build.
 
-### 0b. Coverage instrumentation
+*Run 7 Aug: this returned `app 3.3 (35)` / `widget 3.3 (34)` on the 6 Aug 10:03 PM archive — the mismatch, caught here. Re-archive required.*
+
+### 0b. Coverage instrumentation — ✅ settled, no action
 
 ```bash
 nm "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Products/Applications/Stack the Lineup.app/Stack the Lineup" | grep -c __llvm_prf
@@ -39,7 +45,23 @@ nm "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Product
 
 - [ ] Prints **`0`**
 
-Anything else means code-coverage instrumentation shipped in the build: the profiling runtime is linked, the binary is larger, and it runs slower — which would quietly distort the Siri latency you're about to judge in §1. Fix is Edit Scheme → Test → Options → uncheck Code Coverage, then re-archive.
+*Run 7 Aug: **0** for both the app and the widget.* This answers the question that was open — a plain `xcodebuild build -configuration Release` instruments with `-profile-generate` and produces ~9,000 profiling symbols, but **the Archive action does not**. Nothing to fix. Keep the check as a cheap regression guard if the scheme's Test options are ever edited.
+
+### 0c. Push environment — check the **export**, not the archive
+
+> ⚠️ **Do not run this against the `.xcarchive`.** It will say `development` even when everything is correct. With automatic signing, Xcode archives using the development certificate and **re-signs at distribution time** — the archive's own entitlements are the pre-signing state. (Confirmed 7 Aug: the archive shows `aps-environment: development` *and* `get-task-allow: true`, which together just mean "development-signed archive," not "broken build.")
+
+Check the artifact that actually ships. In Organizer → **Distribute App** → choose **App Store Connect**, then either **Export** to disk, or upload and use the Export step's copy. Then:
+
+```bash
+codesign -d --entitlements :- "/path/to/exported/Payload/Stack the Lineup.app" 2>/dev/null | grep -A1 aps-environment
+```
+
+- [ ] Prints **`production`**
+
+If it prints `development`, **stop**. The app registers against sandbox APNs, the tokens it writes to CloudKit are invalid for the production host the Worker uses, and §3 fails in a way that looks exactly like a broken Worker.
+
+**Simpler alternative if you'd rather not export a copy:** skip this and let §3 be the test. If the push arrives, the environment was right. This check only exists to tell a signing problem apart from a Worker problem *before* you spend the device session on it.
 
 ---
 
