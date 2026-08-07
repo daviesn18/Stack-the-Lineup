@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **Stage 0 — restore the record (do first, it's an hour)** ||||
 | ~~0.1~~ | ~~Close out or finish `HANDOFF-data-recovery.md`~~ | — | **Done 6 Aug** — recovered; doc closed |
-| 0.2 | Merge this branch to `main` | S | — |
+| ~~0.2~~ | ~~Merge this branch to `main`~~ | — | **Done 6 Aug** — `main` at `7219af3` |
 | **Stage 1 — blocks the 3.3 submission** ||||
 | ~~1.1~~ | ~~Widget bundle version mismatch~~ | — | **Done 6 Aug** — versions now project-level |
 | 1.2 | Deploy `stl-worker` + confirm Production CloudKit | S | Cloudflare + CloudKit dashboard |
@@ -52,7 +52,13 @@ So one of two things is true, and the doc can't tell you which: the recovery fin
 
 **Size:** S to close, unknown to finish.
 
-### 0.2 Merge to `main`
+### ~~0.2 Merge to `main`~~ — done 6 Aug 2026
+
+`main` and `feature/app-intents-phase-0` are both at `7219af3` and pushed. 33 commits, no force push, no conflicts.
+
+`main` had quietly diverged — one commit each way. The local-only one (`6b4ce8d`, "Fixed paywall issues") was already reachable through the feature branch, but the remote-only one (`b51f7f6`, the Little League pitching preset for the debug seeder) existed **only** on `origin/main` and the two `claude/*` branches, and would have been lost to a force push. Merging `origin/main` into the feature branch first picked it up cleanly, then `main` fast-forwarded. The suite passed on the merged tree before the push.
+
+*Original entry below.*
 
 The branch is 26 commits ahead of `origin/main` with no open PR, and 2 commits ahead of its own remote right now. That includes today's cleanup and every App Intents phase. Nothing merges itself, and a long-lived branch is how work starts feeling half-finished even when it isn't.
 
@@ -83,7 +89,16 @@ App Store Connect **rejects** this at validation. It is a build-settings edit, i
 
 **Size:** XS.
 
-### 1.2 Deploy the Worker, and confirm the CloudKit record type is in Production
+### 1.2 Deploy the Worker, and confirm the CloudKit record type is in Production — **deploy done, CloudKit check still open**
+
+**Updated 6 Aug 2026.** Two parts, and they've come apart:
+
+- **The deploy is done.** Nick deployed from a terminal on 6 Aug; version `edd6d9eb` serves 100% of traffic. Cloudflare shows 0 Worker errors in the following 24 hours.
+- **The audit's premise was wrong.** §8.3a says the APNs-host fix was "fixed in the file and **not live**." But the Worker's version history shows an upload at `2026-08-02T15:25:19Z`, five minutes after the mtime on `wrangler.toml` and `src/` — so 2 Aug looks like it was edited *and* deployed. Treat "not live" as unverified rather than true. Nothing recorded what any given upload contained, which is the actual gap.
+- **`stl-worker` is now under version control** — `git init` on 6 Aug with a baseline commit, `.gitignore` excluding `node_modules/`, `.wrangler/`, and any key material. No remote yet, and no GitHub repo exists for it (the app's repo, `daviesn18/Stack-the-Lineup`, has never contained the Worker on any branch). Both private keys are Wrangler secrets and are not on disk.
+- **Still open: the CloudKit half.** Nobody has confirmed the `DeviceToken` record type was promoted to **Production**. Cloudflare looks healthy either way — if the promotion never happened, the Worker's CloudKit query 400s and no push goes out. `icloud.developer.apple.com` → container `iCloud.com.nickdavies.LineupBuilder.Lineup-Builder` → Production → Schema → Record Types.
+
+*Original entry below.*
 
 **Source:** `CLEANUP-AUDIT-2026-08.md` §8.3a. Open since 2 Aug.
 
