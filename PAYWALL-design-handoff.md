@@ -1,5 +1,7 @@
 # Paywall Redesign — Handoff to Design
 
+> **Shipped.** The one thing still outstanding is the on-device dark mode and Dynamic Type calibration under "Still on Design" — tracked as [`BACKLOG.md`](BACKLOG.md) item 4.3. Otherwise this stands as the reference for the paywall's content rules and source → hero mapping.
+
 **Owner split:** Content, copy, and code are handled outside this doc (see "Content decisions already made"). This handoff covers what Design owns: layout, hierarchy, density, and motion.
 
 **File:** `Lineup Builder/PaywallView.swift`

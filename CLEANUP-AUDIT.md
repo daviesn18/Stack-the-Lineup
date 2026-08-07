@@ -1,5 +1,7 @@
 # Codebase Cleanup Audit — Stack the Lineup (Lineup Builder)
 
+> **Historical record — 19 Jul 2026. All three phases are complete as of 6 Aug 2026; nothing here is open.** Findings this audit raised that were deliberately deferred live on in `CLEANUP-AUDIT-2026-08.md` and, from there, in [`BACKLOG.md`](BACKLOG.md). Read this one for the evidence behind a finding, not for what to do next.
+
 ## Executive Summary
 
 - **Scope:** 64 Swift files, ~27,262 LOC, plus `project.pbxproj`, 4 `.entitlements` files, 2 `Info.plist` files, and one stray `roadmap.jsx`. Targets: `Lineup Builder` (app), `STLWidgetExtension`, `Lineup BuilderTests`, `Lineup BuilderUITests`, `StackTheLineupTests`. Languages: Swift/SwiftUI only — no storyboards, no XIBs, no `@IBOutlet`/`@IBAction`, no `#selector` usage anywhere in the repo, so the usual iOS false-positive traps don't apply here. Sole SPM dependency (TelemetryDeck) is used.

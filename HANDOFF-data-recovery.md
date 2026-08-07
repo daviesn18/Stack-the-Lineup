@@ -1,5 +1,9 @@
 # Handoff — Data Wipe Recovery + Sync Hardening (2026-07-13)
 
+> ⚠️ **STATUS UNVERIFIED as of 6 Aug 2026 — do not act on the steps below without checking first.** See [`BACKLOG.md`](BACKLOG.md) item 0.1.
+>
+> The two sync-hardening fixes this document demanded **shipped in `7a38eb7` on 14 Jul 2026**, confirmed from source by the August cleanup audit. Whether the *recovery* in section 2 ever completed is not recorded anywhere. So either it did and this file should have been closed weeks ago, or it did not — in which case the iPad still holds the only uncorrupted copy and section 2 is still live. Resolve which before anything else in the backlog.
+
 ## TL;DR
 
 A debug build install replaced the real teams/history on Nick's iPhone with dev-test data. **The real data is not destroyed**: it exists in production CloudKit, and the iPad (unused for weeks, app NOT launched since) still holds an uncorrupted local copy. Recovery is blocked only on unlocking the iPad to pull its container. Two sync-hardening fixes must ship before any build touches a physical device again.

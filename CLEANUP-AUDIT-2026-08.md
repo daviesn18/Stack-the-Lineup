@@ -1,5 +1,7 @@
 # Codebase Cleanup Audit — Stack the Lineup (Lineup Builder)
 
+> **Closed.** The two follow-ups that survive — `PositionSummaryView.pitchingRows()` (2.2a) and the debounced CloudKit push (6.2) — are [`BACKLOG.md`](BACKLOG.md) items 3.1 and 3.2, both deferred by decision. The iPad read-only test plan at the end is backlog item 1.4, and the `stl-worker` deploy in 8.3a is 1.2, a submission blocker.
+
 **Status: all findings actioned — this pass on 1 Aug 2026, the July audit's remaining phases on 6 Aug 2026.** This document is now the record of what was found and what was done about it. The second audit pass; the first is `CLEANUP-AUDIT.md` (19 Jul 2026), whose Phase 2 and Phase 3 lists are also closed out here.
 
 *Addendum, 6 Aug 2026:* the July audit's **Phase 2 and Phase 3** lists are now closed out — see the Follow-ups section. Phase 2 had three items genuinely open: the empty `StackTheLineupTests` target (7.2), the double CloudKit save on every Edit Team submission (6.1a, new), and the last duplicated What's New key literal (1.11). Phase 3 had two: the duplicated bench/absent chip (2.4) and the back-to-back bench triplication (2.5). Consolidating the chip turned up **2.4a — iPad had no read-only enforcement at all**, so a view-only participant in a shared team could edit positions and finalize the lineup. That is the most user-visible thing in this document and the one to verify on a device before shipping.

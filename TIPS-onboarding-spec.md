@@ -1,5 +1,7 @@
 # Contextual Tips — Rethink
 
+> **Open items from this document are tracked in [`BACKLOG.md`](BACKLOG.md).** Four of them: the unverified `ReuseSaveTemplateTip` advance (2.3), reading tip copy at real size (2.4), and the two product questions — the History paywall auto-opening (4.1) and arc 2 giving free coaches 2 tips of 6 (4.2). Everything else here is built and verified on both platforms.
+
 **Goal:** a first-run coach gets a guided, page-by-page walkthrough that covers adding players, building the lineup, setting positions, and exporting — and that names both Free and Pro features along the way.
 
 **Decisions:** TipKit popovers (not a custom spotlight overlay). iPhone and iPad authored together.
