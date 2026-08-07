@@ -17,7 +17,7 @@
 | ~~0.2~~ | ~~Merge this branch to `main`~~ | — | **Done 6 Aug** — `main` at `7219af3` |
 | **Stage 1 — blocks the 3.3 submission** ||||
 | ~~1.1~~ | ~~Widget bundle version mismatch~~ | — | **Done 6 Aug** — versions now project-level |
-| 1.2 | Deploy `stl-worker` + confirm Production CloudKit | S | Cloudflare + CloudKit dashboard |
+| **1.2** | 🔴 **Push is broken in production** — CloudKit 401 | S | CloudKit Console: server-to-server key for Production |
 | 1.3 | Siri phrases on a physical device | M | TestFlight build, or an exception to the debug-build rule |
 | 1.4 | iPad read-only on two devices | M | A real shared team |
 | **Stage 2 — small, and cheap while you're already testing** ||||
@@ -89,9 +89,44 @@ App Store Connect **rejects** this at validation. It is a build-settings edit, i
 
 **Size:** XS.
 
-### 1.2 Deploy the Worker, and confirm the CloudKit record type is in Production — **deploy done, CloudKit check still open**
+### 1.2 The Worker is deployed and **push is broken in production right now** 🔴
 
-**Updated 6 Aug 2026.** Two parts, and they've come apart:
+**Root-caused 6 Aug 2026 by probing the live Worker.** Shared-team push notifications do not work. Every attempt fails.
+
+```
+CloudKit query failed: 401
+{ "serverErrorCode" : "AUTHENTICATION_FAILED", "reason" : "Authentication failed" }
+```
+
+The Worker's CloudKit query is rejected before it ever reaches APNs, so `fetchDeviceTokens` throws and the request returns 500. Confirmed twice against the live URL and captured from `wrangler tail`.
+
+**This is not the record-type promotion everyone was worried about.** A missing `DeviceToken` type returns a 400 naming the record type. A 401 `AUTHENTICATION_FAILED` means the **server-to-server key is not valid for the Production environment** — most likely registered against Development only, or the `CLOUDKIT_PRIVATE_KEY` secret no longer matches key ID `77b4dee8…`. Whether the record type was ever promoted is still unknown, because auth fails first and the query never runs.
+
+**What the same probe proved is working:**
+
+- `CLOUDKIT_ENV = production` is live — the logged subpath is `/database/1/iCloud.com.nickdavies.LineupBuilder.Lineup-Builder/**production**/public/records/query`.
+- The live bundle matches the current `src/index.ts`, so the `api.push.apple.com` host is deployed too. The 2 Aug fix **is** live, which settles the audit's "not live" claim: it was wrong.
+
+**Why nobody noticed.** Cloudflare reports 0% error rate and 0 errors, because the Worker catches the throw and returns a 500 *response* — Cloudflare only counts unhandled exceptions. The dashboard looks perfectly healthy while every push fails. Workers Logs and Traces are both **Disabled** on this Worker, so nothing was retained either; the diagnosis needed a live `wrangler tail`.
+
+**Fix, in CloudKit Console** (`icloud.developer.apple.com` → container `iCloud.com.nickdavies.LineupBuilder.Lineup-Builder`): confirm the server-to-server key `77b4dee8…` is valid for **Production**, and that the deployed `CLOUDKIT_PRIVATE_KEY` is the matching `.pem`. Then re-check the `DeviceToken` record type in Production Schema — still unverified, and it's the next thing that can fail once auth passes.
+
+**Reproduce any time** — sends no notification, because a nonexistent team matches zero device tokens and the Worker returns before building a payload:
+
+```bash
+curl -sS -X POST https://stl-push-worker.stackthelineup.workers.dev \
+  -H "Content-Type: application/json" \
+  -d '{"teamID":"00000000-0000-0000-0000-000000000000","eventType":"lineup_finalized","triggeredBy":"healthcheck"}' \
+  -w "\nHTTP %{http_code}\n"
+```
+
+`{"sent":0}` / HTTP 200 means CloudKit auth is fixed. `Internal error` / HTTP 500 means it isn't.
+
+**This blocks 3.3 harder than anything else in Stage 1.** Every shared team is affected, and the failure is invisible from the app.
+
+---
+
+*Earlier notes from 6 Aug, before the root cause was known:*
 
 - **The deploy is done.** Nick deployed from a terminal on 6 Aug; version `edd6d9eb` serves 100% of traffic. Cloudflare shows 0 Worker errors in the following 24 hours.
 - **The audit's premise was wrong.** §8.3a says the APNs-host fix was "fixed in the file and **not live**." But the Worker's version history shows an upload at `2026-08-02T15:25:19Z`, five minutes after the mtime on `wrangler.toml` and `src/` — so 2 Aug looks like it was edited *and* deployed. Treat "not live" as unverified rather than true. Nothing recorded what any given upload contained, which is the actual gap.
