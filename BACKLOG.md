@@ -44,6 +44,7 @@ State of the repo: `main` and `feature/app-intents-phase-0` are both at `4cb258c
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
 | 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
 | 4.4 | Localization / string catalog | **L** | A design decision on assembled strings |
+| 4.5 | Swift 6 language mode — 12 warnings become errors | M | Nothing. Do it early in a cycle, not late |
 
 ---
 
@@ -212,6 +213,20 @@ There is **no string catalog in the repo** (`find . -name "*.xcstrings"` returns
 The hard part isn't the mechanical pass. `TeamRulesBuilder` **assembles** its sentences — "Everyone active needs at least \(innings) in the infield" — and that doesn't translate by swapping a table: plural rules and word order differ per language. That's a design decision to settle before any Spanish work starts, not a chore to schedule.
 
 **Size: L.** Genuinely a project. Don't start it inside a release.
+
+### 4.5 Swift 6 language mode
+
+**Source:** the Release build of 6 Aug. Detail in the correction under 1.1.
+
+The app builds at `SWIFT_VERSION = 5.0` with `SWIFT_APPROACHABLE_CONCURRENCY = YES` and `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. That combination is why a Release build emits 12 actor-isolation warnings: with everything MainActor by default, any synchronous nonisolated context that reaches into ordinary model code is a violation. Two of the twelve already say *"this is an error in the Swift 6 language mode."* **Moving `SWIFT_VERSION` to 6.0 turns all twelve into build errors.**
+
+Where they live: `TeamRules` (4), `PitchEligibility` (2), `GameRecap` (2), `AutoFillCoordinator` (2), `PurchaseManager` (2).
+
+The shape of the work isn't silencing warnings — it's deciding what is genuinely main-actor state and what is pure computation. Most of the offenders are the second kind: `PitchingLimits.restDaysRequired(for:)`, `PitchingAgeBracket.bracket(for:)`, `PitchEligibilityEngine.status(...)` are stateless maths that got swept into MainActor by the project-wide default rather than because they need it. Marking those `nonisolated` is likely most of the fix.
+
+**One trap.** `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is set on the **app target only** — not the widget, not the tests. `WidgetSnapshot.swift` and `STLWidget.swift` compile into *both* the app and `STLWidgetExtension` (confirmed from the build's `SwiftFileList`s, not the project file), so the same source compiles MainActor-by-default in one target and nonisolated-by-default in the other. Any isolation annotation added to those two has to hold under both.
+
+**Size: M**, and unusually front-loaded — the diagnosis is most of it, the edits are small. Do it at the *start* of a cycle: the failure mode is flipping the language mode late, hitting twelve errors in five files, and reverting under time pressure.
 
 ---
 
