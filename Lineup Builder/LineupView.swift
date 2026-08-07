@@ -256,7 +256,7 @@ struct LineupView: View {
             }
             .animation(.spring(duration: 0.35), value: scheduleImportToast)
         }
-        .navigationTitle("Lineup Builder")
+        .navigationTitle("Stack the Lineup")
         .navigationBarTitleDisplayMode(verticalSizeClass == .compact ? .inline : .large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {

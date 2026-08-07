@@ -388,7 +388,7 @@ class PDFGenerator {
         UIColor(teamColor).setFill()
         UIBezierPath(roundedRect: titleRect, cornerRadius: 6).fill()
 
-        let headerLabel = teamName.isEmpty ? "Lineup Builder" : teamName
+        let headerLabel = teamName.isEmpty ? "Stack the Lineup" : teamName
         drawText(headerLabel, x: margin + 12, y: currentY + 10,
                  font: .boldSystemFont(ofSize: 16), color: .white)
         drawText(title, x: pageWidth - margin - 120, y: currentY + 10,
