@@ -4,7 +4,7 @@
 
 Work top to bottom. §0 takes two minutes and can invalidate the whole build, so don't skip ahead to the fun part.
 
-**Build under test:** `3.3 (36)`, from `main`. Confirm in Settings → the Version and Build rows before you start. If the Build row doesn't say **36**, you're testing the wrong upload.
+**Build under test:** TestFlight **`3.3 (35)`** — already uploaded, and the right build to test. See §0a for why the project now says 36 and why that doesn't mean re-archiving.
 
 ---
 
@@ -21,7 +21,19 @@ Work top to bottom. §0 takes two minutes and can invalidate the whole build, so
 
 **Do this before anything else.** Run every command in **Terminal**, from anywhere — they find the newest archive themselves.
 
-### 0a. Is this even the right build? ← start here
+### 0a. Which build are you testing?
+
+**The device session runs on TestFlight build 35.** It's already uploaded, it contains all the 6 Aug code including the Sunday window fix, and **nothing in §1–§4 touches the widget** — so its one known flaw doesn't affect anything here. Don't re-archive just to start testing.
+
+Confirm on-device in Settings: Version **3.3**, Build **35**.
+
+- [ ] Device shows `3.3` / build `35`
+
+**Known and accepted for this build:** the app reports build 35 while the embedded widget reports 34, because 35 was archived during the window when the target-level override existed. It uploaded and passed validation anyway — the *marketing* version matched (`3.3` on both) and only the build number differed. That's the tolerated case. The 1.1 bug this echoes was the intolerable one: widget at `1` / `1.0` against app `34` / `3.3`, marketing version and all.
+
+**Build 36 is for the next upload**, not this session — TestFlight won't take a build number it already has, so any fix coming out of this session ships as 36. The project now carries 36 at the project level with no target overrides, so 36 will have a matching widget.
+
+To check any future archive before uploading:
 
 ```bash
 A=$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)
@@ -31,11 +43,7 @@ W=$(ls -d "$APP/PlugIns/"*.appex | head -1)
 echo "widget: $(plutil -extract CFBundleShortVersionString raw "$W/Info.plist") ($(plutil -extract CFBundleVersion raw "$W/Info.plist"))"
 ```
 
-- [ ] Both lines read **`3.3 (36)`**
-
-They must match each other. A mismatch is the 1.1 bug and App Store Connect rejects it at validation. If they differ, or the number isn't 36, **re-archive** — you're looking at a stale build.
-
-*Run 7 Aug: this returned `app 3.3 (35)` / `widget 3.3 (34)` on the 6 Aug 10:03 PM archive — the mismatch, caught here. Re-archive required.*
+Both lines should read the same thing.
 
 ### 0b. Coverage instrumentation — ✅ settled, no action
 
