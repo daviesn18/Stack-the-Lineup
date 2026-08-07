@@ -8,11 +8,11 @@
 
 ## ▶ Start here
 
-**Everything left before you can submit 3.3 is one TestFlight build and one device session.** Four items — 1.3, 1.4, 2.3, 2.4 — all want the same build on real hardware, plus 1.5, which is two commands against the archive itself. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
+**Everything left before you can submit 3.3 is the rest of one device session.** ~~1.3~~ closed 7 Aug. Three items remain — **1.4, 2.3, 2.4** — all wanting the same build on real hardware, plus 1.5, which is commands against the archive. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
 
 1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build has since moved to **36**; both targets resolve to it from the project level. See the 7 Aug note in 1.1 — the drift came back once.
 2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
-3. **On device, in one sitting:** 1.3 (nine Siri phrases spoken aloud), 1.4 (iPad read-only with a real shared team, don't skip step 7), 2.3 (one tip transition), 2.4 (read tip copy at large Dynamic Type).
+3. **On device, in one sitting:** ~~1.3 (nine Siri phrases spoken aloud — ✅ 7 Aug)~~, 1.4 (iPad read-only with a real shared team, don't skip step 7), 2.3 (one tip transition), 2.4 (read tip copy at large Dynamic Type).
 4. **While a real shared team is set up for 1.4**, finalize a lineup and confirm a push actually arrives. That's the one part of the notification chain never exercised — see the caveat in 1.2.
 
 State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`, including the new `PitchingSummaryTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
@@ -29,7 +29,7 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 | **Stage 1 — blocks the 3.3 submission** ||||
 | ~~1.1~~ | ~~Widget bundle version mismatch~~ | — | ✅ **6 Aug** — versions now project-level |
 | ~~1.2~~ | ~~Worker deploy + Production CloudKit~~ | — | ✅ **6 Aug** — was silently broken; fixed and verified |
-| **1.3** | **Siri phrases on a physical device** | M | **A TestFlight build** — nothing else now |
+| ~~1.3~~ | ~~Siri phrases on a physical device~~ | — | ✅ **7 Aug** — 6 of 9 pass; 3 entity ones accepted picker-degraded |
 | **1.4** | **iPad read-only on two devices** | M | **A TestFlight build + a real shared team** |
 | **1.5** | **Two checks on the finished archive** | S | **An archive existing.** Both are one command |
 | **Stage 2 — cheap while you're already on a device** ||||
@@ -47,6 +47,7 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 | 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
 | 4.4 | Localization / string catalog | **L** | A design decision on assembled strings |
 | 4.5 | Swift 6 language mode — 12 warnings become errors | M | Nothing. Do it early in a cycle, not late |
+| 4.6 | iOS 27 App Intents readiness — `indexingKey`, App Schemas | M | An iOS 27 beta to verify against |
 
 ---
 
@@ -56,15 +57,35 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 
 **Source:** `HANDOFF-app-intents.md` §9a.2 and §9b.2, where it is explicitly marked a blocker.
 
-Nine App Shortcuts ship in 3.3. Spoken invocation has **never** been proven outside a simulator, and two of them — `PitchEligibilityIntent` and `OpenPlayerIntent` — are voice-only: every one of their phrases carries an entity slot, and typed Spotlight matches shortcut *titles*, so they don't surface as tiles at all. If spoken entity resolution doesn't work, those two are reachable only by hand-building a shortcut.
+Nine App Shortcuts ship in 3.3. **Run on device 7 Aug 2026** (ND iPhone, iPhone 15 Pro, iOS 26.6, TestFlight build 35). Results below; the raw pass/fail sheet is §1 of [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md).
 
-The parameter-free tiles (Open Lineup, Fill Lineup, Game Recap, My Rules, Pitch Limits, Rest Days) are confirmed working in typed Spotlight.
+**Six of nine pass completely — 18 of 18 phrases.** Open Lineup, Fill Lineup, My Rules, Rest Days, Game Recap, Pitch Limits. That includes Game Recap and Pitch Limits, which *failed* on 2 Aug and are genuinely fixed.
 
-**Blocked on:** a TestFlight build, because of your standing rule against debug builds on your own devices. *The prerequisites for that build (1.1, 1.2) are now done* — this is no longer waiting on anything but the upload.
+**The three that don't are exactly the three with an entity slot:**
 
-**Done when:** each of the nine phrases is spoken to a real device and the right thing happens, with the two parameterized ones resolving a spoken player name.
+| Shortcut | Result |
+|---|---|
+| `OpenPlayerIntent` | 0 of 3 — never routed to the app once |
+| `OpenTeamIntent` | Routes inconsistently; when it routes, works via a picker |
+| `PitchEligibilityIntent` | Trailing form works via a picker; both leading forms go to web search |
 
-**Size:** M.
+**Correction to what this item used to say:** it named **two** voice-only intents. It's **three** — `OpenTeamIntent` qualifies identically, every one of its phrases carries an entity slot. This item's own list of six parameter-free tiles implied it (9 − 6 = 3), and the device results land on exactly that boundary.
+
+**What a log capture proved (7 Aug, `idevicesyslog` against the device).** Across four representative phrases, including the two that *worked*: **zero `Player lookup:` and zero `Team lookup:` lines.** `entities(matching:)` is never called. Siri matches the phrase, routes to the intent, and then treats the parameter as **unfilled** — the picker is the framework falling back to `suggestedEntities()`, which is why it lists the whole roster instead of a narrowed match.
+
+So the spoken name never reaches this code at all. Not mistranscribed, not unmatched — discarded upstream. Three things follow:
+
+- **`PlayerSearch` / `TeamSearch` are dead on the voice path.** Still live for Shortcuts and typed Spotlight. **Don't delete them and don't tune them** — see 4.6.
+- **The 2 Aug rework can't be credited for the two fixes.** One success was a *trailing* phrase and one a *leading* one, so placement doesn't explain the split. "Test Team" routed in both forms while "10u All Stars", "Rockhounds" and "Drew Santos" didn't. Routing is inconsistent and placement isn't the variable. The parameter-free fixes are better explained by `INAlternativeAppNames`, added the same day.
+- **New, minor:** "switch my team to" draws an app-disambiguation prompt against Wallet.
+
+**Decision — ship 3.3 as-is.** Six shortcuts are flawless. The three entity ones, when they route, degrade to a picker that still answers in two taps. Degraded, not broken. Chasing Siri's slot-binding is unbounded work on a platform behavior you don't control.
+
+> **Before anyone spends more effort on phrasing, re-run §1 on an iOS 27 beta.** The iOS 27 Siri is rebuilt on Apple Intelligence and is meant to resolve spoken references to entities — the exact thing failing here. Tuning phrases against iOS 26's template matcher is likely to be wasted work, and the 2 Aug rework is the cautionary example: a good theory the device disproved. See **4.6**.
+
+**Done when:** ~~each of the nine phrases spoken and the right thing happens~~ — met for 6 of 9. The remaining three are **accepted as picker-degraded for 3.3**, not fixed and not deferred silently.
+
+**Size:** M. **Closed 7 Aug** on the terms above.
 
 ### 1.4 Verify iPad read-only with a real shared team
 
@@ -284,6 +305,25 @@ The shape of the work isn't silencing warnings — it's deciding what is genuine
 **One trap.** `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is set on the **app target only** — not the widget, not the tests. `WidgetSnapshot.swift` and `STLWidget.swift` compile into *both* the app and `STLWidgetExtension` (confirmed from the build's `SwiftFileList`s, not the project file), so the same source compiles MainActor-by-default in one target and nonisolated-by-default in the other. Any isolation annotation added to those two has to hold under both.
 
 **Size: M**, and unusually front-loaded — the diagnosis is most of it, the edits are small. Do it at the *start* of a cycle: the failure mode is flipping the language mode late, hitting twelve errors in five files, and reverting under time pressure.
+
+### 4.6 iOS 27 App Intents readiness
+
+**Source:** WWDC 2026, read on 7 Aug against the 1.3 device results. Not verified against a beta — see the caveat at the end.
+
+**The good news first: nothing here is on a deprecation path.** WWDC 2026 deprecated SiriKit outright and made App Intents the only route into Siri, with a two-to-three-year migration window. This app is already all App Intents. There is no migration to do.
+
+What's open is *adoption*, and it matters because it's the most plausible fix for the one thing 1.3 couldn't solve. The iOS 27 Siri is rebuilt on Apple Intelligence and Apple's framing is that it resolves spoken references to real entities — which is precisely the sentence that isn't true today. 1.3 proved Siri never binds a spoken name into a phrase slot at all. That's a template-parser limitation, and a reasoning-based router is the thing that removes it.
+
+Two concrete gaps, checked in the code on 7 Aug:
+
+1. **No `indexingKey` anywhere.** `PlayerEntity` and `TeamEntity` already conform to `IndexedEntity` — that part is done — but no properties are marked as searchable. Small, safe, and it pays off on iOS 26 for Spotlight regardless of what iOS 27 turns out to do. **Do this one first; it stands on its own.**
+2. **No App Schema conformance.** The iOS 27 guidance is to conform entities to a schema so Siri understands the *category* of content. ⚠️ **Open question: whether a schema exists that fits a youth-sports roster.** The schema list is domain-specific. If nothing fits, this lever may not be available at all, and that's worth ten minutes of checking before anyone plans around it.
+
+**Keep `PlayerSearch` and `TeamSearch`.** 1.3 established they're dead on the voice path — Siri never calls `entities(matching:)`. Do **not** conclude they should be deleted. `EntityStringQuery` is explicitly retained in iOS 27 for live state that can't be pre-indexed, which is exactly a roster that changes weekly. That code is the part a smarter Siri would finally start calling. Leave it alone and don't tune it either — tuning a matcher nothing calls is how you spend a day for nothing.
+
+> ⚠️ **This is read from session titles and secondary coverage, not from observed behavior.** No one has run this app against an iOS 27 beta. The 2 Aug phrase rework was also a well-reasoned theory that the device contradicted — see 1.3. Treat the whole item as a hypothesis until §1 of [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) is re-run on a beta.
+
+**Size: M.** Not for a release cycle. `indexingKey` alone is S and could go any time.
 
 ---
 
