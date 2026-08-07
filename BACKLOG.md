@@ -17,7 +17,7 @@
 | ~~0.2~~ | ~~Merge this branch to `main`~~ | — | **Done 6 Aug** — `main` at `7219af3` |
 | **Stage 1 — blocks the 3.3 submission** ||||
 | ~~1.1~~ | ~~Widget bundle version mismatch~~ | — | **Done 6 Aug** — versions now project-level |
-| **1.2** | 🔴 **Push is broken in production** — CloudKit 401 | S | CloudKit Console: server-to-server key for Production |
+| ~~1.2~~ | ~~Worker deploy + Production CloudKit~~ | — | ✅ **Fixed 6 Aug** — push verified working end to end |
 | 1.3 | Siri phrases on a physical device | M | TestFlight build, or an exception to the debug-build rule |
 | 1.4 | iPad read-only on two devices | M | A real shared team |
 | **Stage 2 — small, and cheap while you're already testing** ||||
@@ -89,7 +89,36 @@ App Store Connect **rejects** this at validation. It is a build-settings edit, i
 
 **Size:** XS.
 
-### 1.2 The Worker is deployed and **push is broken in production right now** 🔴
+### ~~1.2 Deploy the Worker, and confirm the CloudKit record type is in Production~~ — ✅ fixed 6 Aug 2026
+
+**Push works.** The health check returns `{"sent":0}` / HTTP 200, and `wrangler tail` confirms the CloudKit query now succeeds. Live version `6d4f1932`.
+
+**The real fault was never the record type.** There was no Production server-to-server key at all — only a Development one. CloudKit rejected every Production query with `401 AUTHENTICATION_FAILED`, so the Worker threw before reaching APNs, and every shared-team notification had been failing silently. Nick created the Production key; the fix was three coupled parts, and missing any one of them keeps it broken:
+
+1. **A Production server-to-server key** in CloudKit Console. The old key ID `77b4dee8…` was Development-only.
+2. **`CLOUDKIT_KEY_ID` updated** in `wrangler.toml` to the new key `685027c7…`, and **redeployed** — the Worker keeps sending the old key ID until you do.
+3. **The private key in PKCS#8, not SEC1.** `openssl ecparam -genkey` emits SEC1 (`BEGIN EC PRIVATE KEY`, 121-byte DER); `crypto.subtle.importKey("pkcs8", …)` needs PKCS#8 (`BEGIN PRIVATE KEY`, 138-byte DER). `importECKey` strips both header styles, so a SEC1 key looks accepted and then fails at import. Convert with `openssl pkcs8 -topk8 -nocrypt`.
+
+**And the record type is fine.** A successful query proves `DeviceToken` exists in Production Schema with `teamID` queryable — an unknown record type or a non-queryable filter field both error. That question had been open since 2 Aug and is now answered as a side effect.
+
+**Also settled:** `CLOUDKIT_ENV = production` and the `api.push.apple.com` host are both live, so `CLEANUP-AUDIT-2026-08.md` §8.3a's "fixed in the file and **not live**" was wrong. The 2 Aug edit was deployed the same day.
+
+**Still worth knowing.** Cloudflare showed 0 errors and a 0% error rate the entire time it was broken — the Worker catches the throw and returns a 500 *response*, and only unhandled exceptions count as errors. Workers Logs and Traces are Disabled, so nothing was retained. Diagnosis needed a live `wrangler tail`. **Enabling Workers Logs is cheap insurance** and is not done.
+
+**One caveat on what's verified:** this proves the CloudKit half end to end. The APNs half has still never sent a real push — a nonexistent team matches zero tokens, so nothing reaches Apple. That gets exercised the first time a real shared team finalizes a lineup, which is 1.4's device session.
+
+**Health check** (sends no notification):
+
+```bash
+curl -sS -X POST https://stl-push-worker.stackthelineup.workers.dev \
+  -H "Content-Type: application/json" \
+  -d '{"teamID":"00000000-0000-0000-0000-000000000000","eventType":"lineup_finalized","triggeredBy":"healthcheck"}' \
+  -w "\nHTTP %{http_code}\n"
+```
+
+---
+
+*Diagnosis notes from earlier on 6 Aug, kept because the failure mode is worth remembering:*
 
 **Root-caused 6 Aug 2026 by probing the live Worker.** Shared-team push notifications do not work. Every attempt fails.
 
