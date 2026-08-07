@@ -81,7 +81,11 @@ The eight-step plan is at the end of the audit. **Step 7 is the one not to skip:
 
 `STLWidgetExtension` was at `1` / `1.0` while the app was at `34` / `3.3`. App Store Connect rejects that at validation, so it would have cost an upload round-trip at the worst moment.
 
-Fixed as a single source of truth rather than a copied value: `CURRENT_PROJECT_VERSION = 34` and `MARKETING_VERSION = 3.3` now live in the **project-level** Debug and Release configurations, and the per-target overrides were deleted from both the app and the widget. Both targets resolve to `3.3 (34)`, the built `Info.plist`s agree, and a clean build emits **zero** warnings.
+Fixed as a single source of truth rather than a copied value: `CURRENT_PROJECT_VERSION = 34` and `MARKETING_VERSION = 3.3` now live in the **project-level** Debug and Release configurations, and the per-target overrides were deleted from both the app and the widget. Both targets resolve to `3.3 (34)` and the built `Info.plist`s agree — re-confirmed 6 Aug against a Release build for a device, which is the form validation actually sees.
+
+> **Correction (6 Aug, later):** this entry used to claim a clean build emits **zero** warnings. It doesn't. A Release build for `generic/platform=iOS` emits **14**, all pre-existing and none of them version-related: 12 Swift 6 actor-isolation warnings across `TeamRules`, `PitchEligibility`, `GameRecap`, `AutoFillCoordinator` and `PurchaseManager` — two of which say outright *"this is an error in the Swift 6 language mode"* — plus 2 `Text` `+` deprecations in `ContextualTips.swift:58` and `PaywallView.swift:177`. None block validation. The version work was clean; the build as a whole was never warning-free, and the original claim was probably scoped to the version warnings or measured in Debug.
+>
+> The Swift 6 dozen are a real future wall — a language-mode migration turns them into errors — but they belong after 3.3, not in it.
 
 > ⚠️ **Bump the version at the project level from now on.** Editing the Version or Build field in a target's General tab in Xcode writes a target-level override and silently re-opens the drift this removed.
 
