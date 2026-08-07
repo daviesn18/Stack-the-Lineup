@@ -13,16 +13,16 @@
 | # | Item | Size | Blocked on |
 |---|---|---|---|
 | **Stage 0 — restore the record (do first, it's an hour)** ||||
-| 0.1 | Close out or finish `HANDOFF-data-recovery.md` | S | You — only you know if the recovery happened |
+| ~~0.1~~ | ~~Close out or finish `HANDOFF-data-recovery.md`~~ | — | **Done 6 Aug** — recovered; doc closed |
 | 0.2 | Merge this branch to `main` | S | — |
 | **Stage 1 — blocks the 3.3 submission** ||||
-| 1.1 | Widget bundle version mismatch | XS | — |
+| ~~1.1~~ | ~~Widget bundle version mismatch~~ | — | **Done 6 Aug** — versions now project-level |
 | 1.2 | Deploy `stl-worker` + confirm Production CloudKit | S | Cloudflare + CloudKit dashboard |
 | 1.3 | Siri phrases on a physical device | M | TestFlight build, or an exception to the debug-build rule |
 | 1.4 | iPad read-only on two devices | M | A real shared team |
 | **Stage 2 — small, and cheap while you're already testing** ||||
-| 2.1 | `LineupView` still titled "Lineup Builder" | XS | Product-name decision (1.5) |
-| 2.2 | Decide whether to keep the `PRODUCT_NAME` rename | S | You |
+| ~~2.1~~ | ~~`LineupView` still titled "Lineup Builder"~~ | — | **Done 6 Aug** |
+| ~~2.2~~ | ~~Decide whether to keep the `PRODUCT_NAME` rename~~ | — | **Decided 6 Aug — keeping it** |
 | 2.3 | `ReuseSaveTemplateTip` live advance | S | A manual Xcode pass |
 | 2.4 | Tip copy at real size / large Dynamic Type | S | Device time |
 | **Stage 3 — deferred engineering (after 3.3 ships)** ||||
@@ -38,7 +38,9 @@
 
 ## Stage 0 — restore the record
 
-### 0.1 Close out or finish the data-recovery handoff
+### ~~0.1 Close out or finish the data-recovery handoff~~ — done 6 Aug 2026
+
+**Recovered.** Nick confirmed the real teams and history came back in July; no device was still holding the only good copy. `HANDOFF-data-recovery.md` now opens with a closing note, its section-2 cautions are struck through, and section 3 records that both hardening fixes shipped in `7a38eb7`. The file is a historical record and nothing in it is live. *Original entry below, for the record.*
 
 **Source:** `HANDOFF-data-recovery.md` (13 Jul, untouched since).
 
@@ -60,7 +62,11 @@ The branch is 26 commits ahead of `origin/main` with no open PR, and 2 commits a
 
 ## Stage 1 — blocks the 3.3 submission
 
-### 1.1 The widget's bundle version doesn't match the app's
+### ~~1.1 The widget's bundle version doesn't match the app's~~ — done 6 Aug 2026
+
+**Fixed as a single source of truth, not a copied value.** `CURRENT_PROJECT_VERSION = 34` and `MARKETING_VERSION = 3.3` now live in the **project-level** Debug and Release configurations, and the per-target overrides were deleted from both the app and `STLWidgetExtension`. Both targets resolve to `3.3 (34)`, the built `Info.plist`s agree, and a clean build of the app scheme emits **zero** warnings. Bump the version at the project level from now on — editing the Version/Build fields in a target's General tab writes a target-level override and re-opens the drift.
+
+*Original entry below, for the record.*
 
 **Found 6 Aug 2026 while verifying this backlog — not previously written down anywhere.**
 
@@ -124,7 +130,9 @@ The eight-step plan is at the end of the audit. **Step 7 is the one not to skip:
 
 ## Stage 2 — small, and cheap while you're already on a device
 
-### 2.1 The Lineup tab is still titled "Lineup Builder"
+### ~~2.1 The Lineup tab is still titled "Lineup Builder"~~ — done 6 Aug 2026
+
+Both sites now read "Stack the Lineup": [`LineupView.swift:259`](Lineup%20Builder/LineupView.swift) and the empty-team-name fallback at [`PDFGenerator.swift:391`](Lineup%20Builder/PDFGenerator.swift). A sweep of the Swift sources found no other user-facing use of the old name — the only remaining hit is the Xcode-generated file-header comment in `Analytics.swift`, which is the project name, not copy. *Original entry below.*
 
 **Source:** `HANDOFF-app-intents.md` §9a.1, "Still wrong, and not fixed."
 
@@ -134,7 +142,9 @@ One-word edit each, deliberately left because it's app copy rather than a build 
 
 **Size:** XS.
 
-### 2.2 Decide whether to keep the `PRODUCT_NAME` rename
+### ~~2.2 Decide whether to keep the `PRODUCT_NAME` rename~~ — decided 6 Aug 2026: **keep it**
+
+The app ships as "Stack the Lineup". The one-time crash-report and dSYM naming discontinuity at 3.3 is accepted. No revert; 2.1 was fixed to match. *Original entry below.*
 
 **Source:** `HANDOFF-app-intents.md` §9a.1. Flagged as exceeding the original decision, with an explicit "back it out if you'd rather not carry it."
 
@@ -232,7 +242,7 @@ Things one of the docs still half-implies are open, that aren't:
 | `CLEANUP-AUDIT.md` | **Closed.** All three phases. Historical record. |
 | `TIPS-onboarding-spec.md` | **Mostly closed.** 2.3, 2.4, 4.1, 4.2 come from here. |
 | `PAYWALL-design-handoff.md` | **Closed** except 4.3. Reference for the paywall's content rules. |
-| `HANDOFF-data-recovery.md` | **Unknown — see 0.1.** Its instructions are wrong either way. |
+| `HANDOFF-data-recovery.md` | **Closed 6 Aug.** Historical record of the July incident; every caution in it has expired. |
 | `AppStore-Screenshots*/SCREENSHOT-NOTES.md` | Reference for the store listing. Nothing open. |
 
 ---
@@ -242,4 +252,4 @@ Things one of the docs still half-implies are open, that aren't:
 The failure wasn't that work got dropped — almost none did. It's that five documents each held a piece of the picture, and three described a state the code had moved past. Two habits fix it:
 
 1. **One index, many records.** This file is the only place that says what's next. The handoffs stay as deep records of *why*, and they don't need a "next steps" section competing with this one.
-2. **Close things out loud.** When an item lands, strike it here and say so in the document it came from. The `HANDOFF-data-recovery.md` situation — a doc telling you not to open an app on a device, four weeks after the reason expired — is what happens otherwise.
+2. **Close things out loud.** When an item lands, strike it here and say so in the document it came from. The `HANDOFF-data-recovery.md` situation — a doc telling you not to open an app on a device, four weeks after the reason expired — is what happens otherwise. It's closed now, both here and in the file itself; that's the pattern.

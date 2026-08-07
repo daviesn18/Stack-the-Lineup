@@ -1,8 +1,12 @@
 # Handoff — Data Wipe Recovery + Sync Hardening (2026-07-13)
 
-> ⚠️ **STATUS UNVERIFIED as of 6 Aug 2026 — do not act on the steps below without checking first.** See [`BACKLOG.md`](BACKLOG.md) item 0.1.
+> ✅ **CLOSED 6 Aug 2026. Historical record — do not follow the steps below.**
 >
-> The two sync-hardening fixes this document demanded **shipped in `7a38eb7` on 14 Jul 2026**, confirmed from source by the August cleanup audit. Whether the *recovery* in section 2 ever completed is not recorded anywhere. So either it did and this file should have been closed weeks ago, or it did not — in which case the iPad still holds the only uncorrupted copy and section 2 is still live. Resolve which before anything else in the backlog.
+> Nick confirmed the recovery completed: the real teams and game history are back, and no device is carrying the last good copy any more. Both sync-hardening fixes shipped in `7a38eb7` on 14 Jul 2026, confirmed from source by the August cleanup audit.
+>
+> **Every caution in section 2 has expired** — in particular "do not open the app on the iPad" and "do not edit anything on the iPhone." They were true for about a day in July and have been misleading ever since. Section 2 is kept only to record what was done.
+>
+> Nothing here is open. Open work lives in [`BACKLOG.md`](BACKLOG.md).
 
 ## TL;DR
 
@@ -26,7 +30,7 @@ A debug build install replaced the real teams/history on Nick's iPhone with dev-
 
 ---
 
-## 2. Recovery — next steps, in order
+## 2. Recovery — the steps that were run (completed 2026-07; **do not re-run**)
 
 1. **Pull the iPad container FIRST** (blocked on device unlock last session). iPad = `Nick's iPad`, identifier `28DC5FC7-51F0-5538-AE71-5B8A4455B830`, paired over network. Nick must unlock it to the home screen and **not open Lineup Builder on it** (data on disk is safe until the app launches and applies the poisoned KV sync). Then:
    ```
@@ -43,14 +47,16 @@ A debug build install replaced the real teams/history on Nick's iPhone with dev-
 4. **Restore the iPhone.** Preferred path: install the TestFlight/App Store build → it reads production CloudKit → `fetchCloudKitChanges` merges the real teams back in (they append by `ckRecordName`; the junk teams remain and can be deleted in-app). Alternative if TestFlight isn't handy: temporarily add `com.apple.developer.icloud-container-environment = Production` to `Lineup Builder/Lineup Builder.entitlements` for a device run — but only after the fixes in section 3, and remove it afterward.
 5. **Clean up:** delete `TeamA`/`TeamB`/`Test Team` in-app after real teams are back; a subsequent save overwrites the poisoned iCloud KV blob with good data. Consider also deleting the junk `team-...` records from CloudKit Development env (cosmetic).
 
-**Standing cautions until recovery is done:**
-- Do NOT open the app on the iPad.
-- Do NOT edit anything in the app on the iPhone (each save re-persists the junk state; the KV cloud blob is already poisoned so launches alone add no new damage on the phone).
-- `Micah's iPhone` (family member device) may also run the app — same caution applies if it shares the Apple ID (unlikely, but check).
+**Cautions that applied while recovery was in flight — all expired 6 Aug 2026, none still apply:**
+- ~~Do NOT open the app on the iPad.~~
+- ~~Do NOT edit anything in the app on the iPhone~~ (each save re-persisted the junk state; the KV cloud blob was poisoned, so launches alone added no new damage on the phone).
+- ~~`Micah's iPhone` (family member device) may also run the app — same caution if it shares the Apple ID.~~
+
+The one rule from this incident that **is** still standing: debug builds run on simulators only, never on a physical device signed into Nick's Apple ID.
 
 ---
 
-## 3. Fixes to implement (agreed direction, not yet written)
+## 3. Fixes — both shipped in `7a38eb7` (14 Jul 2026)
 
 Both in `Lineup Builder/Models.swift` (`LineupStore`):
 
