@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 6 Aug 2026 (evening).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 6 Aug 2026 (late evening).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (34)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -36,7 +36,8 @@ State of the repo: `main` and `feature/app-intents-phase-0` are both at `4cb258c
 | **2.3** | `ReuseSaveTemplateTip` live advance | S | A manual Xcode pass |
 | **2.4** | Tip copy at real size / large Dynamic Type | S | Device time |
 | **Stage 3 — deferred engineering (after 3.3 ships)** ||||
-| 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | Tests for the Pitching tab first |
+| **3.0** | **Calendar-week window is empty on Sundays** | S | ⚠️ **New 6 Aug** — a real bug; decide if it blocks 3.3 |
+| 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | **Stage 4 — decisions and long poles** ||||
 | 4.1 | History paywall auto-opens | S | Product decision |
@@ -150,15 +151,29 @@ The app ships as "Stack the Lineup". The one-time crash-report and dSYM naming d
 
 ## Stage 3 — deferred engineering (after 3.3)
 
-Both were deferred **on purpose**, with reasons that still hold. Neither should jump the queue.
+3.1 and 3.2 were deferred **on purpose**, with reasons that still hold. 3.0 is new, found while writing 3.1's tests, and is the one item here that might deserve to jump the queue — that's a call to make, not a default.
+
+### 3.0 The calendar-week window is empty on Sundays ⚠️ new
+
+**Source:** found 6 Aug while writing the 3.1 tests. Pinned in `PitchingSummaryTests.testCalendarWeekWindowOnSundayStillCountsTheWeek`, with a full write-up at the foot of that file.
+
+`PitchEligibilityEngine.windowStartDate` derives Monday by taking the reference date's `weekOfYear` and setting `weekday = 2`. That assumes the calendar's week starts on Monday. On the US default it starts Sunday, so the week containing a Sunday runs Sun–Sat and `weekday = 2` resolves to **the following Monday** — `windowStart` lands a day in the future and the window matches nothing.
+
+**On Sundays, for teams set to Calendar Week:** `pitchesInWindow` returns 0 no matter what was thrown that week, the weekly cap stops applying, `.limited` and `.mustRest` never fire, and the Coaches Guide and PDF both show a full ceiling. Sunday is a game day. The same arithmetic is duplicated in `pitchingRows()`, so the tab agrees with the guide and nothing looks wrong from inside the app — this is another one that's invisible from where you'd normally look.
+
+Fix is small: anchor the week explicitly (a Gregorian calendar with `firstWeekday = 2`) instead of borrowing the locale's. Not done as part of the test pass — changing enforcement is its own change, and it wants a verification pass across both window types.
+
+**Decide:** it's pre-existing, not a 3.3 regression, so it doesn't have to block. But it's a safety feature returning the wrong answer one day in seven, and the fix is an afternoon. **Size: S.**
 
 ### 3.1 `PositionSummaryView.pitchingRows()`
 
 **Source:** `CLEANUP-AUDIT-2026-08.md` §2.2a.
 
-The third copy of the pitch-window arithmetic. It differs in ways that matter — it adds `assignedInnings`, doesn't filter `.never` pitcher preferences itself, and behaves differently with rules disabled. Folding it into `coachesGuideSummary` changes a Pro-visible surface with no test coverage.
+The third copy of the pitch-window arithmetic. It differs in ways that matter — it adds `assignedInnings`, doesn't filter `.never` pitcher preferences itself, and behaves differently with rules disabled.
 
-**Order is the point:** tests for the Pitching tab first, then consolidate. **Size:** M.
+**The blocker is cleared.** `PitchingSummaryTests.swift` landed 6 Aug: 23 tests over `coachesGuideSummary`, covering the window boundaries, the `available` ceiling, rest days, the sort order, and agreement with `PitchEligibilityEngine.status`. The four known divergences each carry a `DIVERGENCE` note in the test that pins this side's behavior, so the fold-in is a choice made with the consequences written down rather than rediscovered.
+
+One thing the tests can't reach: `pitchingRows()` is `private` inside a SwiftUI `View`, so it isn't callable from the test target at all. Extracting it is the first step of the consolidation, not a prerequisite. **Size:** M.
 
 ### 3.2 Debounce the CloudKit push
 
