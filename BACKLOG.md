@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 6 Aug 2026 (late evening).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 6 Aug 2026 (night, at the point of archiving).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (34)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -8,13 +8,14 @@
 
 ## ▶ Start here
 
-**Everything left before you can submit 3.3 is one TestFlight build and one device session.** Four items — 1.3, 1.4, 2.3, 2.4 — and they all want the same build on real hardware. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
+**Everything left before you can submit 3.3 is one TestFlight build and one device session.** Four items — 1.3, 1.4, 2.3, 2.4 — all want the same build on real hardware, plus 1.5, which is two commands against the archive itself. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
 
-1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, so this should go through clean.
-2. **On device, in one sitting:** 1.3 (nine Siri phrases spoken aloud), 1.4 (iPad read-only with a real shared team, don't skip step 7), 2.3 (one tip transition), 2.4 (read tip copy at large Dynamic Type).
-3. **While a real shared team is set up for 1.4**, finalize a lineup and confirm a push actually arrives. That's the one part of the notification chain never exercised — see the caveat in 1.2.
+1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was re-verified on 6 Aug — builds clean, app and widget both `3.3 (34)` in their built `Info.plist`s.
+2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
+3. **On device, in one sitting:** 1.3 (nine Siri phrases spoken aloud), 1.4 (iPad read-only with a real shared team, don't skip step 7), 2.3 (one tip transition), 2.4 (read tip copy at large Dynamic Type).
+4. **While a real shared team is set up for 1.4**, finalize a lineup and confirm a push actually arrives. That's the one part of the notification chain never exercised — see the caveat in 1.2.
 
-State of the repo: `main` and `feature/app-intents-phase-0` are both at `4cb258c` and pushed. Suite green. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+State of the repo: `main` is at the 6 Aug tip and pushed; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`, including the new `PitchingSummaryTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -30,6 +31,7 @@ State of the repo: `main` and `feature/app-intents-phase-0` are both at `4cb258c
 | ~~1.2~~ | ~~Worker deploy + Production CloudKit~~ | — | ✅ **6 Aug** — was silently broken; fixed and verified |
 | **1.3** | **Siri phrases on a physical device** | M | **A TestFlight build** — nothing else now |
 | **1.4** | **iPad read-only on two devices** | M | **A TestFlight build + a real shared team** |
+| **1.5** | **Two checks on the finished archive** | S | **An archive existing.** Both are one command |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -77,6 +79,36 @@ The eight-step plan is at the end of the audit. **Step 7 is the one not to skip:
 **Also do this here:** finalize a lineup from the owning device and confirm the push arrives on the other. That's the only way to exercise APNs (see 1.2).
 
 **Size:** M.
+
+### 1.5 Two checks on the finished archive
+
+**Source:** found 6 Aug while verifying the Release build. Neither is visible in Xcode's Issue navigator — one is a signing outcome, the other a build-setting consequence, and **neither shows up as a warning**.
+
+Run both once the `.xcarchive` exists, before trusting the build for 1.3/1.4.
+
+**a. Is the push environment `production`?**
+
+```bash
+codesign -d --entitlements :- "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Products/Applications/Stack the Lineup.app" 2>/dev/null | grep -A1 aps-environment
+```
+
+`Lineup Builder.entitlements` says `development`. Xcode's automatic signing normally rewrites this to `production` when archiving with a distribution profile, so it's very often fine as-is — but it has never been confirmed on this project. **Why it matters here specifically:** TestFlight builds talk to production APNs, and 1.2 pointed the Worker at `api.push.apple.com`. If the archive embeds `development`, the app registers against sandbox APNs, the device tokens it writes to CloudKit are invalid for the production host, and 1.4's push test fails **looking exactly like a Worker fault** — which is the failure you'd waste the most time on, having just spent a day fixing the Worker for real.
+
+Expected: `production`.
+
+**b. Is code-coverage instrumentation riding along?**
+
+```bash
+nm "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Products/Applications/Stack the Lineup.app/Stack the Lineup" | grep -c __llvm_prf
+```
+
+`ENABLE_CODE_COVERAGE` resolves to `YES` for Release. It is **not** in the pbxproj — it comes from the scheme, whose Test action has coverage enabled, and it reaches further than it should. A plain `xcodebuild build -configuration Release` compiles *both* the app and the widget with `-profile-generate -profile-coverage-mapping`, and the resulting binary carries **9,080** profiling symbols at 22 MB. Instrumented code links the profiling runtime, attempts to write `.profraw` files at runtime, inflates the binary and runs slower — not what you want under a Siri latency test.
+
+**Unverified:** that was the `build` action. Product → Archive may well not instrument. This check settles it.
+
+Expected: `0`. Anything else — Edit Scheme → Test → Options → uncheck Code Coverage, or scope it to the test targets, then re-archive.
+
+**Size:** S. Two commands.
 
 ### ~~1.1 The widget's bundle version doesn't match the app's~~ — ✅ done 6 Aug 2026
 
