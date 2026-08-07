@@ -1,12 +1,14 @@
 # Codebase Cleanup Audit — Stack the Lineup (Lineup Builder)
 
-> **Closed.** The two follow-ups that survive — `PositionSummaryView.pitchingRows()` (2.2a) and the debounced CloudKit push (6.2) — are [`BACKLOG.md`](BACKLOG.md) items 3.1 and 3.2, both deferred by decision. The iPad read-only test plan at the end is backlog item 1.4, and the `stl-worker` deploy in 8.3a is 1.2, a submission blocker.
+> **Closed.** The two follow-ups that survive — `PositionSummaryView.pitchingRows()` (2.2a) and the debounced CloudKit push (6.2) — are [`BACKLOG.md`](BACKLOG.md) items 3.1 and 3.2, both deferred by decision. The iPad read-only test plan at the end is backlog item 1.4, still needing a device.
+>
+> ⚠️ **8.3a's conclusions were wrong** and are corrected in place — the 2 Aug Worker fixes *were* deployed, the CloudKit record type *was* promoted, and the actual fault was a Production server-to-server key that had never been created. Push was silently failing until 6 Aug. Read the correction there before trusting anything in 8.3a.
 
 **Status: all findings actioned — this pass on 1 Aug 2026, the July audit's remaining phases on 6 Aug 2026.** This document is now the record of what was found and what was done about it. The second audit pass; the first is `CLEANUP-AUDIT.md` (19 Jul 2026), whose Phase 2 and Phase 3 lists are also closed out here.
 
 *Addendum, 6 Aug 2026:* the July audit's **Phase 2 and Phase 3** lists are now closed out — see the Follow-ups section. Phase 2 had three items genuinely open: the empty `StackTheLineupTests` target (7.2), the double CloudKit save on every Edit Team submission (6.1a, new), and the last duplicated What's New key literal (1.11). Phase 3 had two: the duplicated bench/absent chip (2.4) and the back-to-back bench triplication (2.5). Consolidating the chip turned up **2.4a — iPad had no read-only enforcement at all**, so a view-only participant in a shared team could edit positions and finalize the lineup. That is the most user-visible thing in this document and the one to verify on a device before shipping.
 
-*Addendum, 2 Aug 2026:* finding 8.3's open question — whether the Cloudflare Worker accepts the four unused event constants — is closed; it does, and they stay. Answering it turned up **8.3a**: the Worker was pinned to the APNs sandbox host, which would have silently killed every shared-team push on the next App Store build. Fixed, along with a stale duplicate of its entry point. Those changes are in `~/Desktop/stl-worker` and **are not live until it is redeployed**.
+*Addendum, 2 Aug 2026:* finding 8.3's open question — whether the Cloudflare Worker accepts the four unused event constants — is closed; it does, and they stay. Answering it turned up **8.3a**: the Worker was pinned to the APNs sandbox host, which would have silently killed every shared-team push on the next App Store build. Fixed, along with a stale duplicate of its entry point. Those changes are in `~/Desktop/stl-worker` and ~~are not live until it is redeployed~~ *— see the 6 Aug correction under 8.3a: they were deployed the same day, and the real fault was a missing Production CloudKit key.*
 
 Verification for every change below: `xcodebuild build` → **BUILD SUCCEEDED**, `Lineup BuilderTests` → **TEST SUCCEEDED**. Fifteen tests were added across the two passes — five for the badge fix, six for the Edit Team save path, four pinning the per-cell bench predicate before it was consolidated. Final run: **295 passed, 0 failed**, on both the iPhone and iPad simulators.
 
@@ -226,6 +228,14 @@ The `STLWidget` exception set the July note expected to go with it doesn't refer
 
   **Neither change is live until someone runs `npm run deploy` in `stl-worker`.** Editing the file does not redeploy the Worker. And `CLOUDKIT_ENV = "production"` points the token lookup at the production CloudKit database, so the `DeviceToken` record type has to have been promoted to Production in the CloudKit Dashboard — if it hasn't, the query 400s and no push goes out. Worth confirming in the dashboard before deploying.
 
+  > ⚠️ **Correction, 6 Aug 2026 — the paragraph above is wrong on both counts, and the real fault was worse.** See [`BACKLOG.md`](BACKLOG.md) item 1.2 for the full account.
+  >
+  > 1. **The 2 Aug changes *were* live.** The Worker's version history shows an upload at `2026-08-02T15:25:19Z`, five minutes after these edits — it was deployed the same day. Confirmed against the running Worker, whose logged CloudKit subpath contains `/production/`.
+  > 2. **The record type was fine.** It had been promoted; a successful query on 6 Aug proves `DeviceToken` exists in Production with `teamID` queryable.
+  > 3. **What was actually broken:** there was no Production CloudKit **server-to-server key** — only a Development one. Every Production query returned `401 AUTHENTICATION_FAILED`, so the Worker threw before reaching APNs and **every shared-team push had been failing silently.** Fixed 6 Aug and verified.
+  >
+  > `stl-worker` is also now under version control, at [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker) — so the "renamed rather than deleted, because it is not under version control" reasoning above no longer applies either.
+
 **8.4 — `ScheduledGame.lastSyncedAt`: kept.** Written on every iCal import, read nowhere. Removing it changes the persisted shape for no gain. "Last synced 2h ago" on the schedule screen is the feature it was plainly added for.
 
 **8.5 — 23 `print()` calls in Release: fixed.** New `Log` enum (`Log.swift`) with four `os.Logger` categories — `sync`, `storage`, `push`, `spotlight`. `print()` writes to stdout unconditionally with no level, no filtering and no redaction; `DeviceTokenManager` was printing the first 16 hex characters of the APNs device token on every launch, which now logs nothing but the fact of registration. Framework error descriptions are marked `.public` explicitly where they're worth reading in a Release log; everything derived from user content keeps the default redaction.
@@ -245,7 +255,7 @@ Two things are open, each by a deliberate decision rather than an oversight:
 
 **Closed since:** the Worker's event vocabulary (8.3) — answered on 2 Aug 2026 by reading `stl-worker`; all five constants stay. That read also turned up 8.3a, two Worker fixes, one of them a shipping blocker.
 
-**Not done by this audit, and needed before the next submission:** `npm run deploy` in `stl-worker`, after confirming the `DeviceToken` record type exists in **Production** CloudKit. See 8.3a.
+**~~Not done by this audit, and needed before the next submission:~~ Done 6 Aug 2026.** The Worker is deployed and push is verified working. It needed a Production CloudKit server-to-server key, which had never existed — not the record-type promotion this line assumed. See the correction under 8.3a, and `BACKLOG.md` 1.2.
 
 Worth a manual look before shipping: the warnings badge on the iPhone Positions tab. The numbers it shows will change for some lineups — that's the fix, but it's user-visible. `Settings → 7 taps on Version → Seed Sample History` gives you a team to check it against.
 
