@@ -32,6 +32,7 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 | ~~1.3~~ | ~~Siri phrases on a physical device~~ | — | ✅ **7 Aug** — 6 of 9 pass; 3 entity ones accepted picker-degraded |
 | **1.4** | **iPad read-only on two devices** | M | **A TestFlight build + a real shared team** |
 | **1.5** | **Two checks on the finished archive** | S | **An archive existing.** Both are one command |
+| **1.6** | **What's New quotes Siri phrases that can't work** | S | **Nothing — needs a copy edit and build 36** |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -100,6 +101,30 @@ The eight-step plan is at the end of the audit. **Step 7 is the one not to skip:
 **Also do this here:** finalize a lineup from the owning device and confirm the push arrives on the other. That's the only way to exercise APNs (see 1.2).
 
 **Size:** M.
+
+### 1.6 The What's New sheet quotes Siri phrases that can't work
+
+**Source:** found 7 Aug reading `WhatsNewView.swift` against the 1.3 device results. **This is already in the shipping build** — build 35 contains this copy, so fixing it means a code change and build 36.
+
+**Every Siri phrase quoted in the 3.3 entry omits the app name.** An `AppShortcut` phrase is *required* to contain `\(.applicationName)` — the framework rejects a provider without it at build time. So none of these are registered phrases, and a coach who says them verbatim gets nothing:
+
+| Quoted in What's New | Registered phrase | Works? |
+|---|---|---|
+| "What's my pitch limit?" | "**In Stack the Lineup,** what's my pitch limit" | ✅ with app name |
+| "How many days rest?" | "How many days rest **in Stack the Lineup**" | ✅ with app name |
+| "How did we do?" | "**In Stack the Lineup,** how did we do" | ✅ with app name |
+| "Can Jake pitch?" | "**In Stack the Lineup,** can ⟨player⟩ pitch" | ❌ **see below** |
+| "Open Stack the Lineup" | same | ✅ — the one that's already right |
+
+**"Can Jake pitch?" is the worst of the five**, and not only for the missing app name. It's `PitchEligibilityIntent`, one of the three entity-slot intents that 1.3 found picker-degraded: the leading form goes to web search, and only the trailing form works — after Siri lists the entire roster to pick from. Quoting it as a one-liner promises something that doesn't happen even when phrased correctly.
+
+There's a second-order problem. The copy teaches coaches that bare questions work. When "What's my pitch limit?" returns a web search, the reasonable conclusion is *the Siri feature is broken*, not *I needed to say the app name* — so the copy actively creates the impression of a broken feature out of one that mostly works well.
+
+**Fix:** rewrite the quoted examples using only phrases confirmed working on 7 Aug, with the app name included, and drop "Can Jake pitch?" until the entity path is solid (see 1.3, 4.6). Everything else in the three feature blocks is accurate — "Open Stack the Lineup" is already correct, and the Pro gating on Game Recap is right.
+
+⚠️ **Check "Players and teams turn up in Search now too"** in the same entry while you're there. That's Spotlight indexing via `IndexedEntity`, a different mechanism from the voice path, and 1.3 didn't test it. Verify before shipping the claim.
+
+**Size:** S — copy only, no logic. But it's user-facing text in a shipping build, so it rides on 36.
 
 ### 1.5 Two checks on the finished archive
 

@@ -1,4 +1,4 @@
-# Test plan — 3.3 (36) device session
+# Test plan — 3.3 device session
 
 **Written 7 Aug 2026.** Everything that has to happen on real hardware before 3.3 can be submitted, in the order to do it. Covers [`BACKLOG.md`](BACKLOG.md) items **1.5, 1.3, 1.4, 2.3, 2.4**.
 
@@ -89,37 +89,57 @@ Say each phrase to Siri out loud. Mark ✓ if the right thing happens, ✗ if Si
 
 **Open Player** · voice-only (every phrase has an entity slot) · free
 
-- [ ] **L** — "In Stack the Lineup, look up ⟨player⟩"
-- [ ] **L** — "In Stack the Lineup, pull up ⟨player⟩"
-- [ ] **T** — "Look up ⟨player⟩ in Stack the Lineup"
+- [x] **L** — "In Stack the Lineup, look up ⟨player⟩"
+		Test: "In Stack the Lineup, look up Drew Santos"
+		Result: Some Google searches
+		Did the same with Jake Rivera
+- [x] **L** — "In Stack the Lineup, pull up ⟨player⟩"
+		Test: "In Stack the Lineup, pull up Drew Santos" 
+		Response: Apple Cash is not available right now
+		Did the same test with Jake Rivera (result was a Google search)
+- [x] **T** — "Look up ⟨player⟩ in Stack the Lineup"
+		Test: "Look up Drew Santos in Stack the Lineup"
+		Result: Google search
 - Expect: app opens on that player. 2 Aug failure was → *"I can't find that in Apple Music"*
 
 **Open Team** · voice-only · free
 
-- [ ] **L** — "In Stack the Lineup, switch my team to ⟨team⟩"
-- [ ] **L** — "In Stack the Lineup, look up ⟨team⟩"
-- [ ] **T** — "Switch my team to ⟨team⟩ in Stack the Lineup"
+- [x] **L** — "In Stack the Lineup, switch my team to ⟨team⟩"
+		Test: "In Stack the Lineup, switch my team to Test Team"
+		Result: Asked me to select which team
+		Test: "In Stack the Lineup, switch my team to 10u All Stars"
+		Result: Google search 
+- [x] **L** — "In Stack the Lineup, look up ⟨team⟩"
+		Test: "In Stack the Lineup, look up Rockhounds"
+		Result: Google search for Stack the Lineup
+- [✓] **T** — "Switch my team to ⟨team⟩ in Stack the Lineup"
 - Expect: switches to that team. 2 Aug failure was → *"it doesn't look like you have an app called that"* (Siri took the team name for an app name)
 
 **Game Recap** · **Pro** · answers by voice without opening the app
 
-- [ ] **L** — "In Stack the Lineup, how did we do"
-- [ ] **L** — "In Stack the Lineup, recap my last game"
-- [ ] **T** — "Recap my last game in Stack the Lineup"
+- [✓] **L** — "In Stack the Lineup, how did we do"
+- [✓] **L** — "In Stack the Lineup, recap my last game"
+- [✓] **T** — "Recap my last game in Stack the Lineup"
 - Expect: spoken recap of the last archived game. Not Pro → paywall, not an error
 
 **Pitch Limits** · free
 
-- [ ] **L** — "In Stack the Lineup, what's my pitch limit"
-- [ ] **L** — "In Stack the Lineup, how many pitches are allowed"
-- [ ] **T** — "Pitch limits in Stack the Lineup"
+- [✓] **L** — "In Stack the Lineup, what's my pitch limit"
+- [✓] **L** — "In Stack the Lineup, how many pitches are allowed"
+- [✓] **T** — "Pitch limits in Stack the Lineup"
 - Expect: your configured pitch limit. This was the only one of the three rules tiles that failed — the other two run the *same intent* with a different topic and both worked, so the intent is sound and the phrasing lost
 
 **Can They Pitch** · voice-only · free
 
-- [ ] **L** — "In Stack the Lineup, can ⟨player⟩ pitch"
-- [ ] **L** — "In Stack the Lineup, is ⟨player⟩ rested"
-- [ ] **T** — "Can ⟨player⟩ pitch in Stack the Lineup"
+- [x] **L** — "In Stack the Lineup, can ⟨player⟩ pitch"
+		Test: "In Stack the Lineup, can Drew Santos pitch?"
+		Result: Google search
+- [x] **L** — "In Stack the Lineup, is ⟨player⟩ rested"
+		Test: "In Stack the Lineup, is Jake Rivera rested"
+		Result: Google search
+- [Partial] **T** — "Can ⟨player⟩ pitch in Stack the Lineup"
+		Test: "Can Jake Rivera pitch in Stack the Lineup?"
+		Result: It asked me to select the player (it showed all the players), once I selected Jake Rivera then it showed me
 - Expect: eligibility answer for that player. 2 Aug failure was → *"would you like to use ChatGPT for that?"*
 
 ### The four controls — untouched since they passed
@@ -128,28 +148,28 @@ If any of these now **fail**, the rewording broke something that was working, an
 
 **Open Lineup** · free
 
-- [ ] **L** — "Open Stack the Lineup"
-- [ ] **T** — "Show my lineup in Stack the Lineup"
-- [ ] **T** — "Open today's lineup in Stack the Lineup"
+- [✓] **L** — "Open Stack the Lineup"
+- [✓] **T** — "Show my lineup in Stack the Lineup"
+- [✓] **T** — "Open today's lineup in Stack the Lineup"
 
 **Fill Lineup** · **Pro**
 
-- [ ] **T** — "Fill my lineup in Stack the Lineup"
-- [ ] **T** — "Auto-fill positions in Stack the Lineup"
-- [ ] **T** — "Fill the positions in Stack the Lineup"
+- [✓] **T** — "Fill my lineup in Stack the Lineup"
+- [✓] **T** — "Auto-fill positions in Stack the Lineup"
+- [✓] **T** — "Fill the positions in Stack the Lineup"
 - Expect: positions auto-fill. Not Pro → paywall, not an error
 
 **My Rules** · free
 
-- [ ] **T** — "What are my rules in Stack the Lineup"
-- [ ] **T** — "My fair play rules in Stack the Lineup"
-- [ ] **T** — "Check my team rules in Stack the Lineup"
+- [✓] **T** — "What are my rules in Stack the Lineup"
+- [✓] **T** — "My fair play rules in Stack the Lineup"
+- [✓] **T** — "Check my team rules in Stack the Lineup"
 
 **Rest Days** · free
 
-- [ ] **T** — "How many days rest in Stack the Lineup"
-- [ ] **T** — "Rest day rules in Stack the Lineup"
-- [ ] **T** — "When can my pitcher pitch again in Stack the Lineup"
+- [✓] **T** — "How many days rest in Stack the Lineup"
+- [✓] **T** — "Rest day rules in Stack the Lineup"
+- [✓] **T** — "When can my pitcher pitch again in Stack the Lineup"
 
 ### How to read the results
 
@@ -164,7 +184,15 @@ If any of these now **fail**, the rewording broke something that was working, an
 
 > ⚠️ Backlog 1.3 says **two** intents are voice-only and names Open Player and Can They Pitch. It's **three** — Open Team qualifies identically, and 1.3's own list of six parameter-free tiles implies it (9 − 6 = 3). Corrected here; fix 1.3 after the session.
 
-- [ ] **Done:** all 27 spoken, results recorded
+- [x] **Done:** all 27 spoken, results recorded — **7 Aug 2026**
+
+### Outcome — 7 Aug 2026
+
+**6 of 9 shortcuts pass, 18 of 18 phrases.** The 3 that don't are exactly the 3 carrying an entity slot. A log capture during the session proved `entities(matching:)` is **never called** — Siri matches the phrase, routes, then treats the parameter as unfilled and fills the picker from `suggestedEntities()`. The spoken name never reaches the app.
+
+The reading table above resolves to **none of its rows**: one success was a trailing phrase and one a leading one, so placement isn't the variable. Full write-up, including what not to do about it, is in [`BACKLOG.md`](BACKLOG.md) **1.3** (closed) and **4.6**.
+
+⚠️ **This section fed a follow-up: [`BACKLOG.md`](BACKLOG.md) 1.6** — the shipping What's New quotes Siri phrases that can't work.
 
 ---
 
