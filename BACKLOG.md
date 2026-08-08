@@ -8,11 +8,11 @@
 
 ## ▶ Start here
 
-**Everything left before you can submit 3.3 is the rest of one device session.** ~~1.3~~ closed 7 Aug. Three items remain — **1.4, 2.3, 2.4** — all wanting the same build on real hardware, plus 1.5, which is commands against the archive. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
+**Everything left before you can submit 3.3 is the rest of one device session.** ~~1.3~~ closed and ~~2.3~~ failed-and-deferred on 7 Aug. Two items remain — **1.4, 2.4** — all wanting the same build on real hardware, plus 1.5, which is commands against the archive. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
 
 1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build has since moved to **36**; both targets resolve to it from the project level. See the 7 Aug note in 1.1 — the drift came back once.
 2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
-3. **On device, in one sitting:** ~~1.3 (nine Siri phrases spoken aloud — ✅ 7 Aug)~~, 1.4 (iPad read-only with a real shared team, don't skip step 7), 2.3 (one tip transition), 2.4 (read tip copy at large Dynamic Type).
+3. **On device, in one sitting:** ~~1.3 (nine Siri phrases — ✅ 7 Aug)~~, ~~2.3 (one tip transition — ❌ 7 Aug, failed; fix deferred to 3.4)~~, **1.4** (iPad read-only with a real shared team, don't skip step 7), **2.4** (read tip copy at large Dynamic Type).
 4. **While a real shared team is set up for 1.4**, finalize a lineup and confirm a push actually arrives. That's the one part of the notification chain never exercised — see the caveat in 1.2.
 
 State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`, including the new `PitchingSummaryTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
@@ -36,12 +36,13 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
-| **2.3** | `ReuseSaveTemplateTip` live advance | S | A manual Xcode pass |
+| ~~2.3~~ | ~~`ReuseSaveTemplateTip` live advance~~ | — | ❌ **7 Aug — failed on device.** Cause found; fix is **3.4** |
 | **2.4** | Tip copy at real size / large Dynamic Type | S | Device time |
 | **Stage 3 — deferred engineering (after 3.3 ships)** ||||
 | ~~3.0~~ | ~~Calendar-week window is empty on Sundays~~ | — | ✅ **6 Aug** — found and fixed; 4 copies now share one derivation |
 | 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
+| 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
 | **Stage 4 — decisions and long poles** ||||
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
@@ -241,13 +242,33 @@ curl -sS -X POST https://stl-push-worker.stackthelineup.workers.dev \
 
 ## Stage 2 — cheap while you're already on a device
 
-### 2.3 The one unverified tip transition
+### ~~2.3 The one unverified tip transition~~ — ❌ **failed on device 7 Aug 2026**
 
-**Source:** `TIPS-onboarding-spec.md`, "Not verified / still open."
+**Source:** `TIPS-onboarding-spec.md`, "Not verified / still open." Expected to be confirmation rather than investigation. It was investigation.
 
-`ReuseSaveTemplateTip`'s live in-place advance (dismiss tip 2 → tip 3 appears without leaving `GameLogDetailView`). It uses the identical pattern already verified on the lead history tip on both platforms, so this is confirmation, not investigation. It was blocked on re-seeding a fresh install; now that "Take the Tour" actually works, a reset and re-walk is enough.
+**What happens.** In History, `HistorySeasonViewsTip` ("Your season is building") and `HistoryCopyGameTip` ("Or start from a game you played") both present. Dismissing tip 2 with **Next** produces nothing. **Quitting the app and returning shows tip 3** ("Don't build that twice") on the Save-as-template row.
 
-**Size:** S, manual pass from Xcode.
+So tip 2 *is* invalidated and tip 3 *does* become the group's current tip — the live in-place advance is what fails. Exactly the thing the spec flagged as never re-verified: the fix was *"verified via the seed path… the live in-place advance was not re-verified on device."* The seed path turns out to be the only path.
+
+**Ruled out on the way** — all cheap, all checked in code before touching the device:
+
+- All three history tips carry **identical** rules (`hasArchivedGame`, `isPro`), so tip 3 isn't filtered
+- `displayFrequency` is `.immediate`, so it isn't rate-limited
+- The Save-as-template row renders **unconditionally** — the anchor always exists
+- `TourTipModifier` calls `tip?.invalidate(reason: .actionPerformed)`, which is what advances an ordered group
+
+**Cause.** The two History screens are the only ones using the `currentTipUpdates` → `@State` mirror. Every screen whose arc advances in place reads `currentTip` synchronously in the body:
+
+| Screen | Pattern | Live advance |
+|---|---|---|
+| `LineupView`, `PlayersView`, `DefensiveGridView` | synchronous `Tour.<group>.currentTip` | ✅ works |
+| `GameLogsView`, `GameLogDetailView` | `currentTipUpdates` → `@State` mirror | ❌ fails |
+
+`currentTipUpdates` appears not to yield when the current tip is **invalidated** while the view stays alive, so nothing updates the mirror. Re-entering re-runs the `.task`, which re-seeds from `currentTip` — hence the quit-and-return behaviour. The mirror was added to fix a *first-render* bug (the tip missing on landing) and it does fix that; it just doesn't cover the advance. The other screens get away with the synchronous read because ordinary interaction re-renders them constantly and they pick up the new `currentTip` incidentally. The History screens are static enough that they don't.
+
+**Impact: the tip is deferred, not lost.** "Don't build that twice" appears the next time the coach opens any archived game's detail view. It's the last tip in arc 2's Pro path, so nothing stalls behind it.
+
+**Not fixed for 3.3 — deliberately.** See **3.4**. Both candidate fixes are speculative against TipKit internals and need another device round-trip; the payoff is a tip arriving now rather than on the next visit. Not a trade worth making on the release being closed.
 
 ### 2.4 Read the tip copy at real size
 
@@ -292,6 +313,25 @@ The third copy of the pitch-window arithmetic. It differs in ways that matter �
 **The blocker is cleared.** `PitchingSummaryTests.swift` landed 6 Aug: 23 tests over `coachesGuideSummary`, covering the window boundaries, the `available` ceiling, rest days, the sort order, and agreement with `PitchEligibilityEngine.status`. The four known divergences each carry a `DIVERGENCE` note in the test that pins this side's behavior, so the fold-in is a choice made with the consequences written down rather than rediscovered.
 
 One thing the tests can't reach: `pitchingRows()` is `private` inside a SwiftUI `View`, so it isn't callable from the test target at all. Extracting it is the first step of the consolidation, not a prerequisite. **Size:** M.
+
+### 3.4 The TipKit live advance on the History screens
+
+**Source:** 2.3, failed on device 7 Aug 2026. Full diagnosis is there; this item is just the fix.
+
+*(Numbered 3.4 rather than 3.3 so no item number collides with the release version.)*
+
+Dismissing a tip on `GameLogsView` or `GameLogDetailView` doesn't advance the group in place. The next tip only appears on re-entry, when `.task` re-seeds the mirror from `Tour.history.currentTip`.
+
+**Two candidate fixes, neither obviously right:**
+
+1. **Re-read `currentTip` after the action fires.** `TourTipModifier` invalidates but doesn't know its group, so this needs a hook — an optional `onAdvance` closure on `tourTip(_:)` that lets the call site refresh its own mirror. The catch: `currentTip` lags a cycle after a status change, so a naive re-read returns the tip that was just dismissed. Probably needs a delay, and a delay tuned by trial is the kind of fix that works on one device and not another.
+2. **Move both screens to the synchronous read** that every working screen uses. Simpler and consistent — but it reintroduces the first-render bug the mirror was added to fix, where the tip is missing on landing until an unrelated re-render. That bug was worse than this one.
+
+A third option worth ten minutes first: find out whether `currentTipUpdates` yields on invalidation at all, or only on eligibility changes. If it genuinely never yields on invalidation, option 1 is the only real candidate and option 2 is a regression waiting to happen.
+
+**Verify on a device, not the simulator** — 2.3 was called "confirmation, not investigation" on the strength of a simulator-verified pattern, and the device disagreed.
+
+**Size:** M. Small diff, most of the cost in figuring out which fix is real and proving it.
 
 ### 3.2 Debounce the CloudKit push
 
