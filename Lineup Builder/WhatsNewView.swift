@@ -28,19 +28,19 @@ extension WhatsNewContent {
                     icon: "mic.fill",
                     iconColor: .purple,
                     title: "Ask Siri",
-                    description: "Stack the Lineup answers to your voice now — handy when your hands are full of gear. Say \"Open Stack the Lineup\", or just ask it a question.\n\nEvery phrase it knows is listed under Settings › Siri Shortcuts. Players and teams turn up in Search now too."
+                    description: "Stack the Lineup answers to your voice now — handy when your hands are full of gear. Say \"Open Stack the Lineup\" to jump straight in.\n\nSiri needs to hear the app's name, so keep it in the sentence: \"Show my lineup in Stack the Lineup.\" Every phrase it knows is listed under Settings › Siri Shortcuts."
                 ),
                 WhatsNewFeature(
                     icon: "checklist",
                     iconColor: .blue,
                     title: "Your Rules, Out Loud",
-                    description: "Ask \"What's my pitch limit?\", \"How many days rest?\" or \"Can Jake pitch?\" and get the answer without opening the app.\n\nThe answers come from your team's own settings, not a generic rulebook — so they're the limits you actually coach to. Free, like the rest of Fair Play Rules."
+                    description: "Ask \"What are my rules in Stack the Lineup\", \"How many days rest in Stack the Lineup\", or \"Pitch limits in Stack the Lineup\" and get the answer without opening the app.\n\nThe answers come from your team's own settings, not a generic rulebook — so they're the limits you actually coach to. Free, like the rest of Fair Play Rules."
                 ),
                 WhatsNewFeature(
                     icon: "sportscourt.fill",
                     iconColor: .green,
                     title: "Game Recap",
-                    description: "Ask \"How did we do?\" and hear how the last game went — who sat, who pitched, and whether your fair play rules held up.\n\nGame Recap is a Pro feature."
+                    description: "Ask \"In Stack the Lineup, how did we do\" and hear how the last game went — who sat, who pitched, and whether your fair play rules held up.\n\nGame Recap is a Pro feature."
                 )
             ]
         ),

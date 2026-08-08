@@ -32,7 +32,7 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 | ~~1.3~~ | ~~Siri phrases on a physical device~~ | — | ✅ **7 Aug** — 6 of 9 pass; 3 entity ones accepted picker-degraded |
 | **1.4** | **iPad read-only on two devices** | M | **A TestFlight build + a real shared team** |
 | **1.5** | **Two checks on the finished archive** | S | **An archive existing.** Both are one command |
-| **1.6** | **What's New quotes Siri phrases that can't work** | S | **Nothing — needs a copy edit and build 36** |
+| ~~1.6~~ | ~~What's New quotes Siri phrases that can't work~~ | — | ✅ **7 Aug** — copy rewritten; ships in 36 |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -102,7 +102,17 @@ The eight-step plan is at the end of the audit. **Step 7 is the one not to skip:
 
 **Size:** M.
 
-### 1.6 The What's New sheet quotes Siri phrases that can't work
+### ~~1.6 The What's New sheet quotes Siri phrases that can't work~~ — ✅ rewritten 7 Aug 2026
+
+**Fixed in `WhatsNewView.swift`.** Every quoted phrase is now one that passed on device 7 Aug, with the app name in it. "Can Jake pitch?" is gone — it pointed at `PitchEligibilityIntent`, which fails even when phrased correctly. The untested "Players and teams turn up in Search now too" claim is dropped until someone verifies it; it slots back onto the end of feature 1 unchanged if it holds.
+
+The load-bearing change is that feature 1 now **states the app-name rule once**: *"Siri needs to hear the app's name, so keep it in the sentence."* That single sentence is what stops a coach concluding the feature is broken when a bare question falls through to a web search.
+
+Build 35 still carries the old copy. **This reaches coaches in build 36.**
+
+---
+
+*Original finding, kept for the reasoning:*
 
 **Source:** found 7 Aug reading `WhatsNewView.swift` against the 1.3 device results. **This is already in the shipping build** — build 35 contains this copy, so fixing it means a code change and build 36.
 
