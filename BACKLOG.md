@@ -8,11 +8,11 @@
 
 ## ▶ Start here
 
-**Everything left before you can submit 3.3 is the rest of one device session.** ~~1.3~~ closed and ~~2.3~~ failed-and-deferred on 7 Aug. Two items remain — **1.4, 2.4** — all wanting the same build on real hardware, plus 1.5, which is commands against the archive. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
+**Everything left before you can submit 3.3 is the rest of one device session.** ~~1.3~~ closed and ~~2.3~~ failed-and-deferred and ~~2.4~~ passed on 7 Aug. **One item remains: 1.4**, which needs the iPad and a real shared team — and carries the push test with it. Plus 1.5, commands against the archive. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
 
 1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build has since moved to **36**; both targets resolve to it from the project level. See the 7 Aug note in 1.1 — the drift came back once.
 2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
-3. **On device, in one sitting:** ~~1.3 (nine Siri phrases — ✅ 7 Aug)~~, ~~2.3 (one tip transition — ❌ 7 Aug, failed; fix deferred to 3.4)~~, **1.4** (iPad read-only with a real shared team, don't skip step 7), **2.4** (read tip copy at large Dynamic Type).
+3. **On device, in one sitting:** ~~1.3 (nine Siri phrases — ✅ 7 Aug)~~, ~~2.3 (one tip transition — ❌ 7 Aug, failed; fix deferred to 3.4)~~, ~~2.4 (tip copy at large Dynamic Type — ✅ 7 Aug)~~, **1.4** (iPad read-only with a real shared team, don't skip step 7).
 4. **While a real shared team is set up for 1.4**, finalize a lineup and confirm a push actually arrives. That's the one part of the notification chain never exercised — see the caveat in 1.2.
 
 State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`, including the new `PitchingSummaryTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
@@ -37,7 +37,7 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
 | ~~2.3~~ | ~~`ReuseSaveTemplateTip` live advance~~ | — | ❌ **7 Aug — failed on device.** Cause found; fix is **3.4** |
-| **2.4** | Tip copy at real size / large Dynamic Type | S | Device time |
+| ~~2.4~~ | ~~Tip copy at real size / large Dynamic Type~~ | — | ✅ **7 Aug** — all tips walked at large type; nothing truncates |
 | **Stage 3 — deferred engineering (after 3.3 ships)** ||||
 | ~~3.0~~ | ~~Calendar-week window is empty on Sundays~~ | — | ✅ **6 Aug** — found and fixed; 4 copies now share one derivation |
 | 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
@@ -270,13 +270,24 @@ So tip 2 *is* invalidated and tip 3 *does* become the group's current tip — th
 
 **Not fixed for 3.3 — deliberately.** See **3.4**. Both candidate fixes are speculative against TipKit internals and need another device round-trip; the payoff is a tip arriving now rather than on the next visit. Not a trade worth making on the release being closed.
 
-### 2.4 Read the tip copy at real size
+### ~~2.4 Read the tip copy at real size~~ — ✅ **passed 7 Aug 2026**
 
 **Source:** `TIPS-onboarding-spec.md`, Open questions.
 
-Tip copy has never been read on a device. Popover width is narrower than the spec tables suggest, and some messages may want trimming — especially at large Dynamic Type. Cheap to fold into the device session for 1.3/1.4.
+**Walked on device at large Dynamic Type, after a "Take the Tour" reset, across every tip. Nothing truncates, wraps badly, or overflows its popover. No copy needs trimming.**
 
-**Size:** S.
+That closes both halves of the question. Default Dynamic Type was already confirmed in the 24 Jul walk (`TIPS-onboarding-spec.md` line 24, "copy reads cleanly at default Dynamic Type"); large type was the outstanding half and is now done on real hardware.
+
+The concern behind this item — that popover width is narrower than the spec tables suggest — turned out not to bite. Worth knowing for future copy: the four longest strings in the app all clear a maximum-size popover, so **112 characters is a demonstrated safe ceiling** rather than a guess.
+
+| Chars | Tip |
+|---|---|
+| 112 | `PlayersTeamSetupTip` — "Tap your team name for color, game length…" |
+| 107 | `HistorySeasonViewsTip` — "Players for season stats, Team for roster coverage…" |
+| 103 | `ReuseApplyTemplateTip` — "Pick your template when you set the next game…" |
+| 100 | `HistoryCopyGameTip` — "Open any archived game and copy its lineup…" |
+
+**Size:** S. **Closed 7 Aug.**
 
 ### ~~2.1 The Lineup tab was titled "Lineup Builder"~~ — ✅ done 6 Aug 2026
 

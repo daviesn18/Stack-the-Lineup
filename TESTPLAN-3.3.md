@@ -251,11 +251,15 @@ curl -sS -X POST https://stl-push-worker.stackthelineup.workers.dev \
 
 **Needs Pro** — all three history tips live behind the paywall.
 
-- [ ] Settings → Help & Support → **"Take the Tour"** to reset the tip datastore
-- [ ] Archive a game so arc 2 is eligible
-- [ ] Open a game in History → `GameLogDetailView`
-- [ ] `HistoryCopyGameTip` ("Or start from a game you played") presents on the first Reuse row
-- [ ] Tap **Next** — `ReuseSaveTemplateTip` ("Don't build that twice") appears on the second row **without navigating away**
+- [x] Settings → Help & Support → **"Take the Tour"** to reset the tip datastore
+- [x] Archive a game so arc 2 is eligible
+- [x] Open a game in History → `GameLogDetailView`
+- [x] `HistoryCopyGameTip` ("Or start from a game you played") presents on the first Reuse row
+- [ ] ❌ **FAILED 7 Aug** — tapping **Next** produces nothing. `ReuseSaveTemplateTip` does not appear until the app is quit and reopened.
+
+> **Outcome — ❌ failed 7 Aug 2026.** Tip 2 *is* invalidated and tip 3 *does* become the group's current tip; the **live in-place advance** is what fails. Cause traced to the `currentTipUpdates` → `@State` mirror, which the two History screens use and no other screen does — it appears not to yield on invalidation while the view stays alive. **The tip is deferred, not lost:** it presents on the next entry to any archived game's detail view.
+>
+> Full diagnosis in [`BACKLOG.md`](BACKLOG.md) **2.3**; the fix is **3.4**, deferred past 3.3 by decision.
 
 > **Gotcha:** if tips stay suppressed, a reset from a *live* session can get silently undone. "Take the Tour" now works, so a reset + re-walk should be enough — but if it misbehaves, a full **uninstall + reinstall** is the reliable way to a pristine datastore. Reinstalling *over* keeps the stale TipKit datastore.
 >
@@ -265,11 +269,14 @@ curl -sS -X POST https://stl-push-worker.stackthelineup.workers.dev \
 
 Tip copy has **never** been read on a device. Popover width is narrower than the spec tables suggest.
 
-- [ ] Walk the tips at **default** Dynamic Type — copy reads cleanly, nothing truncates
-- [ ] Settings → Accessibility → Display & Text Size → Larger Text, near **maximum**
-- [ ] Re-walk — note every tip whose copy truncates, wraps badly, or overflows its popover
+- [x] Walk the tips at **default** Dynamic Type — copy reads cleanly, nothing truncates
+      *(already confirmed in the 24 Jul walk, `TIPS-onboarding-spec.md` line 24)*
+- [x] Settings → Accessibility → Display & Text Size → Larger Text, near **maximum**
+- [x] Re-walk — note every tip whose copy truncates, wraps badly, or overflows its popover
 
-Record the ones that need trimming; the edit itself is a follow-up, not part of this session.
+> **Outcome — ✅ passed 7 Aug 2026.** Reset via "Take the Tour" and walked **every** tip at large Dynamic Type. Nothing truncates, wraps badly, or overflows. **No copy needs trimming.**
+>
+> The worry behind this item — popovers narrower than the spec tables imply — didn't bite. Useful side effect: the four longest strings all clear a maximum-size popover, so **112 characters is a demonstrated safe ceiling** for future tip copy rather than a guess.
 
 ---
 
