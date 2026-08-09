@@ -4,7 +4,9 @@
 
 Work top to bottom. §0 takes two minutes and can invalidate the whole build, so don't skip ahead to the fun part.
 
-**Build under test:** TestFlight **`3.3 (35)`** — already uploaded, and the right build to test. See §0a for why the project now says 36 and why that doesn't mean re-archiving.
+**Build under test:** TestFlight **`3.3 (37)`** — uploaded 9 Aug. This is the first build containing the sharing rework, the notification fixes, 1.8's read-only gating and 3.5's iPad export, so it is the first build on which most of this plan means anything.
+
+> **§1, §2 and §4 are closed.** They passed (or, for 2.3, failed and were triaged) on build 35 on 7–8 Aug; their outcomes are recorded in place below and in `BACKLOG.md`. **What is live on build 37 is §0a, §0c and §3** — plus the newer work that postdates this plan and lives in the backlog: **1.7** steps 1–13, **1.8** step 9, and **3.5**'s locked path. §3 is the same push test as 1.7 step 12; run it once, from 1.7.
 
 ---
 
@@ -23,15 +25,15 @@ Work top to bottom. §0 takes two minutes and can invalidate the whole build, so
 
 ### 0a. Which build are you testing?
 
-**The device session runs on TestFlight build 35.** It's already uploaded, it contains all the 6 Aug code including the Sunday window fix, and **nothing in §1–§4 touches the widget** — so its one known flaw doesn't affect anything here. Don't re-archive just to start testing.
+**The device session runs on TestFlight build 37**, uploaded 9 Aug.
 
-Confirm on-device in Settings: Version **3.3**, Build **35**.
+Confirm on-device in Settings: Version **3.3**, Build **37**. Do this on **all three devices** before starting — a device left on 35 or 36 will produce failures that read as sharing or push bugs.
 
-- [ ] Device shows `3.3` / build `35`
+- [ ] iPhone (owner) shows `3.3` / build `37`
+- [ ] iPhone (assistant) shows `3.3` / build `37`
+- [ ] iPad shows `3.3` / build `37`
 
-**Known and accepted for this build:** the app reports build 35 while the embedded widget reports 34, because 35 was archived during the window when the target-level override existed. It uploaded and passed validation anyway — the *marketing* version matched (`3.3` on both) and only the build number differed. That's the tolerated case. The 1.1 bug this echoes was the intolerable one: widget at `1` / `1.0` against app `34` / `3.3`, marketing version and all.
-
-**Build 36 is for the next upload**, not this session — TestFlight won't take a build number it already has, so any fix coming out of this session ships as 36. The project now carries 36 at the project level with no target overrides, so 36 will have a matching widget.
+**37 is the first build with a matching widget.** 35 shipped with the app at 35 and the widget at 34, from the window when the target-level override existed; it passed validation anyway because the *marketing* version matched and only `CFBundleVersion` differed. 36 fixed that, and 37 was verified before archiving — both targets resolve `37 / 3.3` from the project level, no overrides. Nothing in this plan touches the widget either way.
 
 To check any future archive before uploading:
 
@@ -217,9 +219,13 @@ Fixed in code 6 Aug, never verified on hardware. Before the fix, a view-only par
 
 ---
 
-## §3 — The push that has never been sent (backlog 1.4 / 1.2)
+## §3 — The push that has never been sent (backlog 1.7 step 12)
+
+> **This moved.** It used to hang off 1.4 and was being tracked in three places at once. It now lives in **`BACKLOG.md` 1.7 step 12**, which adds the condition that makes it a fair test of the 8 Aug fixes: run it on the newly joined device **without relaunching**, then again after a cold start (step 13). Run it from there; this section is kept for the debugging order below, which is still the right order.
 
 Do this while the shared team is still set up. **APNs has never delivered a real push from this app.** The Worker's health check uses a nonexistent team, so it matches zero device tokens and returns before ever contacting Apple. The production APNs host is deployed but completely unexercised.
+
+**Health check ran clean on 9 Aug** — `{"sent":0}` / 200 — so CloudKit auth is good going into the session. That still proves nothing about APNs itself.
 
 - [ ] From the **owning** device, finalize a lineup
 - [ ] Confirm the notification **arrives on the other device**
