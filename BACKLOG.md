@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 8 Aug 2026 (sharing rework, second device round).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 8 Aug 2026 (sharing rework, iPad gaps closed, 1.4 passed).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (36)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -16,10 +16,15 @@
 2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
 3. **Run 1.7 — the reworked sharing surface.** Steps 1–11 can go from Xcode builds and are the fast loop; **steps 12–13 need TestFlight**, because push cannot work from a Debug build against the current Worker. See the environment note in that item before you start, and make sure all three devices run the same build type.
 4. **The push test rides on 1.7 step 12.** It used to hang off 1.4; it was being tracked in three places and now lives in one. It is still the only part of the notification chain never exercised — see the caveat in 1.2.
+5. **Seed a test team on TestFlight and watch what happens** (3.6). One tap, and it either reproduces the 8 Aug failure or clears the leading theory. Free while you are installing builds anyway.
+
+**Decisions made on 8 Aug that are not derivable from the code** are recorded in [`PAYWALL-design-handoff.md`](PAYWALL-design-handoff.md) under "What a shared team's recipient pays for" — who pays for what on a shared team, and the accepted consequence that one Pro coach can equip any number of free read-write assistants.
 
 > **Where the 8 Aug session stopped.** Everything for 37 is committed, building, and unit-green: the sharing rework and notification fixes (`007a18e`), then 1.8's read-only gating and 3.5's iPad export. **`CURRENT_PROJECT_VERSION` is still 36 and needs bumping to 37** at the project level in Xcode, not by hand — see 1.1, where app/widget drift has already recurred once. Plan for 9 Aug: bump to 37, archive, upload to TestFlight, install on **all three devices** so they share one CloudKit environment, then run 1.7 end to end including the push steps, plus 1.8's step 9 and 3.5's locked-path check on a non-Pro device.
 
-State of the repo: `main` is at `e0353f9` with the 8 Aug sharing rework and device results committed, **not yet pushed**; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+State of the repo: `main` is at `d6e9a9c`, **not yet pushed** — four commits from the 8 Aug session: `007a18e` the sharing rework and notification fixes, `e0353f9` the 1.4 device results and 1.7, `3050bbe` opening 1.8 and 3.5, `d6e9a9c` closing both.
+
+**`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -50,6 +55,7 @@ State of the repo: `main` is at `e0353f9` with the 8 Aug sharing rework and devi
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
+| 3.6 | A seed produced no team; cause unknown | ? | **One TestFlight seed.** Leading theory is a KV-store clobber — a data-loss shape |
 | **Stage 4 — decisions and long poles** ||||
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
@@ -458,6 +464,39 @@ A third option worth ten minutes first: find out whether `currentTipUpdates` yie
 ~70 `save()` call sites, no debounce; every position drag is a CloudKit round-trip. Finding 6.1 removed the worst burst (Quick Set) and 6.1a removed the double-save on team edits, so the pressure is off.
 
 A real debounce needs a trailing-edge flush on `scenePhase` and opens a window where a crash loses the last write — on the sync path behind the July incident. **A design pass, not a cleanup.** **Size:** M, and higher risk than its size suggests.
+
+### 3.6 A seed produced no team, and the cause is still unknown
+
+**Open investigation, 8 Aug 2026.** Not reproduced, not diagnosed. Recorded because the leading theory is a data-loss path, and because the next data point costs nothing — it either recurs on TestFlight or it doesn't.
+
+**What happened.** On the assistant's device, after deleting down to one team, 7 taps → Create Test Team produced the confirmation and **no team**. Confirmed afterwards by the header button reading "Add Team" rather than "Switch", so the count really was 1. The device was running an **Xcode (Debug)** build.
+
+**Ruled out.**
+
+- *The alert lied.* It fired unconditionally, so it never meant anything. Fixed — `DebugDataSeeder.seed` now returns the new team's ID and the alert only claims success if the count actually rose. That change is why the failure would now be visible rather than silent, but it is not the cause.
+- *The seeder switched away.* It used to end by switching back to the previous team, so a successful seed looked like a no-op. Also fixed — it stays on the new team. Not the cause either: "Add Team" proves the team was genuinely absent.
+- *A `#if DEBUG` guard hiding the seeder.* There is none; it ships in Release.
+- *Tombstones.* `addTeam` builds a fresh UUID, and tombstones only refuse *incoming* server teams.
+- *`classifyRemoteDeletions`.* Needs an exact `ckRecordName` match, and a new team's is unique.
+- *Reproduction.* Seeding works cleanly in the simulator (2 teams → 3), so it needs iCloud to appear at all.
+
+**The leading theory — and why it may already be dead.** `saveLocalOnly()` writes the iCloud KV store behind `if data.count < 800_000`, and skips the whole write including `savedAt` above that. `TeamStorage.shouldPreferCloudBlob` then arbitrates on one line, `cloudSavedAt > localSavedAt`, and `applyStoredData()` runs on every `didChangeExternallyNotification`. A seeded team is heavy — 10 players, 5 archived games, templates, a schedule — so the local blob can cross the cap, the KV store keeps a pre-seed copy, and a write from another device on the same Apple ID then replaces `teams` wholesale with a blob that never contained the new team.
+
+That is the same shape as the July 2026 wipe those comments reference, and there is already a detector for it: `Analytics.signal("sync.blob_shrank")` in `mergeCloudKitChanges`.
+
+**But the KV store is `#if !DEBUG` in both directions** — `saveLocalOnly` does not write it and `TeamStorage.load()` does not read it. On the Debug build this happened on, there was no cloud blob to clobber. **So either the theory is wrong, or the build type was not what we think.**
+
+**The one cheap discriminator:** seed on TestFlight, where the KV path is live.
+
+- Recurs there but not from Xcode → the theory is right and this is a real data-loss path worth fixing properly.
+- Does not recur at all → it was something about the Development environment, and this starts over.
+- Recurs from Xcode too → the KV store is not involved and the cause is elsewhere entirely.
+
+**Also worth capturing when it happens:** whether `sync.blob_shrank` fired, and the `Log.storage` output around the seed.
+
+**Live risk while testing:** the iPhone and iPad share an Apple ID, so they share one KV store and can clobber each other by this same path. Xcode builds on both sidesteps it.
+
+**Size:** unknown until reproduced. **Blocked on:** one TestFlight seed.
 
 ### ~~3.5 iPad has no PDF export at all~~ — built 8 Aug 2026, pulled into 3.3
 

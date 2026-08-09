@@ -119,6 +119,16 @@ Everything below is now built in `PaywallView.swift`. This section records the d
 - **Icons corrected:** Shared Teams uses `person.2.wave.2.fill` (matches the in-app Share Team button, avoids reusing the Players-tab `person.3.fill`); Lineup Templates uses `square.stack.3d.up.fill`; pitch tracking uses `figure.baseball` (the mock's `figure.baseball.pitcher` does not exist and renders blank).
 - **Legacy $4.99 buyers are grandfathered into full Pro forever**, enforced in `PurchaseManager.productGrantsPro` and guarded by `PurchaseManagerEntitlementTests`.
 
+### What a shared team's *recipient* pays for — decided 8 Aug 2026
+
+Pro is per-account, never per-team, and stays that way. Three decisions on top of that, all made while reworking sharing. None is derivable from the code, so they are recorded here.
+
+- **A view-only assistant gets the Coaches Guide free.** The case it exists for: a head coach running late asks an assistant to print the guide for the dugout. Charging that assistant for a read-only copy of a lineup they cannot even edit would block a job the head coach has already paid for. Implemented as `LineupPDFExport.canExportCoachesGuide` — `isPro || (isSharedParticipant && isReadOnly)` — and the PRO badge disappears with the gate. Exports carry an `entitlement` analytics parameter (`pro` / `readonly_participant`) so the unlock's real usage is measured rather than assumed.
+- **A read-write assistant is a co-coach and pays like a head coach.** They are deliberately *not* included above. Pro being per-account already delivers this: an unpaid read-write assistant gets exactly the free tier any unpaid coach gets. No extra gating was added, and none is wanted.
+- **The Assistant Coaches row in Edit Team is not paywalled on a *received* team.** Pro buys the ability to *share*. That row is the only place an invited coach can learn who invited them and what they are allowed to do, and withholding an answer about access they already have behind a purchase is the wrong trade. Owned teams are gated as before.
+
+**Consequence worth being deliberate about:** one Pro head coach can equip any number of *free* read-write assistants with full edit access to the roster and lineup. That is a monetisation choice, not an oversight — flagged 8 Aug and accepted.
+
 **Final source → hero mapping:**
 
 | Source | Hero |
