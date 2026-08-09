@@ -190,6 +190,22 @@ final class AppRouter: ObservableObject {
         var isFresh: Bool { Date().timeIntervalSince(createdAt) < 60 }
     }
 
+    /// Explicitly nonisolated because there is nothing to tear down, and because
+    /// the isolated one crashes.
+    ///
+    /// A `@MainActor` class gets an isolated deinit under this project's
+    /// concurrency settings, which routes deallocation through
+    /// `swift_task_deinitOnExecutorImpl`. That path aborts in libmalloc —
+    /// "pointer being freed was not allocated" — when the instance is released
+    /// from a synchronous `@MainActor` context. The app never hit it because
+    /// `shared` is a static that is never deallocated; the only code that
+    /// releases an `AppRouter` is `STLRouteTests`, and both tests that do so
+    /// crashed rather than failed. Backlog 3.7.
+    ///
+    /// This class holds three optional value-typed `@Published` properties and
+    /// owns no resources, so there is genuinely no isolated cleanup to do.
+    nonisolated deinit {}
+
     /// Set by producers, observed by both navigation hierarchies. Deliberately
     /// not cleared after handling: consumers key off the changing nonce, and
     /// clearing would race the two observers against each other.

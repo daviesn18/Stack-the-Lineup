@@ -26,7 +26,7 @@
 
 State of the repo: `main` is at `a9649d3` and **pushed** — the four commits from the 8 Aug session (`007a18e` the sharing rework and notification fixes, `e0353f9` the 1.4 device results and 1.7, `3050bbe` opening 1.8 and 3.5, `d6e9a9c` closing both), then `2e0b834` recording the Pro decisions and 3.6, and `a9649d3` the build bump.
 
-**`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. ⚠️ **The suite is not green — see 3.7.** Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+**`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green — **322 of 322**, restored 9 Aug by 3.7. Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -60,7 +60,7 @@ State of the repo: `main` is at `a9649d3` and **pushed** — the four commits fr
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
 | 3.6 | A seed produced no team; cause unknown | ? | **One TestFlight seed.** Leading theory is a KV-store clobber — a data-loss shape |
-| **3.7** | **Two `STLRouteTests` fail — the suite is not green** | S? | **Nothing.** Found 9 Aug; predates 1.9 and reproduces in isolation |
+| ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
 | **Stage 4 — decisions and long poles** ||||
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
@@ -566,7 +566,24 @@ That is the same shape as the July 2026 wipe those comments reference, and there
 
 **Size:** unknown until reproduced. **Blocked on:** one TestFlight seed.
 
-### 3.7 Two `STLRouteTests` fail, and the backlog said the suite was green
+### ~~3.7 Two `STLRouteTests` fail, and the backlog said the suite was green~~ — ✅ fixed 9 Aug 2026
+
+> **Cause: an isolated `deinit` aborting in the Swift runtime. Not an assertion failure — both tests were crashing the host process.**
+>
+> `xcodebuild`'s console output says only "failed", which is what made this look like a logic or ordering problem for most of a session. The `.xcresult` says `Crash: Stack the Lineup`, and the exported `.ips` gives the real stack: `AppRouter.__deallocating_deinit` → `swift_task_deinitOnExecutorImpl` → `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED` → `SIGABRT`.
+>
+> `AppRouter` is `@MainActor`, so under this project's concurrency settings its deinit is isolated and deallocation is routed through the concurrency runtime, where it aborts. **The app never hit it because `AppRouter.shared` is a static that is never deallocated** — the only code in the entire project that releases an `AppRouter` is these two tests, which is exactly why only they failed.
+>
+> **Fixed** with an explicit `nonisolated deinit {}` on `AppRouter` (`STLRoute.swift`). The class holds three optional value-typed `@Published` properties and owns no resources, so there is no isolated cleanup to skip. **322 of 322 pass.**
+>
+> **Two things to carry forward.** This is a workaround for runtime misbehaviour, not a defect in `AppRouter` — if the class ever gains a resource needing main-actor teardown, that comment is what has to be revisited. And it is the same territory as **4.5**: `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` plus `SWIFT_APPROACHABLE_CONCURRENCY` is what makes the deinit isolated at all, so expect more of this shape during that migration.
+>
+> **Method worth reusing:** when a test "fails" with no assertion text, go to the `.xcresult` before theorising. Two hypotheses died on the way here — parallel-clone contention, then test ordering — and both were disproved by evidence that cost a couple of minutes to fetch.
+
+---
+
+*Original finding, kept for the reasoning:*
+
 
 **Found 9 Aug 2026** while checking whether 1.9's fix regressed anything. It did not — but the check turned up that **`Lineup BuilderTests` has been failing**, and this file has been asserting "Suite green" regardless.
 
