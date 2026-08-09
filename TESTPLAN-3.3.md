@@ -6,7 +6,7 @@ Work top to bottom. §0 takes two minutes and can invalidate the whole build, so
 
 **Build under test:** TestFlight **`3.3 (37)`** — uploaded 9 Aug. This is the first build containing the sharing rework, the notification fixes, 1.8's read-only gating and 3.5's iPad export, so it is the first build on which most of this plan means anything.
 
-> **§1, §2 and §4 are closed.** They passed (or, for 2.3, failed and were triaged) on build 35 on 7–8 Aug; their outcomes are recorded in place below and in `BACKLOG.md`. **What is live on build 37 is §0a, §0c and §3** — plus the newer work that postdates this plan and lives in the backlog: **1.7** steps 1–13, **1.8** step 9, and **3.5**'s locked path. §3 is the same push test as 1.7 step 12; run it once, from 1.7.
+> **Most of this plan is closed.** §1, §2 and §4 passed (or, for 2.3, failed and were triaged) on build 35 on 7–8 Aug; §0b and §0c are settled as of 9 Aug. Their outcomes are recorded in place below and in `BACKLOG.md`. **What is left is device work only:** §0a's build check, then the newer items that postdate this plan and live in the backlog — **1.7** steps 1–13, **1.8** step 9, and **3.5**'s locked path. §3 is the same push test as 1.7 step 12; run it once, from 1.7.
 
 ---
 
@@ -57,21 +57,36 @@ nm "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Product
 
 *Run 7 Aug: **0** for both the app and the widget.* This answers the question that was open — a plain `xcodebuild build -configuration Release` instruments with `-profile-generate` and produces ~9,000 profiling symbols, but **the Archive action does not**. Nothing to fix. Keep the check as a cheap regression guard if the scheme's Test options are ever edited.
 
-### 0c. Push environment — check the **export**, not the archive
+### 0c. Push environment — ✅ **`production` on build 37, 9 Aug**
 
-> ⚠️ **Do not run this against the `.xcarchive`.** It will say `development` even when everything is correct. With automatic signing, Xcode archives using the development certificate and **re-signs at distribution time** — the archive's own entitlements are the pre-signing state. (Confirmed 7 Aug: the archive shows `aps-environment: development` *and* `get-task-allow: true`, which together just mean "development-signed archive," not "broken build.")
+- [x] Prints **`production`** — run 9 Aug against the exported build 37 IPA
 
-Check the artifact that actually ships. In Organizer → **Distribute App** → choose **App Store Connect**, then either **Export** to disk, or upload and use the Export step's copy. Then:
-
-```bash
-codesign -d --entitlements :- "/path/to/exported/Payload/Stack the Lineup.app" 2>/dev/null | grep -A1 aps-environment
+```
+aps-environment                                    production
+get-task-allow                                     false
+com.apple.developer.icloud-container-environment    Production
+beta-reports-active                                 true
+Authority=Apple Distribution: NICHOLAS EDWARD DAVIES (6R6HA6RU2S)
 ```
 
-- [ ] Prints **`production`**
+**So §3 / 1.7 step 12 cannot fail for signing reasons.** If the push doesn't arrive, skip straight to reason 2 and 3 below — permission and registration, then the Worker. That is the whole value of this check: 1.2 spent a day on the Worker, and a sandbox-APNs build fails in a way indistinguishable from a broken one.
 
-If it prints `development`, **stop**. The app registers against sandbox APNs, the tokens it writes to CloudKit are invalid for the production host the Worker uses, and §3 fails in a way that looks exactly like a broken Worker.
+> ⚠️ **Do not run this against the `.xcarchive`.** It will say `development` even when everything is correct. With automatic signing, Xcode archives using the development certificate and **re-signs at distribution time** — the archive's own entitlements are the pre-signing state. Confirmed across builds 34–37: every archive shows `aps-environment: development` *and* `get-task-allow: true`, which together just mean "development-signed archive," not "broken build." A check that answers the same in the healthy and broken cases is worse than no check.
 
-**Simpler alternative if you'd rather not export a copy:** skip this and let §3 be the test. If the push arrives, the environment was right. This check only exists to tell a signing problem apart from a Worker problem *before* you spend the device session on it.
+To re-run after any signing or capability change, check the artifact that actually ships. Organizer → **Distribute App** → **App Store Connect** → **Export** to disk, then:
+
+```bash
+unzip -o -q "/path/to/export/Stack the Lineup.ipa" -d /tmp/stl-ipa
+codesign -d --entitlements :- "/tmp/stl-ipa/Payload/Stack the Lineup.app" 2>/dev/null | tr '>' '>\n' | grep -A2 -E "aps-environment|get-task-allow"
+```
+
+Expected `production`, and `get-task-allow` **false or absent**. If it prints `development`, **stop** — the app registers against sandbox APNs, the tokens it writes to CloudKit are invalid for the production host the Worker uses, and §3 fails looking exactly like a broken Worker.
+
+**Equivalent from the command line**, which skips the Organizer entirely — `-exportArchive` with `destination: export` uploads nothing:
+
+```bash
+xcodebuild -exportArchive -archivePath "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)" -exportPath /tmp/stl-export -exportOptionsPlist /path/to/ExportOptions.plist -allowProvisioningUpdates
+```
 
 ---
 
@@ -232,8 +247,8 @@ Do this while the shared team is still set up. **APNs has never delivered a real
 
 If nothing arrives, check in this order — cheapest first, and note that the first two are far more likely than the third:
 
-1. **§0a** — did the archive embed `development`? Sandbox tokens can't receive production pushes.
-2. **Notification permission** granted on the receiving device, and the app has been launched there at least once so it has registered a token.
+1. ~~**Signing** — did the build embed `development`?~~ **Ruled out for 37** in §0c: the shipped IPA is `production`. Don't spend time here.
+2. **Notification permission** granted on the receiving device, and the app has been launched there at least once so it has registered a token. **Most likely suspect now** — and 1.7's bugs (b) and (c) were both exactly this, a team that never got a `DeviceToken` written for it.
 3. Only then the Worker. Health check (sends nothing, safe any time):
 
 ```bash

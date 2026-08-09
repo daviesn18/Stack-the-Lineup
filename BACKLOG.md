@@ -10,17 +10,19 @@
 
 **Sharing was reworked into 3.3 on 8 Aug — see 1.7.** That was a deliberate scope call: a release is still weeks out, and device testing on 7 Aug found the whole Shared Team surface unusable. **~~1.4~~ closed the same day — all eight steps of the 2.4a plan pass on hardware**, which was the largest finding in the August audit and had never been exercised on a device.
 
-**Three things stand between here and the submission: 1.5, 1.7 and 1.8** — and 1.8 is already fixed in code, needing only its device step. **3.3 grew on 8 Aug by decision:** the sharing rework, the notification fixes, and iPad PDF export (3.5) are all in it, on the grounds that they are cleanup of bad design rather than new scope.
+**What stands between here and the submission is now all device work: 1.7, 1.8 and 3.5's locked path** — 1.8 and 3.5 are already fixed in code and need only their device steps. **~~1.5~~ closed 9 Aug**, so nothing is left at the desk. **3.3 grew on 8 Aug by decision:** the sharing rework, the notification fixes, and iPad PDF export (3.5) are all in it, on the grounds that they are cleanup of bad design rather than new scope.
 
-1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build is now **37** (`a9649d3`), set at the project level, with both targets verified resolving to it from the shell. The drift trap in 1.1 did not fire this time. **Uploading 9 Aug.**
-2. **Run 1.5a from [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) §0c, against the exported IPA** — not the archive, which answers `development` every time whether or not anything is wrong. **1.5b is closed**: Archive does not instrument. Both were settled in TESTPLAN on 7 Aug; this file was two days stale on them. See 1.5.
+1. ~~**Archive and upload to TestFlight.**~~ ✅ **9 Aug — build `3.3 (37)` uploaded.** Set at the project level (`a9649d3`), both targets verified resolving to `37 / 3.3` from the shell before archiving. The drift trap in 1.1 did not fire this time, and 37 is the first build whose widget matches.
+2. ~~**Check the shipped build's push environment.**~~ ✅ **9 Aug — `aps-environment: production`** on the exported IPA, with `get-task-allow: false` and an Apple Distribution authority. See 1.5. **The consequence for the device session: if the push fails in 1.7 step 12, it is not signing.**
 3. **Run 1.7 — the reworked sharing surface.** Steps 1–11 can go from Xcode builds and are the fast loop; **steps 12–13 need TestFlight**, because push cannot work from a Debug build against the current Worker. See the environment note in that item before you start, and make sure all three devices run the same build type.
-4. **The push test rides on 1.7 step 12.** It used to hang off 1.4; it was being tracked in three places and now lives in one. It is still the only part of the notification chain never exercised — see the caveat in 1.2.
+4. **The push test rides on 1.7 step 12.** It used to hang off 1.4; it was being tracked in three places and now lives in one. It is still the only part of the notification chain never exercised — see the caveat in 1.2. Signing is now ruled out in advance, and the Worker health-checked clean on 9 Aug.
 5. **Seed a test team on TestFlight and watch what happens** (3.6). One tap, and it either reproduces the 8 Aug failure or clears the leading theory. Free while you are installing builds anyway.
 
 **Decisions made on 8 Aug that are not derivable from the code** are recorded in [`PAYWALL-design-handoff.md`](PAYWALL-design-handoff.md) under "What a shared team's recipient pays for" — who pays for what on a shared team, and the accepted consequence that one Pro coach can equip any number of free read-write assistants.
 
-> **Where the 9 Aug session started.** The bump to 37 is done and pushed. Both 1.5 checks were re-run against the 8 Aug archive and reproduced what TESTPLAN §0 already recorded on 7 Aug — this file was the stale copy, now corrected. Remaining plan for 9 Aug: upload 37, run 1.5a on the **exported IPA**, install on **all three devices** so they share one CloudKit environment, then 1.7 end to end including the push steps, plus 1.8's step 9 and 3.5's locked-path check on a non-Pro device. 3.6's seed is free while installing.
+> **Where the 9 Aug session stands.** Build 37 is bumped, pushed, archived and uploaded, and 1.5 is closed on the exported IPA. **Everything remaining is on hardware.** Install 37 on **all three devices from TestFlight** so they share one CloudKit environment, then 1.7 end to end including the push steps, 1.8's step 9, and 3.5's locked path on a non-Pro device. 3.6's seed is free while installing.
+>
+> **One sequencing note that is easy to get wrong:** 1.7's steps 5–8 tear the share down, and 1.8 and 3.5 both need it standing. Run 1.7 steps 1–4, then 9–13, then 1.8 step 9 and 3.5, and only then 1.7 steps 5–8. **Accept the invite cold** — app fully closed, not backgrounded — because that single action is also step 9, which is the test of `PendingShareAcceptance`; accepting it warm spends the one clean attempt.
 
 State of the repo: `main` is at `a9649d3` and **pushed** — the four commits from the 8 Aug session (`007a18e` the sharing rework and notification fixes, `e0353f9` the 1.4 device results and 1.7, `3050bbe` opening 1.8 and 3.5, `d6e9a9c` closing both), then `2e0b834` recording the Pro decisions and 3.6, and `a9649d3` the build bump.
 
@@ -40,7 +42,7 @@ State of the repo: `main` is at `a9649d3` and **pushed** — the four commits fr
 | ~~1.2~~ | ~~Worker deploy + Production CloudKit~~ | — | ✅ **6 Aug** — was silently broken; fixed and verified |
 | ~~1.3~~ | ~~Siri phrases on a physical device~~ | — | ✅ **7 Aug** — 6 of 9 pass; 3 entity ones accepted picker-degraded |
 | ~~1.4~~ | ~~iPad read-only on two devices~~ | — | ✅ **8 Aug** — all 8 steps pass; 2.4a confirmed both ways |
-| **1.5** | **Is the shipped build's push environment `production`?** | S | **An exported IPA.** ~~1.5b~~ ✅ 7 Aug; run 1.5a from TESTPLAN §0c |
+| ~~1.5~~ | ~~Is the shipped build's push environment `production`?~~ | — | ✅ **9 Aug** — `production` on the exported IPA; coverage settled 7 Aug |
 | ~~1.6~~ | ~~What's New quotes Siri phrases that can't work~~ | — | ✅ **7 Aug** — copy rewritten; ships in 36 |
 | **1.7** | **Verify the reworked sharing surface on device** | M | **A second iCloud account.** Steps 1–11 run from Xcode; 12–13 need TestFlight |
 | **1.8** | **iPad nav bar read-only gating** | S | **Fixed in code 8 Aug.** Needs step 9 on device |
@@ -250,21 +252,31 @@ There's a second-order problem. The copy teaches coaches that bare questions wor
 
 **Size:** S — copy only, no logic. But it's user-facing text in a shipping build, so it rides on 36.
 
-### 1.5 Is the shipped build's push environment `production`?
+### ~~1.5 Is the shipped build's push environment `production`?~~ — ✅ **yes, 9 Aug 2026**
 
-**Source:** found 6 Aug while verifying the Release build. **The live version of this item is [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) §0** — §0b for coverage, §0c for the push environment. Run it from there; what follows is the state, not a third copy of the commands.
+**Source:** found 6 Aug while verifying the Release build. Both halves are now answered, and neither found a problem. The commands live in [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) §0 — §0b for coverage, §0c for the push environment — and are worth keeping as regression guards.
 
-> ⚠️ **This entry was stale from 7 Aug to 9 Aug, and that is the finding worth keeping.** Both halves were resolved in TESTPLAN §0 on **7 Aug** — including the warning not to run the push check against the `.xcarchive` at all. This file kept telling you to do exactly that for two more days. Re-running both checks on 9 Aug against the 8 Aug archive reproduced TESTPLAN's results exactly; it discovered nothing. **The test plan was right and the index was stale** — the precise failure the closing section of this file was written to prevent, recurring inside the file that describes it.
+**a — push environment: `production`.** Read off the **exported IPA** for build 37, not the archive:
 
-**b — coverage instrumentation: closed, no action.** 0 `__llvm_prf` symbols in the app binary and 0 in `STLWidgetExtension.appex`. `ENABLE_CODE_COVERAGE` resolves to `YES` for Release and reaches a plain `xcodebuild build` — ~9,000 profiling symbols across both targets — but **Product → Archive does not inherit it**. Settled 7 Aug on build 35, re-confirmed 9 Aug on build 36. Nothing to change in the scheme; keep the command as a regression guard if the Test options are ever edited.
+| Key | Value |
+|---|---|
+| `aps-environment` | **`production`** |
+| `get-task-allow` | `false` |
+| `com.apple.developer.icloud-container-environment` | `Production` |
+| `beta-reports-active` | `true` |
+| Authority | `Apple Distribution: NICHOLAS EDWARD DAVIES (6R6HA6RU2S)` |
 
-**a — push environment: still open, and only the export can answer it.** Every archive this project produces is signed `Apple Development` with `get-task-allow: true` — builds 34, 35 and 36 alike — so its entitlements read `aps-environment: development` **whether or not anything is wrong**. The distribution re-sign happens at Distribute App, after the point an archive-level check can see. Check the exported IPA's payload app, per TESTPLAN §0c. Expected `production`.
+**The consequence that matters for the device session: a 1.7 step 12 push failure is not a signing problem.** That was the whole point of the check — 1.2 spent a day on the Worker, and the failure this was guarding against would have looked identical to a Worker fault. Signing is now ruled out in advance, and the Worker health-checked clean the same morning, so a silent push points at the app's own registration path — bugs (b) and (c) in 1.7, which is what steps 12–13 are for.
 
-**Why it still matters:** TestFlight talks to production APNs and 1.2 pointed the Worker at `api.push.apple.com`. A `development` entitlement means sandbox registration, tokens invalid for that host, and a 1.7 push failure that **looks exactly like a Worker fault** — having just spent a day fixing the Worker for real. TESTPLAN §0c's alternative stands: skip the export and let 1.7 step 12 be the test, accepting that a failure then costs a session to attribute.
+**b — coverage instrumentation: none.** 0 `__llvm_prf` symbols in the app binary and 0 in `STLWidgetExtension.appex`. `ENABLE_CODE_COVERAGE` resolves to `YES` for Release and reaches a plain `xcodebuild build` — ~9,000 profiling symbols across both targets — but **Product → Archive does not inherit it**. Settled 7 Aug on build 35, re-confirmed 9 Aug on build 36. Nothing to change in the scheme.
+
+**The trap this item leaves behind, which is the part worth remembering.** The original command pointed at the `.xcarchive`, and **every archive this project produces is signed `Apple Development` with `get-task-allow: true`** — builds 34 through 37 alike. Its entitlements therefore read `aps-environment: development` *whether or not anything is wrong*. The distribution re-sign happens at **Distribute App**, after the point an archive-level check can see. A check that returns the same answer in the healthy and broken cases is worse than no check, because `development` reads as a finding. Anyone re-verifying this after a signing or capability change must use the export.
+
+> ⚠️ **This entry was stale from 7 Aug to 9 Aug, and that is the second thing worth keeping.** TESTPLAN §0 had both halves right on **7 Aug**, including the warning not to run the push check against the archive. This file went on telling you to do exactly that for two more days, and the 9 Aug re-run against the 8 Aug archive reproduced TESTPLAN's results and discovered nothing. **The test plan was right and the index was stale** — the precise failure the closing section of this file exists to prevent, recurring inside the file that describes it.
 
 > Practical note for anything that touches these paths: **archive directory names contain a narrow no-break space (U+202F) before AM/PM.** A path pasted out of `ls` output as a plain space silently won't resolve — and `find` will report the archive missing while `ls` shows it present. Every command in TESTPLAN §0 uses the `$(ls -td … | head -1)` form, which sidesteps it.
 
-**Size:** S. **Blocked on:** an exported IPA for the remaining half.
+**Size:** S. **Closed 9 Aug** on build 37.
 
 ### ~~1.1 The widget's bundle version doesn't match the app's~~ — ✅ done 6 Aug 2026
 
