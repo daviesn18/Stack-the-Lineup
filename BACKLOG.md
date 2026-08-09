@@ -47,7 +47,7 @@ State of the repo: `main` is at `a9649d3` and **pushed** — the four commits fr
 | **1.7** | **Verify the reworked sharing surface on device** | M | **A second iCloud account.** Steps 1–11 run from Xcode; 12–13 need TestFlight |
 | ~~1.8~~ | ~~iPad nav bar read-only gating~~ | — | ✅ **9 Aug** — step 9 passes both ways on device |
 | **1.9** | **A cold-launched device never registers for push** | M | **Nothing.** Diagnosed 9 Aug; the fix is the 8 Aug `PendingShareAcceptance` pattern |
-| **1.10** | **Link permission overrides an assistant's own permission** | M | **A design decision** — link sharing vs invite-by-address. Defeats read-only from another screen |
+| **1.10** | **Link permission overrides an assistant's own permission** | M | **Fixed in code 9 Aug** — decided: honest UI. Needs a device pass |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -198,6 +198,16 @@ The two directions differ because `triggeredBy` is `team.coachName` (`Notificati
 **Why this is more than a wording problem.** A head coach who sets the link to **Can edit** — to invite a second assistant — **silently grants write access to every link-joined assistant already on the team, including ones deliberately set to View only.** That defeats the read-only guarantee from a screen that never mentions it. 1.4, 1.8 and audit finding 2.4a exist to make view-only mean something; this undoes it from the side.
 
 It also casts doubt on step 5. Setting the participant to Can edit appeared to stick, but on a public participant that may have been `publicPermission` agreeing by coincidence rather than a per-participant value being honoured. **Re-test step 5 with the link set to View only** before trusting it.
+
+> **Decided 9 Aug: option 2, the honest UI — fixed in code, needs a device pass.** The per-participant picker is gone; a participant's access is now shown read-only, and the Invite Link section is the single authority. The false footer is replaced by copy that states the real rule: *"Coaches join by tapping your link, and iCloud gives them all the same access — so changing this changes it for everyone, including coaches who already joined."*
+>
+> `CloudKitManager.setPermission` is **kept and deliberately unreferenced.** It is correct, and it becomes the mechanism the day coaches are invited by Apple ID — which is option 1 and the only route that makes per-coach permissions real. Delete it if that route is ruled out.
+>
+> **The cost, accepted:** a team cannot mix a view-only assistant with a can-edit one. Everyone who joins by link shares one level. That was judged the right trade for 3.3 against losing the forward-a-link flow, which the 8 Aug rework chose deliberately.
+>
+> **On device:** change the link permission with a coach already joined and confirm the screen no longer claims they are unaffected; confirm the participant detail shows access read-only; confirm removing a coach still works. Then re-run 1.7 step 5 knowing the per-participant control is gone — **that step needs rewriting**, since it tests a control that no longer exists.
+>
+> ⚠️ **Noticed while fixing, not changed:** `pendingPermission` defaults to `.readWrite`, so a coach who doesn't touch the picker shares their team as **Can edit**. With one permission now governing everyone, that default decides more than it used to. Worth a deliberate call rather than leaving it as the value it happened to have.
 
 **Three ways out, and this is a product decision, not a cleanup:**
 

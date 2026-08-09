@@ -301,15 +301,6 @@ struct TeamSharingView: View {
         ParticipantDetailView(
             participant: participant,
             teamName: teamName,
-            onSetPermission: { permission in
-                await mutate("Updating…") { recordName in
-                    try await CloudKitManager.shared.setPermission(
-                        permission,
-                        forParticipant: participant.id,
-                        teamRecordName: recordName
-                    )
-                }
-            },
             onRemove: {
                 await mutate("Removing…") { recordName in
                     try await CloudKitManager.shared.removeParticipant(
@@ -337,7 +328,13 @@ struct TeamSharingView: View {
         } header: {
             Text("Invite Link")
         } footer: {
-            Text("Coaches who tap your link join with this access. Changing it doesn't affect anyone who has already joined — set theirs on their own row above.")
+            // This footer used to promise that changing the link left existing
+            // coaches alone. Device testing on 9 Aug disproved it: a coach who
+            // joins by tapping a link is a *public* participant, and CloudKit
+            // governs public participants by the share's publicPermission —
+            // there is no separate per-participant value for them to keep. See
+            // backlog 1.10.
+            Text("This is what every coach on the team can do. Coaches join by tapping your link, and iCloud gives them all the same access — so changing this changes it for everyone, including coaches who already joined.")
         }
     }
 
@@ -536,30 +533,20 @@ private struct ParticipantDetailView: View {
 
     let participant: ShareParticipantInfo
     let teamName: String
-    let onSetPermission: (TeamSharePermission) async -> Void
     let onRemove: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var permission: TeamSharePermission
-    /// What CloudKit last accepted. Compared against on change so toggling away
-    /// and back still writes — comparing against the participant's original
-    /// permission would silently drop the second edit.
-    @State private var committedPermission: TeamSharePermission
     @State private var showingRemoveConfirmation = false
 
     init(
         participant: ShareParticipantInfo,
         teamName: String,
-        onSetPermission: @escaping (TeamSharePermission) async -> Void,
         onRemove: @escaping () async -> Void
     ) {
-        self.participant     = participant
-        self.teamName        = teamName
-        self.onSetPermission = onSetPermission
-        self.onRemove        = onRemove
-        _permission          = State(initialValue: participant.permission)
-        _committedPermission = State(initialValue: participant.permission)
+        self.participant = participant
+        self.teamName    = teamName
+        self.onRemove    = onRemove
     }
 
     var body: some View {
@@ -586,18 +573,20 @@ private struct ParticipantDetailView: View {
                 .padding(.vertical, 8)
             }
 
+            // Read-only, deliberately. This was an editable picker until 9 Aug,
+            // when device testing showed CloudKit ignoring it: a coach who joins
+            // from an invite link is a public participant, whose access is the
+            // share's publicPermission and not a value of their own. Offering a
+            // control here made the app claim a guarantee it could not keep —
+            // and worse, changing the link silently re-permissioned coaches who
+            // had deliberately been set to View only. Backlog 1.10; the way to
+            // make this editable for real is per-coach invites by Apple ID.
             Section {
-                Picker("Access", selection: $permission) {
-                    ForEach(TeamSharePermission.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
+                LabeledContent("Access", value: participant.permission.title)
             } header: {
                 Text("What they can do")
             } footer: {
-                Text(permission.explanation)
+                Text("\(participant.permission.explanation)\n\nEveryone who joins from your invite link gets the same access. To change it, use Invite Link on the previous screen.")
             }
 
             Section {
@@ -616,11 +605,6 @@ private struct ParticipantDetailView: View {
         }
         .navigationTitle(participant.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: permission) { _, newValue in
-            guard newValue != committedPermission else { return }
-            committedPermission = newValue
-            Task { await onSetPermission(newValue) }
-        }
         .confirmationDialog(
             "Remove \(participant.displayName)?",
             isPresented: $showingRemoveConfirmation,

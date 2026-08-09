@@ -823,9 +823,17 @@ actor CloudKitManager {
         return Self.makeInfo(from: savedShare)
     }
 
-    /// Changes what a newly tapped invite link grants. Coaches who already
-    /// accepted keep the permission they joined with — CloudKit stores theirs
-    /// per participant, which is why the UI states the two separately.
+    /// Changes what the invite link grants — which, for this app, means what
+    /// **every** coach on the team can do.
+    ///
+    /// This comment used to say the opposite: that coaches who already accepted
+    /// keep the permission they joined with, "which is why the UI states the two
+    /// separately." Device testing on 9 Aug disproved it. Everyone here joins by
+    /// tapping a link, which makes them a *public* participant, and CloudKit
+    /// governs public participants by `publicPermission` — they have no separate
+    /// permission to keep. The old belief let a coach silently promote a
+    /// deliberately view-only assistant to read-write by changing the link. See
+    /// backlog 1.10.
     func setLinkPermission(_ permission: TeamSharePermission, teamRecordName: String) async throws -> TeamShareInfo {
         let share = try await share(forTeamRecordName: teamRecordName)
         share.publicPermission = permission.ckPermission
@@ -838,6 +846,14 @@ actor CloudKitManager {
     }
 
     /// Changes one participant's permission.
+    ///
+    /// **Deliberately unreferenced since 9 Aug.** CloudKit accepts this write,
+    /// but for a participant who joined from an invite link it does not survive
+    /// — `publicPermission` is authoritative for them, so the UI that called
+    /// this was removed rather than left promising something it couldn't do.
+    /// Kept because it is correct and becomes the mechanism the moment coaches
+    /// are invited by Apple ID, which is the real fix for 1.10. Delete it if
+    /// that route is ruled out.
     func setPermission(
         _ permission: TeamSharePermission,
         forParticipant participantID: String,
