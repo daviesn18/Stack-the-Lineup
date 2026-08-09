@@ -13,9 +13,10 @@ struct LineupView: View {
     /// stood down separately by the `horizontalSizeClass != .regular` guard.
     var isTourTabActive: Bool = true
 
-    @State private var generatedPDF: PDFDocument? = nil
+    /// The only export state this view owns. Presentation, entitlement, and the
+    /// purchase promotion all live in `lineupPDFExports(request:)`.
+    @State private var pdfRequest: LineupPDFRequest? = nil
     @State private var showingTips = false
-    @State private var lockedPDF: PDFDocument? = nil
     @State private var showingScheduleImport = false
     @State private var showingSchedulePicker = false
     @State private var scheduleImportToast: String? = nil
@@ -37,25 +38,14 @@ struct LineupView: View {
 
     private var isReadOnly: Bool { store.activeTeam.isReadOnly }
 
-    /// True on a team another coach shared with this device as view-only.
-    ///
-    /// `isReadOnly` is only ever set on a received team, but both are checked
-    /// so the intent survives anyone repurposing the flag later — this must not
-    /// become a way to unlock a Pro export on a team you own.
-    private var isReadOnlyParticipant: Bool {
-        let team = store.activeTeam
-        return team.isSharedParticipant && team.isReadOnly
-    }
-
-    /// Whether the Coaches Guide export is unlocked here.
-    ///
-    /// Pro buys it, and so does being a view-only assistant on someone else's
-    /// team. The case that matters: a head coach running late asks an assistant
-    /// to print the guide for the dugout. Charging that assistant for a
-    /// read-only copy of a lineup they cannot even edit would block a job the
-    /// head coach has already paid for. The Pro badge disappears with the gate.
+    /// Whether the Coaches Guide is unlocked here — shared with iPad via
+    /// `LineupPDFExport`. Drives the PRO badge; the export path checks the same
+    /// rule itself. See that type for why a view-only assistant qualifies.
     private var canExportCoachesGuide: Bool {
-        purchaseManager.isPro || isReadOnlyParticipant
+        LineupPDFExport.canExportCoachesGuide(
+            team: store.activeTeam,
+            isPro: purchaseManager.isPro
+        )
     }
 
     // MARK: - Fair Play Summary (drives the inline header chip)
@@ -199,21 +189,7 @@ struct LineupView: View {
                 }
             }
         }
-        .sheet(item: $generatedPDF) { pdf in
-            PDFPreviewView(document: pdf)
-        }
-        .fullScreenCover(item: $lockedPDF) { pdf in
-            ProGate(source: "pdf_export", navTitle: "Coaches Guide") {
-                PDFKitView(data: pdf.data)
-            }
-            .environmentObject(purchaseManager)
-        }
-        .onChange(of: purchaseManager.isPro) { _, isPro in
-            if isPro, let pdf = lockedPDF {
-                lockedPDF = nil
-                generatedPDF = pdf
-            }
-        }
+        .lineupPDFExports(request: $pdfRequest)
         .sheet(isPresented: $showingTips) {
             PageTipsView(page: .lineup)
         }
@@ -269,8 +245,8 @@ struct LineupView: View {
                 }
                 ExportBar(
                     isCoachesGuideUnlocked: canExportCoachesGuide,
-                    onExportBattingOrder: exportBattingOrder,
-                    onExportCoachesGuide: exportCoachesGuide
+                    onExportBattingOrder: { pdfRequest = .battingOrder },
+                    onExportCoachesGuide: { pdfRequest = .coachesGuide }
                 )
                 .tourTip(Tour.lineup.currentTip as? LineupExportTip, arrowEdge: .bottom,
                          enabled: isTourTabActive)
@@ -298,43 +274,6 @@ struct LineupView: View {
                     }
                 }
             }
-        }
-    }
-
-    // MARK: - Export Actions
-
-    private func exportBattingOrder() {
-        let doc = PDFGenerator.generate(
-            type: .battingOrder,
-            lineup: store.lineup,
-            players: store.players,
-            teamName: store.teamName,
-            teamColor: store.teamColor
-        )
-        generatedPDF = doc
-        Analytics.signal("pdf.exported", parameters: ["type": "battingOrder"])
-    }
-
-    private func exportCoachesGuide() {
-        let doc = PDFGenerator.generate(
-            type: .coachesGuide,
-            lineup: store.lineup,
-            players: store.players,
-            teamName: store.teamName,
-            teamColor: store.teamColor,
-            gameLogs: store.gameLogs,
-            pitchingConfig: store.pitchingConfig
-        )
-        if canExportCoachesGuide {
-            generatedPDF = doc
-            Analytics.signal("pdf.exported", parameters: [
-                "type": "coachesGuide",
-                // Distinguishes a Pro export from an assistant's free one, so the
-                // unlock's real usage is visible rather than inferred.
-                "entitlement": purchaseManager.isPro ? "pro" : "readonly_participant"
-            ])
-        } else {
-            lockedPDF = doc
         }
     }
 }

@@ -157,6 +157,17 @@ private struct iPadNavBar: View {
     @State private var showingEditTeam = false
     @State private var showingAddTeam = false
     @State private var showingSettings = false
+    @State private var pdfRequest: LineupPDFRequest? = nil
+
+    private var isReadOnly: Bool { store.activeTeam.isReadOnly }
+
+    /// Drives the menu label only; the export path re-checks the same rule.
+    private var canExportCoachesGuide: Bool {
+        LineupPDFExport.canExportCoachesGuide(
+            team: store.activeTeam,
+            isPro: purchaseManager.isPro
+        )
+    }
 
     /// Distinct players implicated in a fair-play rule the team actually has
     /// switched on. Previously this called the rule helpers directly, which
@@ -249,26 +260,61 @@ private struct iPadNavBar: View {
                 .clipShape(Capsule())
             }
 
-            // Import schedule — Cmd+Shift+S
-            Button {
-                showingScheduleImport = true
-                Analytics.signal("schedule.import.tapped")
+            // Export — Cmd+P. Deliberately NOT gated on read-only: a view-only
+            // assistant printing the Coaches Guide for the dugout is the case
+            // the free unlock exists for. See LineupPDFExport.
+            //
+            // A menu rather than two more icons; this bar already carries the
+            // team switcher, game context, the violations pill, and settings.
+            Menu {
+                Button {
+                    pdfRequest = .battingOrder
+                } label: {
+                    Label("Batting Order", systemImage: "doc.text")
+                }
+                Button {
+                    pdfRequest = .coachesGuide
+                } label: {
+                    Label(
+                        canExportCoachesGuide ? "Coaches Guide" : "Coaches Guide (Pro)",
+                        systemImage: "doc.richtext.fill"
+                    )
+                }
             } label: {
-                Image(systemName: "calendar.badge.plus")
+                Image(systemName: "square.and.arrow.up")
                     .font(.title3)
             }
-            .keyboardShortcut("s", modifiers: [.command, .shift])
-            .help("Import Schedule (Cmd+Shift+S)")
+            .keyboardShortcut("p", modifiers: .command)
+            .help("Export PDF (Cmd+P)")
 
-            // Archive game — Cmd+Shift+A
-            Button {
-                showingArchive = true
-            } label: {
-                Image(systemName: "archivebox")
-                    .font(.title3)
+            // Import schedule and Archive both write to the team, so both are
+            // gated exactly as they are on iPhone. Before this, iPadNavBar held
+            // no isReadOnly reference at all — the 6 Aug read-only fix covered
+            // the sidebar and the panes and never reached the bar above them,
+            // so a view-only coach could import a schedule over the head
+            // coach's team and archive their game. Neither sheet guards itself.
+            if !isReadOnly {
+                // Import schedule — Cmd+Shift+S
+                Button {
+                    showingScheduleImport = true
+                    Analytics.signal("schedule.import.tapped")
+                } label: {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.title3)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .help("Import Schedule (Cmd+Shift+S)")
+
+                // Archive game — Cmd+Shift+A
+                Button {
+                    showingArchive = true
+                } label: {
+                    Image(systemName: "archivebox")
+                        .font(.title3)
+                }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .help("Archive Game (Cmd+Shift+A)")
             }
-            .keyboardShortcut("a", modifiers: [.command, .shift])
-            .help("Archive Game (Cmd+Shift+A)")
 
             Button {
                 showingSettings = true
@@ -305,6 +351,7 @@ private struct iPadNavBar: View {
                 .environmentObject(store)
                 .environmentObject(purchaseManager)
         }
+        .lineupPDFExports(request: $pdfRequest)
     }
 }
 

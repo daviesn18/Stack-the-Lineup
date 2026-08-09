@@ -10,14 +10,14 @@
 
 **Sharing was reworked into 3.3 on 8 Aug — see 1.7.** That was a deliberate scope call: a release is still weeks out, and device testing on 7 Aug found the whole Shared Team surface unusable. **~~1.4~~ closed the same day — all eight steps of the 2.4a plan pass on hardware**, which was the largest finding in the August audit and had never been exercised on a device.
 
-**Three things stand between here and the submission: 1.5, 1.7 and 1.8.** 1.8 is new and small — the iPad nav bar was never read-only gated, so 2.4a is not as closed as 1.4's pass suggests.
+**Three things stand between here and the submission: 1.5, 1.7 and 1.8** — and 1.8 is already fixed in code, needing only its device step. **3.3 grew on 8 Aug by decision:** the sharing rework, the notification fixes, and iPad PDF export (3.5) are all in it, on the grounds that they are cleanup of bad design rather than new scope.
 
 1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build has since moved to **36**; both targets resolve to it from the project level. See the 7 Aug note in 1.1 — the drift came back once.
 2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
 3. **Run 1.7 — the reworked sharing surface.** Steps 1–11 can go from Xcode builds and are the fast loop; **steps 12–13 need TestFlight**, because push cannot work from a Debug build against the current Worker. See the environment note in that item before you start, and make sure all three devices run the same build type.
 4. **The push test rides on 1.7 step 12.** It used to hang off 1.4; it was being tracked in three places and now lives in one. It is still the only part of the notification chain never exercised — see the caveat in 1.2.
 
-> **Where the 8 Aug session stopped.** The sharing and notification rework is committed (`007a18e`), building, and unit-green. **`CURRENT_PROJECT_VERSION` is still 36 and needs bumping to 37** at the project level in Xcode, not by hand — see 1.1, where app/widget drift has already recurred once. Plan for 9 Aug: fix 1.8 first (it is an S and it is a real read-only hole), bump to 37, archive, upload to TestFlight, install on **all three devices** so they share one CloudKit environment, then run 1.7 end to end including the push steps.
+> **Where the 8 Aug session stopped.** Everything for 37 is committed, building, and unit-green: the sharing rework and notification fixes (`007a18e`), then 1.8's read-only gating and 3.5's iPad export. **`CURRENT_PROJECT_VERSION` is still 36 and needs bumping to 37** at the project level in Xcode, not by hand — see 1.1, where app/widget drift has already recurred once. Plan for 9 Aug: bump to 37, archive, upload to TestFlight, install on **all three devices** so they share one CloudKit environment, then run 1.7 end to end including the push steps, plus 1.8's step 9 and 3.5's locked-path check on a non-Pro device.
 
 State of the repo: `main` is at `e0353f9` with the 8 Aug sharing rework and device results committed, **not yet pushed**; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
@@ -38,7 +38,7 @@ State of the repo: `main` is at `e0353f9` with the 8 Aug sharing rework and devi
 | **1.5** | **Two checks on the finished archive** | S | **An archive existing.** Both are one command |
 | ~~1.6~~ | ~~What's New quotes Siri phrases that can't work~~ | — | ✅ **7 Aug** — copy rewritten; ships in 36 |
 | **1.7** | **Verify the reworked sharing surface on device** | M | **A second iCloud account.** Steps 1–11 run from Xcode; 12–13 need TestFlight |
-| **1.8** | **iPad nav bar has no read-only gating — 2.4a not fully closed** | S | **Nothing.** Import Schedule and Archive Game are live for a view-only coach |
+| **1.8** | **iPad nav bar read-only gating** | S | **Fixed in code 8 Aug.** Needs step 9 on device |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -49,7 +49,7 @@ State of the repo: `main` is at `e0353f9` with the 8 Aug sharing rework and devi
 | 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
-| 3.5 | iPad has no PDF export at all | M | Nothing. Pull into 3.3 if the assistant-printing story should ship whole |
+| ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
 | **Stage 4 — decisions and long poles** ||||
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
@@ -116,9 +116,11 @@ Before the 6 Aug fix, a view-only participant on iPad could reassign positions, 
 
 **Open question about the 8 Aug run, carried to 1.7:** which build type each device ran. If the iPad ran an Xcode build while the assistant's phone was on TestFlight, the two were in different CloudKit environments and the iPad was reading a locally cached copy rather than a live share. **The result above stands either way** — the gating reads `isReadOnly` off local state — but the sync path would not have been exercised, and 1.7's steps 9–13 depend on it.
 
-### 1.8 The iPad nav bar has no read-only gating — 2.4a is not fully closed
+### ~~1.8 The iPad nav bar has no read-only gating~~ — fixed in code 8 Aug 2026, needs the device step
 
-**Found 8 Aug 2026, reading `iPadDashboardView.swift` while scoping 3.5.** Same class as 2.4a, and it survived both the fix and the device test.
+**Found and fixed 8 Aug 2026, reading `iPadDashboardView.swift` while scoping 3.5.** Same class as 2.4a, and it survived both the fix and the device test.
+
+> **Fixed:** Import Schedule and Archive Game are now wrapped in `if !isReadOnly` in `iPadNavBar`, matching `LineupView`. The new Export menu is deliberately outside that guard. **Unverified on hardware — run step 9 below.**
 
 `iPadNavBar` (lines 149–309) contains **zero** references to `isReadOnly`. The 6 Aug fix gated `SidebarRosterView` (740), `DetailPaneView` (1008) and `iPadPositionsPane` (1255) — every surface the test plan walks — and never touched the bar above them.
 
@@ -133,13 +135,11 @@ Neither `ArchiveGameSheet` nor `ScheduleImportView` guards internally — confir
 
 **Why the device test passed anyway.** The eight steps cover the banner and strip, By Inning, By Position, Pitching, the sidebar, Clear positions, the owned-team regression, and chip cosmetics. **None of them touch the nav bar.** The plan tested the panes because that is where the fix was; the gap is one level up.
 
-**Fix:** gate both buttons on `isReadOnly` in `iPadNavBar`, matching `LineupView`. Settings and the team switcher stay — reading and switching are not mutations.
+Settings and the team switcher stay — reading and switching are not mutations. The Export menu added by 3.5 also stays: exports must remain reachable for a view-only assistant, which is the entire point of the Coaches Guide unlock.
 
-**Do not gate a PDF export here when 3.5 lands.** Exports must stay reachable for a view-only assistant; that is the entire point of the Coaches Guide unlock.
+**Step 9 of the 2.4a plan, to run on device:** on the shared read-only team, confirm Import Schedule and Archive Game are **absent** from the iPad nav bar while Export and Settings remain. Then switch to a team you own and confirm both come back. Same shape as step 7 — the gate has to release as well as engage.
 
-**Then add a ninth step to the 2.4a plan:** on the shared team, confirm Import Schedule and Archive Game are absent from the iPad nav bar, and present again on a team you own.
-
-**Size:** S. **Blocked on:** nothing.
+**Size:** S. **Blocked on:** a device pass. Pairs with 1.7.
 
 ### 1.7 Verify the reworked sharing surface on device
 
@@ -459,7 +459,15 @@ A third option worth ten minutes first: find out whether `currentTipUpdates` yie
 
 A real debounce needs a trailing-edge flush on `scenePhase` and opens a window where a crash loses the last write — on the sync path behind the July incident. **A design pass, not a cleanup.** **Size:** M, and higher risk than its size suggests.
 
-### 3.5 iPad has no PDF export at all
+### ~~3.5 iPad has no PDF export at all~~ — built 8 Aug 2026, pulled into 3.3
+
+> **Built and pulled into 3.3** by decision on 8 Aug: this is cleanup of bad design from before, not new scope, and the assistant-printing story only works whole with it.
+>
+> **What landed.** `LineupPDFExport.swift` now owns the entitlement, both generator calls, and the whole presentation — preview sheet, paywall cover, and the promotion that swaps a locked document for the real one on purchase — behind a `lineupPDFExports(request:)` modifier. `LineupView` lost its two `@State` PDFs, its two export methods, and three modifiers; it now sets a request and nothing else. `iPadNavBar` gained an Export menu on `Cmd+P`.
+>
+> **Verified in the iPad simulator:** the menu opens, the Coaches Guide renders with the full grid and pitch counts, and `PDFPreviewView` survives presentation from the dashboard — the detail-pane inertness trap does not apply.
+>
+> **Still unverified: the locked path on iPad.** That simulator holds a Pro entitlement, so `ProGate` as a full-screen cover has still never been seen at iPad size. It was designed against iPhone. **Check it on a non-Pro device before shipping.**
 
 **Found 8 Aug 2026** while making the Coaches Guide free for view-only assistants.
 
