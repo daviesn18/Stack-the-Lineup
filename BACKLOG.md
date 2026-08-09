@@ -207,7 +207,11 @@ It also casts doubt on step 5. Setting the participant to Can edit appeared to s
 >
 > **On device:** change the link permission with a coach already joined and confirm the screen no longer claims they are unaffected; confirm the participant detail shows access read-only; confirm removing a coach still works. Then re-run 1.7 step 5 knowing the per-participant control is gone — **that step needs rewriting**, since it tests a control that no longer exists.
 >
-> ⚠️ **Noticed while fixing, not changed:** `pendingPermission` defaults to `.readWrite`, so a coach who doesn't touch the picker shares their team as **Can edit**. With one permission now governing everyone, that default decides more than it used to. Worth a deliberate call rather than leaving it as the value it happened to have.
+> **The share default stays `.readWrite` — decided 9 Aug, deliberately.** A coach who doesn't touch the picker shares their team as **Can edit**. This was raised because 1.10 makes one value govern everyone who joins by link, so the default now decides more than it did when it looked adjustable per-participant afterwards.
+>
+> **Kept because read-write assistants are the expected case, not the edge case.** `PAYWALL-design-handoff.md` already accepts that a read-write assistant is a co-coach and that one Pro head coach can equip any number of them. Defaulting to View only would put a tap in front of the common path to protect against a rarer one, and the picker is on screen at invite time either way.
+>
+> **The accepted consequence:** the least-attention path is also the most permissive one, and access can no longer be narrowed for one person after the fact — only for everyone. If that turns out to bite, the fix is option 1 above (invite by Apple ID), not a change to this default.
 
 **Three ways out, and this is a product decision, not a cleanup:**
 
