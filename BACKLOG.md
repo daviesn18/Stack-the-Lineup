@@ -45,7 +45,9 @@ State of the repo: `main` is at `a9649d3` and **pushed** — the four commits fr
 | ~~1.5~~ | ~~Is the shipped build's push environment `production`?~~ | — | ✅ **9 Aug** — `production` on the exported IPA; coverage settled 7 Aug |
 | ~~1.6~~ | ~~What's New quotes Siri phrases that can't work~~ | — | ✅ **7 Aug** — copy rewritten; ships in 36 |
 | **1.7** | **Verify the reworked sharing surface on device** | M | **A second iCloud account.** Steps 1–11 run from Xcode; 12–13 need TestFlight |
-| **1.8** | **iPad nav bar read-only gating** | S | **Fixed in code 8 Aug.** Needs step 9 on device |
+| ~~1.8~~ | ~~iPad nav bar read-only gating~~ | — | ✅ **9 Aug** — step 9 passes both ways on device |
+| **1.9** | **A cold-launched device never registers for push** | M | **Nothing.** Diagnosed 9 Aug; the fix is the 8 Aug `PendingShareAcceptance` pattern |
+| **1.10** | **Link permission overrides an assistant's own permission** | M | **A design decision** — link sharing vs invite-by-address. Defeats read-only from another screen |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -148,6 +150,53 @@ Settings and the team switcher stay — reading and switching are not mutations.
 **Step 9 of the 2.4a plan, to run on device:** on the shared read-only team, confirm Import Schedule and Archive Game are **absent** from the iPad nav bar while Export and Settings remain. Then switch to a team you own and confirm both come back. Same shape as step 7 — the gate has to release as well as engage.
 
 **Size:** S. **Blocked on:** a device pass. Pairs with 1.7.
+
+### 1.9 A cold-launched device never registers for push
+
+**Diagnosed 9 Aug 2026 from the device session.** This is why 1.7 steps 12 and 13 both failed, and it is the **fourth** instance of one bug class: a launch-time hand-off posted through NotificationCenter with nobody durably holding it.
+
+**What the device showed, and why it is conclusive.** The owner finalized and the read-only assistant got nothing. Then the assistant — by then Can edit — finalized, and **the owner did get a notification.** That direction proves the Worker, production APNs, the signing from 1.5, and the owner's own `DeviceToken` record are all healthy. The asymmetry is only explicable if **the assistant's device has no `DeviceToken` record for that team.**
+
+The two directions differ because `triggeredBy` is `team.coachName` (`NotificationManager.swift:114`) and a received team's `coachName` is overwritten with the participant's own device name (`Models.swift:1678`), so the Worker's self-exclusion lands on a different record each way.
+
+**The cause.** `AppDelegate.didRegisterForRemoteNotificationsWithDeviceToken` posts `.apnsTokenReceived` through NotificationCenter (`LineupBuilderApp.swift:75`) and `ContentView.onReceive` is the only listener (`ContentView.swift:292`). On a **cold start** the APNs callback routinely fires before that subscription exists, so the post goes to nobody and `cachedTokenHex` stays `nil` for the whole session. Every writer then no-ops on its own `guard let hex else { return }` — `registerToken`, `refreshTokenForCurrentTeam` and `saveTokenForAllTeams` alike. **No token record is written at all that launch, for any team.**
+
+**Why the 8 Aug fix didn't cover it.** Bug (b) got `PendingShareAcceptance`, a durable hand-off drained exactly once. The APNs post was left on the old pattern — and the 8 Aug write-up of bug (c) reasoned that `didRegister` would cover a mid-session team "when it arrives," which is true only if the token arrives at all.
+
+> **The test instruction is what exposed it.** 1.7 step 9 requires accepting the invite **cold**, to exercise `PendingShareAcceptance`. A warm accept would very likely have passed step 12 and hidden this entirely. Worth remembering when a step looks pedantic.
+
+**Fix:** give the token the same durable hand-off — store it on receipt and drain it once `ContentView` is subscribed, exactly as `PendingShareAcceptance` does. Then sweep for any other launch-time `NotificationCenter.post` with a single view-level listener; this is the fourth.
+
+**Confirm before fixing** (either is enough, neither needs the CloudKit dashboard):
+
+- Assistant's device on Console: a cold launch should show **no** `Received APNs device token` line, and no `DeviceToken saved for team`.
+- Or CloudKit Dashboard → **Production** → Public Database → `DeviceToken`, filtered on `teamID` — one record, not two.
+
+**Size:** M. **Blocked on:** nothing.
+
+### 1.10 Changing the link permission overrides an assistant's own permission
+
+**Found 9 Aug 2026 on device, running 1.7 step 6.** The assistant had been set to a specific permission; changing the **link** permission changed *him* too.
+
+**The app's code is innocent, which is what makes this worth writing down.** `setLinkPermission` writes only `share.publicPermission` (`CloudKitManager.swift:829`) and `setPermission` writes only `participant.permission` (`CloudKitManager.swift:852`). Neither touches the other. The bug is in the assumption, stated as fact in the comment above `setLinkPermission`:
+
+> *"Coaches who already accepted keep the permission they joined with — CloudKit stores theirs per participant, which is why the UI states the two separately."*
+
+**The device disproved that comment.** The assistant joined by **tapping a link** rather than being invited by iCloud address, which makes him a *public* participant — and a public participant's access is governed by the share's `publicPermission`. There is no independent per-participant permission for him to keep. The UI presents two separate controls; CloudKit has one.
+
+**Why this is more than a wording problem.** A head coach who sets the link to **Can edit** — to invite a second assistant — **silently grants write access to every link-joined assistant already on the team, including ones deliberately set to View only.** That defeats the read-only guarantee from a screen that never mentions it. 1.4, 1.8 and audit finding 2.4a exist to make view-only mean something; this undoes it from the side.
+
+It also casts doubt on step 5. Setting the participant to Can edit appeared to stick, but on a public participant that may have been `publicPermission` agreeing by coincidence rather than a per-participant value being honoured. **Re-test step 5 with the link set to View only** before trusting it.
+
+**Three ways out, and this is a product decision, not a cleanup:**
+
+1. **Invite by iCloud address.** Participants become private, per-participant permissions become real, and the current UI becomes true. Costs the forward-a-link flow, which the 8 Aug rework deliberately chose — see the comment at `CloudKitManager.swift:804`.
+2. **Make the UI honest.** One permission for "anyone with the link", no per-participant control while link sharing is in use. Cheapest, and it stops the silent escalation.
+3. **Both:** link sharing for convenience, per-participant control only for address-invited coaches, with the difference stated on screen.
+
+**Worth treating as a 3.3 blocker.** It is a silent privilege escalation on the exact guarantee the release spent two device sessions verifying. That is a judgement call, but it should be made deliberately rather than by shipping.
+
+**Size:** M. **Blocked on:** the decision above.
 
 ### 1.7 Verify the reworked sharing surface on device
 
