@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 8 Aug 2026 (sharing rework, iPad gaps closed, 1.4 passed).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 9 Aug 2026 (build 37 pushed, 1.5b closed, 1.5a corrected).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (36)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -12,17 +12,17 @@
 
 **Three things stand between here and the submission: 1.5, 1.7 and 1.8** — and 1.8 is already fixed in code, needing only its device step. **3.3 grew on 8 Aug by decision:** the sharing rework, the notification fixes, and iPad PDF export (3.5) are all in it, on the grounds that they are cleanup of bad design rather than new scope.
 
-1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build has since moved to **36**; both targets resolve to it from the project level. See the 7 Aug note in 1.1 — the drift came back once.
-2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
+1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build is now **37** (`a9649d3`), set at the project level, with both targets verified resolving to it from the shell. The drift trap in 1.1 did not fire this time. **Uploading 9 Aug.**
+2. **Run 1.5a from [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) §0c, against the exported IPA** — not the archive, which answers `development` every time whether or not anything is wrong. **1.5b is closed**: Archive does not instrument. Both were settled in TESTPLAN on 7 Aug; this file was two days stale on them. See 1.5.
 3. **Run 1.7 — the reworked sharing surface.** Steps 1–11 can go from Xcode builds and are the fast loop; **steps 12–13 need TestFlight**, because push cannot work from a Debug build against the current Worker. See the environment note in that item before you start, and make sure all three devices run the same build type.
 4. **The push test rides on 1.7 step 12.** It used to hang off 1.4; it was being tracked in three places and now lives in one. It is still the only part of the notification chain never exercised — see the caveat in 1.2.
 5. **Seed a test team on TestFlight and watch what happens** (3.6). One tap, and it either reproduces the 8 Aug failure or clears the leading theory. Free while you are installing builds anyway.
 
 **Decisions made on 8 Aug that are not derivable from the code** are recorded in [`PAYWALL-design-handoff.md`](PAYWALL-design-handoff.md) under "What a shared team's recipient pays for" — who pays for what on a shared team, and the accepted consequence that one Pro coach can equip any number of free read-write assistants.
 
-> **Where the 8 Aug session stopped.** Everything for 37 is committed, building, and unit-green: the sharing rework and notification fixes (`007a18e`), then 1.8's read-only gating and 3.5's iPad export. **`CURRENT_PROJECT_VERSION` is still 36 and needs bumping to 37** at the project level in Xcode, not by hand — see 1.1, where app/widget drift has already recurred once. Plan for 9 Aug: bump to 37, archive, upload to TestFlight, install on **all three devices** so they share one CloudKit environment, then run 1.7 end to end including the push steps, plus 1.8's step 9 and 3.5's locked-path check on a non-Pro device.
+> **Where the 9 Aug session started.** The bump to 37 is done and pushed. Both 1.5 checks were re-run against the 8 Aug archive and reproduced what TESTPLAN §0 already recorded on 7 Aug — this file was the stale copy, now corrected. Remaining plan for 9 Aug: upload 37, run 1.5a on the **exported IPA**, install on **all three devices** so they share one CloudKit environment, then 1.7 end to end including the push steps, plus 1.8's step 9 and 3.5's locked-path check on a non-Pro device. 3.6's seed is free while installing.
 
-State of the repo: `main` is at `d6e9a9c`, **not yet pushed** — four commits from the 8 Aug session: `007a18e` the sharing rework and notification fixes, `e0353f9` the 1.4 device results and 1.7, `3050bbe` opening 1.8 and 3.5, `d6e9a9c` closing both.
+State of the repo: `main` is at `a9649d3` and **pushed** — the four commits from the 8 Aug session (`007a18e` the sharing rework and notification fixes, `e0353f9` the 1.4 device results and 1.7, `3050bbe` opening 1.8 and 3.5, `d6e9a9c` closing both), then `2e0b834` recording the Pro decisions and 3.6, and `a9649d3` the build bump.
 
 **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
@@ -40,7 +40,7 @@ State of the repo: `main` is at `d6e9a9c`, **not yet pushed** — four commits f
 | ~~1.2~~ | ~~Worker deploy + Production CloudKit~~ | — | ✅ **6 Aug** — was silently broken; fixed and verified |
 | ~~1.3~~ | ~~Siri phrases on a physical device~~ | — | ✅ **7 Aug** — 6 of 9 pass; 3 entity ones accepted picker-degraded |
 | ~~1.4~~ | ~~iPad read-only on two devices~~ | — | ✅ **8 Aug** — all 8 steps pass; 2.4a confirmed both ways |
-| **1.5** | **Two checks on the finished archive** | S | **An archive existing.** Both are one command |
+| **1.5** | **Is the shipped build's push environment `production`?** | S | **An exported IPA.** ~~1.5b~~ ✅ 7 Aug; run 1.5a from TESTPLAN §0c |
 | ~~1.6~~ | ~~What's New quotes Siri phrases that can't work~~ | — | ✅ **7 Aug** — copy rewritten; ships in 36 |
 | **1.7** | **Verify the reworked sharing surface on device** | M | **A second iCloud account.** Steps 1–11 run from Xcode; 12–13 need TestFlight |
 | **1.8** | **iPad nav bar read-only gating** | S | **Fixed in code 8 Aug.** Needs step 9 on device |
@@ -250,35 +250,21 @@ There's a second-order problem. The copy teaches coaches that bare questions wor
 
 **Size:** S — copy only, no logic. But it's user-facing text in a shipping build, so it rides on 36.
 
-### 1.5 Two checks on the finished archive
+### 1.5 Is the shipped build's push environment `production`?
 
-**Source:** found 6 Aug while verifying the Release build. Neither is visible in Xcode's Issue navigator — one is a signing outcome, the other a build-setting consequence, and **neither shows up as a warning**.
+**Source:** found 6 Aug while verifying the Release build. **The live version of this item is [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) §0** — §0b for coverage, §0c for the push environment. Run it from there; what follows is the state, not a third copy of the commands.
 
-Run both once the `.xcarchive` exists, before trusting the build for 1.3/1.4.
+> ⚠️ **This entry was stale from 7 Aug to 9 Aug, and that is the finding worth keeping.** Both halves were resolved in TESTPLAN §0 on **7 Aug** — including the warning not to run the push check against the `.xcarchive` at all. This file kept telling you to do exactly that for two more days. Re-running both checks on 9 Aug against the 8 Aug archive reproduced TESTPLAN's results exactly; it discovered nothing. **The test plan was right and the index was stale** — the precise failure the closing section of this file was written to prevent, recurring inside the file that describes it.
 
-**a. Is the push environment `production`?**
+**b — coverage instrumentation: closed, no action.** 0 `__llvm_prf` symbols in the app binary and 0 in `STLWidgetExtension.appex`. `ENABLE_CODE_COVERAGE` resolves to `YES` for Release and reaches a plain `xcodebuild build` — ~9,000 profiling symbols across both targets — but **Product → Archive does not inherit it**. Settled 7 Aug on build 35, re-confirmed 9 Aug on build 36. Nothing to change in the scheme; keep the command as a regression guard if the Test options are ever edited.
 
-```bash
-codesign -d --entitlements :- "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Products/Applications/Stack the Lineup.app" 2>/dev/null | grep -A1 aps-environment
-```
+**a — push environment: still open, and only the export can answer it.** Every archive this project produces is signed `Apple Development` with `get-task-allow: true` — builds 34, 35 and 36 alike — so its entitlements read `aps-environment: development` **whether or not anything is wrong**. The distribution re-sign happens at Distribute App, after the point an archive-level check can see. Check the exported IPA's payload app, per TESTPLAN §0c. Expected `production`.
 
-`Lineup Builder.entitlements` says `development`. Xcode's automatic signing normally rewrites this to `production` when archiving with a distribution profile, so it's very often fine as-is — but it has never been confirmed on this project. **Why it matters here specifically:** TestFlight builds talk to production APNs, and 1.2 pointed the Worker at `api.push.apple.com`. If the archive embeds `development`, the app registers against sandbox APNs, the device tokens it writes to CloudKit are invalid for the production host, and 1.4's push test fails **looking exactly like a Worker fault** — which is the failure you'd waste the most time on, having just spent a day fixing the Worker for real.
+**Why it still matters:** TestFlight talks to production APNs and 1.2 pointed the Worker at `api.push.apple.com`. A `development` entitlement means sandbox registration, tokens invalid for that host, and a 1.7 push failure that **looks exactly like a Worker fault** — having just spent a day fixing the Worker for real. TESTPLAN §0c's alternative stands: skip the export and let 1.7 step 12 be the test, accepting that a failure then costs a session to attribute.
 
-Expected: `production`.
+> Practical note for anything that touches these paths: **archive directory names contain a narrow no-break space (U+202F) before AM/PM.** A path pasted out of `ls` output as a plain space silently won't resolve — and `find` will report the archive missing while `ls` shows it present. Every command in TESTPLAN §0 uses the `$(ls -td … | head -1)` form, which sidesteps it.
 
-**b. Is code-coverage instrumentation riding along?**
-
-```bash
-nm "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Products/Applications/Stack the Lineup.app/Stack the Lineup" | grep -c __llvm_prf
-```
-
-`ENABLE_CODE_COVERAGE` resolves to `YES` for Release. It is **not** in the pbxproj — it comes from the scheme, whose Test action has coverage enabled, and it reaches further than it should. A plain `xcodebuild build -configuration Release` compiles *both* the app and the widget with `-profile-generate -profile-coverage-mapping`, and the resulting binary carries **9,080** profiling symbols at 22 MB. Instrumented code links the profiling runtime, attempts to write `.profraw` files at runtime, inflates the binary and runs slower — not what you want under a Siri latency test.
-
-**Unverified:** that was the `build` action. Product → Archive may well not instrument. This check settles it.
-
-Expected: `0`. Anything else — Edit Scheme → Test → Options → uncheck Code Coverage, or scope it to the test targets, then re-archive.
-
-**Size:** S. Two commands.
+**Size:** S. **Blocked on:** an exported IPA for the remaining half.
 
 ### ~~1.1 The widget's bundle version doesn't match the app's~~ — ✅ done 6 Aug 2026
 
