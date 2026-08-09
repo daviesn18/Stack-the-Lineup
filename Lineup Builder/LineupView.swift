@@ -37,6 +37,27 @@ struct LineupView: View {
 
     private var isReadOnly: Bool { store.activeTeam.isReadOnly }
 
+    /// True on a team another coach shared with this device as view-only.
+    ///
+    /// `isReadOnly` is only ever set on a received team, but both are checked
+    /// so the intent survives anyone repurposing the flag later — this must not
+    /// become a way to unlock a Pro export on a team you own.
+    private var isReadOnlyParticipant: Bool {
+        let team = store.activeTeam
+        return team.isSharedParticipant && team.isReadOnly
+    }
+
+    /// Whether the Coaches Guide export is unlocked here.
+    ///
+    /// Pro buys it, and so does being a view-only assistant on someone else's
+    /// team. The case that matters: a head coach running late asks an assistant
+    /// to print the guide for the dugout. Charging that assistant for a
+    /// read-only copy of a lineup they cannot even edit would block a job the
+    /// head coach has already paid for. The Pro badge disappears with the gate.
+    private var canExportCoachesGuide: Bool {
+        purchaseManager.isPro || isReadOnlyParticipant
+    }
+
     // MARK: - Fair Play Summary (drives the inline header chip)
     //
     // Read-only summary of the defensive assignments that live on the
@@ -247,7 +268,7 @@ struct LineupView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 ExportBar(
-                    isPro: purchaseManager.isPro,
+                    isCoachesGuideUnlocked: canExportCoachesGuide,
                     onExportBattingOrder: exportBattingOrder,
                     onExportCoachesGuide: exportCoachesGuide
                 )
@@ -304,9 +325,14 @@ struct LineupView: View {
             gameLogs: store.gameLogs,
             pitchingConfig: store.pitchingConfig
         )
-        if purchaseManager.isPro {
+        if canExportCoachesGuide {
             generatedPDF = doc
-            Analytics.signal("pdf.exported", parameters: ["type": "coachesGuide"])
+            Analytics.signal("pdf.exported", parameters: [
+                "type": "coachesGuide",
+                // Distinguishes a Pro export from an assistant's free one, so the
+                // unlock's real usage is visible rather than inferred.
+                "entitlement": purchaseManager.isPro ? "pro" : "readonly_participant"
+            ])
         } else {
             lockedPDF = doc
         }
@@ -537,7 +563,9 @@ struct FairPlayChip: View {
 /// Pinned bottom bar with the two PDF export buttons. Sits above the tab bar,
 /// with content scrolling underneath.
 struct ExportBar: View {
-    let isPro: Bool
+    /// Drives the PRO badge only. Not the same question as "is this coach Pro" —
+    /// a view-only assistant on a shared team gets the guide without it.
+    let isCoachesGuideUnlocked: Bool
     let onExportBattingOrder: () -> Void
     let onExportCoachesGuide: () -> Void
 
@@ -565,7 +593,7 @@ struct ExportBar: View {
                 HStack(spacing: 6) {
                     Image(systemName: "doc.richtext.fill")
                     Text("Coaches Guide")
-                    if !isPro {
+                    if !isCoachesGuideUnlocked {
                         ProBadge(inverted: true)
                     }
                 }

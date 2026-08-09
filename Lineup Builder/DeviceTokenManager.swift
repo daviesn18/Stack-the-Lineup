@@ -66,6 +66,24 @@ final class DeviceTokenManager {
         }
     }
 
+    /// Registers this device for a specific team, whether or not it is active.
+    ///
+    /// Called when a shared team first arrives from the shared database. Until
+    /// this existed, the only writers were `didRegister` — which iterates the
+    /// teams that exist *at launch* — and `refreshTokenForCurrentTeam`, which
+    /// covers the active team only. A team joined mid-session therefore had no
+    /// DeviceToken record at all, so the Worker had nothing to push to and the
+    /// coach silently received no notifications for it until the next cold start.
+    ///
+    /// No-ops before APNs has handed us a token; `didRegister` covers that case
+    /// when it arrives, because by then the team is in `store.teams`.
+    func registerToken(forTeamID teamID: UUID, coachName: String) {
+        guard let hex = cachedTokenHex else { return }
+        Task {
+            await saveToken(tokenHex: hex, teamID: teamID.uuidString, coachName: coachName)
+        }
+    }
+
     // MARK: - CloudKit Write
 
     private func saveTokenForAllTeams(tokenHex: String, store: LineupStore) async {

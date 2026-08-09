@@ -2,6 +2,7 @@ import CoreSpotlight
 import SwiftUI
 import TipKit
 import WidgetKit
+import os
 
 struct ContentView: View {
     @StateObject var store = LineupStore()
@@ -292,26 +293,57 @@ struct ContentView: View {
             guard let tokenData = notification.object as? Data else { return }
             DeviceTokenManager.shared.didRegister(deviceToken: tokenData, store: store)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { note in
-            // A coach re-invited to a team they previously left still has its
-            // tombstone, which would make mergeCloudKitChanges refuse the share.
-            // Accepting an invite is an explicit re-add, so clear it first.
-            if let rootRecordName = note.userInfo?["rootRecordName"] as? String {
-                store.tombstones.forget(teamID: nil, recordName: rootRecordName)
-            }
-            // Capture current team IDs so we can detect the newly added shared
-            // team after the fetch completes and switch to it automatically.
-            let teamIDsBefore = Set(store.teams.map { $0.id })
-            Task {
-                // Give CloudKit a moment to finish processing the acceptance
-                // server-side before fetching.
-                try? await Task.sleep(for: .seconds(2))
-                await store.fetchCloudKitChanges()
-                // Switch to the newly added shared team so the coach sees it
-                // immediately rather than having to notice the team switcher changed.
-                if let newTeam = store.teams.first(where: { !teamIDsBefore.contains($0.id) }) {
-                    store.switchTeam(to: newTeam.id)
-                }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { _ in
+            // Both entry points drain the same stored value, so whichever wins
+            // the race handles it and the other finds nothing.
+            handleShareAcceptanceIfPending()
+        }
+        .task {
+            // The cold-launch half. Tapping an invite when the app isn't running
+            // delivers the accept callback before this view subscribes above, so
+            // the notification is posted to nobody. Without this the team lands
+            // silently in the background at the next ordinary sync — which is
+            // exactly what it did.
+            handleShareAcceptanceIfPending()
+        }
+    }
+
+    /// Brings a just-accepted team to the foreground.
+    ///
+    /// Switching is the point: joining a team and then having to notice the team
+    /// switcher changed is not joining it. `switchTeam` also registers this
+    /// device for the new team's notifications, so a share that never gets
+    /// switched to never gets a device token either.
+    private func handleShareAcceptanceIfPending() {
+        guard let accepted = PendingShareAcceptance.take() else { return }
+
+        // A coach re-invited to a team they previously left still has its
+        // tombstone, which would make mergeCloudKitChanges refuse the share.
+        // Accepting an invite is an explicit re-add, so clear it first.
+        if let rootRecordName = accepted.rootRecordName {
+            store.tombstones.forget(teamID: nil, recordName: rootRecordName)
+        }
+
+        let teamIDsBefore = Set(store.teams.map { $0.id })
+        Task {
+            // Give CloudKit a moment to finish processing the acceptance
+            // server-side before fetching.
+            try? await Task.sleep(for: .seconds(2))
+            await store.fetchCloudKitChanges()
+
+            // Prefer the record name CloudKit gave us. Falling straight to
+            // "whichever team is new" misidentifies the target when the same
+            // fetch also brings down other teams — which is normal on a device
+            // that has been offline.
+            let joined = accepted.rootRecordName.flatMap { name in
+                store.teams.first { $0.ckRecordName == name }
+            } ?? store.teams.first { !teamIDsBefore.contains($0.id) }
+
+            if let joined {
+                store.switchTeam(to: joined.id)
+                Analytics.signal("team.share.opened_after_accept")
+            } else {
+                Log.sync.error("Share accepted but no matching team arrived in the fetch")
             }
         }
     }

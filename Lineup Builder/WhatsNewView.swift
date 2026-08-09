@@ -97,7 +97,7 @@ extension WhatsNewContent {
                     icon: "person.2.circle.fill",
                     iconColor: .purple,
                     title: "Shared Teams",
-                    description: "Share your team with assistant coaches straight from the Players tab. Tap Team Settings, scroll down to Share Team, and send an invite link.\n\nAssistants can view the roster and build out positions. When the lineup is ready, the head coach finalizes and locks it -- assistants get a notification when it's done.\n\nShared Teams is a Pro feature."
+                    description: "Share your team with assistant coaches straight from the Players tab. Tap Team Settings, then Assistant Coaches, and send an invite link.\n\nAssistants can view the roster and build out positions. When the lineup is ready, the head coach finalizes and locks it -- assistants get a notification when it's done.\n\nShared Teams is a Pro feature."
                 )
             ]
         ),

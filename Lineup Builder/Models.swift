@@ -1322,6 +1322,32 @@ class LineupStore: ObservableObject {
         }
     }
 
+    /// Stamps a ckRecordName onto a team after a CloudKit save that happened
+    /// outside the normal `save()` path — currently the first-time share, which
+    /// has to upload the team before it can create a CKShare for it.
+    func setRecordName(_ recordName: String, teamID: UUID) {
+        guard let idx = teams.firstIndex(where: { $0.id == teamID }),
+              teams[idx].ckRecordName != recordName else { return }
+        teams[idx].ckRecordName = recordName
+        saveLocalOnly()
+    }
+
+    /// Drops a ckRecordName whose record CloudKit reports as gone.
+    ///
+    /// A team can hold a record name for a record that was deleted server-side,
+    /// or that belongs to a different container — an old install, or a
+    /// development/production swap. Left in place it poisons every later
+    /// operation, because code that tests `ckRecordName != nil` concludes the
+    /// team is in iCloud and then fails on the fetch. Clearing it lets the next
+    /// `save()` upload the team fresh.
+    func clearStaleRecordName(teamID: UUID) {
+        guard let idx = teams.firstIndex(where: { $0.id == teamID }),
+              teams[idx].ckRecordName != nil else { return }
+        Log.sync.notice("Clearing stale ckRecordName for team \(teamID, privacy: .public) — record not on server")
+        teams[idx].ckRecordName = nil
+        saveLocalOnly()
+    }
+
     /// Writes teams to UserDefaults and NSUbiquitousKeyValueStore without triggering
     /// a CloudKit push. Use when persisting metadata-only changes (e.g. ckRecordName
     /// stamps) that CloudKit already knows about, to avoid redundant round-trips.
@@ -1653,6 +1679,15 @@ class LineupStore: ObservableObject {
                 newTeam.isSharedParticipant = true
                 teams.append(newTeam)
                 didChange = true
+
+                // Register for this team's notifications now. Arriving here is
+                // the normal way a shared team appears, and it is not the same
+                // event as switching to it — a coach can be sent a team, never
+                // open it, and still expect to hear when the lineup is final.
+                DeviceTokenManager.shared.registerToken(
+                    forTeamID: newTeam.id,
+                    coachName: newTeam.coachName
+                )
             }
         }
 

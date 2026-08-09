@@ -99,13 +99,26 @@ enum DebugDataSeeder {
 
     // MARK: - Public API
 
-    static func seed(into store: LineupStore) {
-        // Remember which team was active so we can switch back after
-        let previousTeamID = store.activeTeamID
+    /// Seeds a fully populated test team and leaves it active.
+    ///
+    /// - Parameter name: What to call it. Seeding more than one team in a
+    ///   session is normal when testing sharing, and they can't all be called
+    ///   "Test Team" — the switcher becomes unreadable and it stops being
+    ///   obvious which device is looking at which.
+    /// - Returns: The new team's ID, or nil if it wasn't created. Callers must
+    ///   check this before reporting success — the confirmation alert used to
+    ///   fire unconditionally, so a seed that did nothing was indistinguishable
+    ///   from one that worked.
+    @discardableResult
+    static func seed(into store: LineupStore, name: String = "Test Team") -> UUID? {
+        let countBefore = store.teams.count
+        let trimmed     = name.trimmingCharacters(in: .whitespaces)
 
         // Create a fresh test team — addTeam switches to it automatically
-        store.addTeam(name: "Test Team", color: .orange)
+        store.addTeam(name: trimmed.isEmpty ? "Test Team" : trimmed, color: .orange)
         let testTeamID = store.activeTeamID
+
+        guard store.teams.count > countBefore, testTeamID != nil else { return nil }
 
         // Assign the Little League pitching rules preset so the test team
         // has pitch count/rest day limits configured out of the box.
@@ -155,10 +168,14 @@ enum DebugDataSeeder {
             break // seeding tool only — the mock text below is known-good
         }
 
-        // Switch back to the original active team
-        if let previousID = previousTeamID, previousID != testTeamID {
-            store.switchTeam(to: previousID)
-        }
+        // Stay on the seeded team rather than switching back to the previous one.
+        //
+        // Switching back was the original behaviour and it made a successful
+        // seed look like a no-op: the Players tab still showed the old team, so
+        // the only evidence anything had happened was an alert telling you to go
+        // and find the new team yourself. Landing on it is what "created a test
+        // team" should mean.
+        return testTeamID
     }
 
     // MARK: - Mock Schedule (.ics) Construction

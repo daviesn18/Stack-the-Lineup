@@ -226,7 +226,7 @@ enum AppPage: CaseIterable {
                 PageTip(icon: "figure.baseball", iconColor: .orange,
                         text: "Pitching Rules track weekly pitch limits and required rest by age. Enter counts when you archive, and eligibility shows up on the Positions tab."),
                 PageTip(icon: "person.2.wave.2", iconColor: .purple,
-                        text: "Share Team sends an assistant coach an invite link. They can build positions; you finalize.")
+                        text: "Assistant Coaches, inside Edit Team, sends a coach an invite link. They can build positions; you finalize.")
             ]
 
         case .lineup:

@@ -110,6 +110,14 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
                 // the refresh runs.
                 let rootRecordName = cloudKitShareMetadata.hierarchicalRootRecordID?.recordName
                 await MainActor.run {
+                    // Record it before posting. Tapping an invite usually cold-starts
+                    // the app, and this callback can land before ContentView has
+                    // subscribed to the notification — in which case the post goes
+                    // nowhere, the fetch never runs, and the team turns up minutes
+                    // later via ordinary sync without ever becoming active. The
+                    // notification stays for the already-running case; the stored
+                    // value is what ContentView drains on first appear.
+                    PendingShareAcceptance.record(rootRecordName: rootRecordName)
                     NotificationCenter.default.post(
                         name: .cloudKitShareAccepted,
                         object: nil,
@@ -120,6 +128,38 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
                 Log.sync.error("Failed to accept CloudKit share: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+}
+
+// MARK: - PendingShareAcceptance
+//
+// A just-accepted share invitation, held until ContentView can act on it.
+//
+// NotificationCenter alone can't carry this: the accept callback and the first
+// render race on a cold launch, and a post with no subscriber is simply lost.
+
+@MainActor
+enum PendingShareAcceptance {
+
+    struct Accepted {
+        /// Nil when CloudKit gave us no hierarchical root — the team is then
+        /// identified by being the one that wasn't there before.
+        let rootRecordName: String?
+    }
+
+    /// Held separately from the record name: the name is optional, so it can't
+    /// double as the "something is waiting" flag.
+    private static var pending: Accepted?
+
+    static func record(rootRecordName: String?) {
+        pending = Accepted(rootRecordName: rootRecordName)
+    }
+
+    /// Returns the pending acceptance exactly once, so the already-running path
+    /// and the cold-launch path can't both act on it.
+    static func take() -> Accepted? {
+        defer { pending = nil }
+        return pending
     }
 }
 

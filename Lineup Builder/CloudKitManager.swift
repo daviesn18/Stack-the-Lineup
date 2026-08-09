@@ -1,6 +1,172 @@
 import CloudKit
 import Foundation
 
+// MARK: - Share Value Types
+//
+// Sendable snapshots of CloudKit share state. CKShare is a mutable reference
+// type owned by the CloudKitManager actor; these are what cross the boundary
+// into SwiftUI, so a view can never mutate a share by holding one.
+
+/// What a coach is allowed to do with a shared team.
+enum TeamSharePermission: String, Sendable, CaseIterable, Identifiable {
+    case readWrite
+    case readOnly
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .readWrite: return "Can edit"
+        case .readOnly:  return "View only"
+        }
+    }
+
+    /// Written from the head coach's point of view — this is what they are
+    /// granting, not what the recipient sees.
+    var explanation: String {
+        switch self {
+        case .readWrite:
+            return "They can add players and build positions. Finalizing the lineup stays with you."
+        case .readOnly:
+            return "They can see the roster and the lineup, but can't change anything."
+        }
+    }
+
+    /// The same permission described to the coach who received the team.
+    var participantExplanation: String {
+        switch self {
+        case .readWrite:
+            return "You can add players and build positions. The head coach finalizes the lineup."
+        case .readOnly:
+            return "You can see the roster and the lineup. Only the head coach can make changes."
+        }
+    }
+
+    var ckPermission: CKShare.ParticipantPermission {
+        self == .readOnly ? .readOnly : .readWrite
+    }
+
+    /// `.none` and `.unknown` only reach this from a legacy share; both are
+    /// reported as read-write because that is what the repair path sets them to.
+    init(_ ckPermission: CKShare.ParticipantPermission) {
+        self = (ckPermission == .readOnly) ? .readOnly : .readWrite
+    }
+}
+
+/// One coach on a shared team, other than the owner.
+/// Hashable so it can be a `NavigationLink(value:)` destination.
+struct ShareParticipantInfo: Sendable, Hashable, Identifiable {
+
+    /// The participant's iCloud user record name. Stable, and the handle the
+    /// manager uses to find them again on a write.
+    let id: String
+    let displayName: String
+    /// Email or phone, when CloudKit knows it and it isn't already the name.
+    let contact: String?
+    let permission: TeamSharePermission
+    let hasAccepted: Bool
+
+    init(
+        id: String,
+        displayName: String,
+        contact: String?,
+        permission: TeamSharePermission,
+        hasAccepted: Bool
+    ) {
+        self.id          = id
+        self.displayName = displayName
+        self.contact     = contact
+        self.permission  = permission
+        self.hasAccepted = hasAccepted
+    }
+
+    init(participant: CKShare.Participant) {
+        let identity = participant.userIdentity
+        let lookup   = identity.lookupInfo
+
+        self.id = identity.userRecordID?.recordName ?? UUID().uuidString
+
+        let resolved      = CloudKitManager.displayName(for: participant)
+        let contactHandle = lookup?.emailAddress ?? lookup?.phoneNumber
+
+        // A pending invite usually has no name yet — CloudKit only learns it once
+        // the coach accepts. Falling back to the handle, and then to a generic
+        // label, is what keeps this from rendering an empty row.
+        self.displayName = resolved ?? "Assistant coach"
+        // Only a secondary line when it isn't already the title.
+        self.contact     = (resolved == contactHandle) ? nil : contactHandle
+        self.permission  = TeamSharePermission(participant.permission)
+        self.hasAccepted = participant.acceptanceStatus == .accepted
+    }
+}
+
+/// A team's sharing state as CloudKit currently reports it.
+///
+/// Replaces the old `ckRecordName != nil` test, which only ever meant "this team
+/// has been pushed to iCloud" and was wrong about sharing for every synced team.
+struct TeamShareInfo: Sendable, Equatable {
+
+    enum State: Sendable, Equatable {
+        /// No CloudKit record. `staleRecordName` is true when the team carried a
+        /// record name for a record the server no longer has, which needs clearing.
+        case notSynced(staleRecordName: Bool)
+        case notShared
+        /// This coach owns the team and has shared it.
+        case shared
+        /// This coach received the team from someone else. There is nothing to
+        /// manage here — the owner holds the share — so the screen reports who
+        /// shared it and what this coach is allowed to do.
+        case participant
+    }
+
+    var state: State
+    var url: URL?
+    var linkPermission: TeamSharePermission = .readWrite
+    var participants: [ShareParticipantInfo] = []
+
+    /// Head coach's name, on a team this coach received. Nil otherwise, and nil
+    /// when CloudKit has no discoverable identity for them.
+    var ownerName: String?
+
+    /// This coach's own access, on a team they received.
+    var myPermission: TeamSharePermission = .readWrite
+
+    var isShared: Bool {
+        if case .shared = state { return true }
+        return false
+    }
+
+    var isParticipant: Bool {
+        if case .participant = state { return true }
+        return false
+    }
+
+    /// Coaches who have actually joined. Pending invites are deliberately not
+    /// counted — "1 coach" should mean someone is really there.
+    var acceptedCount: Int {
+        participants.filter(\.hasAccepted).count
+    }
+
+    /// The one-line summary shown on the Edit Team row.
+    var summary: String {
+        switch state {
+        case .notSynced:
+            return "Not synced"
+        case .notShared:
+            return "Not shared"
+        case .participant:
+            return "Shared with you"
+        case .shared:
+            let accepted = acceptedCount
+            let pending  = participants.count - accepted
+            if accepted == 0 {
+                return pending > 0 ? "Invite sent" : "Link ready"
+            }
+            return "\(accepted) \(accepted == 1 ? "coach" : "coaches")"
+        }
+    }
+}
+
 // MARK: - CloudKitManager
 
 /// Manages all CloudKit operations for Stack the Lineup v3.0 shared teams.
@@ -79,7 +245,11 @@ actor CloudKitManager {
         case assetMissing
         case assetReadFailed
         case recordNotFound(String)
-        
+        case notSynced
+        case notShared
+        case shareSaveFailed
+        case participantNotFound
+
         var errorDescription: String? {
             switch self {
             case .accountUnavailable:
@@ -94,6 +264,14 @@ actor CloudKitManager {
                 return "Unable to read team data file from iCloud."
             case .recordNotFound(let name):
                 return "CloudKit record not found: \(name)."
+            case .notSynced:
+                return "This team hasn't synced to iCloud yet. Try again in a moment."
+            case .notShared:
+                return "This team isn't shared."
+            case .shareSaveFailed:
+                return "iCloud couldn't save the change. Try again in a moment."
+            case .participantNotFound:
+                return "That coach is no longer on this team."
             }
         }
     }
@@ -480,6 +658,13 @@ actor CloudKitManager {
             // and avoid a redundant sharedDB.record(for:) fetch on first save.
             for record in collector.teamRecords {
                 recordCache[record.recordID.recordName] = record
+                // Also remember which CKShare each received team came in under.
+                // The sharing screen needs it to name the head coach, and there
+                // is no way back to it from a record name alone — a participant's
+                // record lives in the owner's zone in the shared database.
+                if let share = collector.shareRecord {
+                    participantShareCache[record.recordID.recordName] = share
+                }
             }
             // Decode Team records on the main actor (Team's Decodable is @MainActor-isolated).
             var zoneTeams: [Team] = await MainActor.run { [teamRecords = collector.teamRecords] in
@@ -502,68 +687,300 @@ actor CloudKitManager {
         return result
     }
     
-    // MARK: - CKShare Creation
-    
-    /// Creates a CKShare for the given team. The team must already have a ckRecordName.
+    // MARK: - Sharing
+    //
+    // The view layer never touches CKShare. Reads return a TeamShareInfo value
+    // snapshot; writes name the participant by id and mutate the CKShare held
+    // here in shareCache. That split is deliberate — the old code had a single
+    // createShare() doing double duty as "open the manage screen", so merely
+    // looking at a team's sharing state mutated it.
+
+    /// Live CKShare records for teams this coach owns, keyed by ckRecordName.
+    private var shareCache: [String: CKShare] = [:]
+
+    /// CKShares for teams this coach *received*, keyed by ckRecordName.
+    /// Populated by fetchSharedTeams, which is the only place the owner's zone
+    /// is enumerated. See the note there.
+    private var participantShareCache: [String: CKShare] = [:]
+
+    /// Reads a team's share state without creating or modifying anything.
     ///
-    /// If the record is already shared, returns the existing CKShare without error.
-    /// Public permission is .readWrite so any coach who receives the link can accept
-    /// it without being explicitly added as a participant first. The head coach
-    /// shares the URL via UIActivityViewController; recipients tap to accept.
-    ///
-    /// - Returns: (share, container) ready to pass to CloudKitSharingView.
-    func createShare(for team: Team) async throws -> (CKShare, CKContainer) {
+    /// A record CloudKit no longer has is reported as `.notSynced(staleRecordName: true)`
+    /// rather than thrown: a team can carry a ckRecordName from a deleted record or a
+    /// different container, and that is a state to recover from, not an error to show.
+    func shareInfo(for team: Team) async throws -> TeamShareInfo {
         guard let recordName = team.ckRecordName else {
-            throw CloudKitError.recordNotFound("(unsaved team — call saveTeam first)")
+            return TeamShareInfo(state: .notSynced(staleRecordName: false))
         }
-        
+
+        // A received team is never in this coach's private database — its record
+        // sits in the owner's zone in the shared database. Reading it from
+        // privateDB throws unknownItem, which is how a perfectly healthy shared
+        // team came to render "This team isn't in iCloud yet".
+        if team.isSharedParticipant {
+            return try await participantShareInfo(recordName: recordName)
+        }
+
+        let recordID = CKRecord.ID(recordName: recordName, zoneID: ckZone.zoneID)
+        let teamRecord: CKRecord
+        do {
+            teamRecord = try await privateDB.record(for: recordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            shareCache[recordName] = nil
+            return TeamShareInfo(state: .notSynced(staleRecordName: true))
+        }
+        recordCache[recordName] = teamRecord
+
+        guard let shareRef = teamRecord.share,
+              let share = try await privateDB.record(for: shareRef.recordID) as? CKShare else {
+            shareCache[recordName] = nil
+            return TeamShareInfo(state: .notShared)
+        }
+
+        shareCache[recordName] = share
+        return Self.makeInfo(from: share)
+    }
+
+    /// Reads the state of a team this coach received from another coach.
+    ///
+    /// There is nothing to manage — the owner holds the share — so this reports
+    /// who shared it and what this coach may do. Falls back to a shared-database
+    /// refresh when the cache is cold, which is the first launch of a session
+    /// before any foreground sync has run.
+    private func participantShareInfo(recordName: String) async throws -> TeamShareInfo {
+        if participantShareCache[recordName] == nil {
+            _ = try? await fetchSharedTeams()
+        }
+
+        guard let share = participantShareCache[recordName] else {
+            // The share is genuinely gone — the owner stopped sharing or removed
+            // this coach. Report it as a received team with no detail rather than
+            // as "not synced", which would invite the coach to fix something that
+            // isn't theirs to fix.
+            return TeamShareInfo(state: .participant)
+        }
+
+        return TeamShareInfo(
+            state: .participant,
+            ownerName: Self.displayName(for: share.owner),
+            myPermission: TeamSharePermission(share.currentUserParticipant?.permission ?? .readOnly)
+        )
+    }
+
+    /// Creates a share for a team at the given link permission and returns the
+    /// invite URL along with the new state.
+    ///
+    /// If the team is already shared this returns the existing share untouched —
+    /// it does not silently rewrite the permission the coach chose earlier.
+    func createShare(for team: Team, permission: TeamSharePermission) async throws -> TeamShareInfo {
+        guard let recordName = team.ckRecordName else {
+            throw CloudKitError.notSynced
+        }
+
         let recordID   = CKRecord.ID(recordName: recordName, zoneID: ckZone.zoneID)
         let teamRecord = try await privateDB.record(for: recordID)
         recordCache[recordName] = teamRecord
-        
-        if let shareRef = teamRecord.share {
-            let existingRecord = try await privateDB.record(for: shareRef.recordID)
-            if let existingShare = existingRecord as? CKShare {
-                // Patch permission if the share was created before .readWrite was
-                // adopted. Without this, shares created under the old .none policy
-                // continue to reject recipients even after a code update.
-                if existingShare.publicPermission != .readWrite {
-                    existingShare.publicPermission = .readWrite
-                    let (patchResults, _) = try await privateDB.modifyRecords(
-                        saving: [existingShare],
-                        deleting: []
-                    )
-                    if case .success(let patched) = patchResults[existingShare.recordID],
-                       let patchedShare = patched as? CKShare {
-                        return (patchedShare, ckContainer)
-                    }
-                }
-                return (existingShare, ckContainer)
+
+        if let shareRef = teamRecord.share,
+           let existing = try await privateDB.record(for: shareRef.recordID) as? CKShare {
+            // Repair only the case the link is genuinely broken by. A share saved
+            // under the pre-3.0 `.none` policy rejects everyone who taps the link,
+            // so it has to be opened up. A share sitting at `.readOnly` is a coach's
+            // deliberate choice and is left exactly as it is — overwriting it here
+            // is what made "View only" appear not to save.
+            if existing.publicPermission == .none || existing.publicPermission == .unknown {
+                existing.publicPermission = permission.ckPermission
+                let saved = try await save(share: existing)
+                shareCache[recordName] = saved
+                return Self.makeInfo(from: saved)
             }
+            shareCache[recordName] = existing
+            return Self.makeInfo(from: existing)
         }
-        
+
         let share = CKShare(rootRecord: teamRecord)
-        // .readWrite allows anyone with the link to accept the share.
-        // This is intentional — coaches forward the link to assistants without
-        // a per-participant invite step. The team JSON is not sensitive data.
-        share.publicPermission = .readWrite
-        
-        let (saveResults, _) = try await privateDB.modifyRecords(
-            saving: [teamRecord, share],
-            deleting: []
-        )
-        
+        // Titles the invite in the recipient's iCloud sharing UI.
+        let shareTitle: String = team.name.isEmpty ? "My Team" : team.name
+        share[CKShare.SystemFieldKey.title] = shareTitle
+        // Link-based sharing: coaches forward the invite to an assistant rather
+        // than pre-adding them by Apple ID, so the link itself has to grant access.
+        share.publicPermission = permission.ckPermission
+
+        let (saveResults, _) = try await privateDB.modifyRecords(saving: [teamRecord, share], deleting: [])
+
         if case .success(let savedRoot) = saveResults[teamRecord.recordID] {
             recordCache[recordName] = savedRoot
         }
-        
-        if case .success(let savedRecord) = saveResults[share.recordID],
-           let savedShare = savedRecord as? CKShare {
-            return (savedShare, ckContainer)
+        guard case .success(let savedRecord) = saveResults[share.recordID],
+              let savedShare = savedRecord as? CKShare else {
+            throw CloudKitError.shareSaveFailed
         }
-        return (share, ckContainer)
+
+        shareCache[recordName] = savedShare
+        Task { @MainActor in
+            Analytics.signal("team.share.created", parameters: ["permission": permission.rawValue])
+        }
+        return Self.makeInfo(from: savedShare)
     }
-    
+
+    /// Changes what a newly tapped invite link grants. Coaches who already
+    /// accepted keep the permission they joined with — CloudKit stores theirs
+    /// per participant, which is why the UI states the two separately.
+    func setLinkPermission(_ permission: TeamSharePermission, teamRecordName: String) async throws -> TeamShareInfo {
+        let share = try await share(forTeamRecordName: teamRecordName)
+        share.publicPermission = permission.ckPermission
+        let saved = try await save(share: share)
+        shareCache[teamRecordName] = saved
+        Task { @MainActor in
+            Analytics.signal("team.share.link_permission_changed", parameters: ["permission": permission.rawValue])
+        }
+        return Self.makeInfo(from: saved)
+    }
+
+    /// Changes one participant's permission.
+    func setPermission(
+        _ permission: TeamSharePermission,
+        forParticipant participantID: String,
+        teamRecordName: String
+    ) async throws -> TeamShareInfo {
+        let share = try await share(forTeamRecordName: teamRecordName)
+        guard let participant = share.participants.first(where: {
+            $0.userIdentity.userRecordID?.recordName == participantID
+        }) else {
+            throw CloudKitError.participantNotFound
+        }
+        participant.permission = permission.ckPermission
+        let saved = try await save(share: share)
+        shareCache[teamRecordName] = saved
+        Task { @MainActor in
+            Analytics.signal("team.share.participant_permission_changed", parameters: ["permission": permission.rawValue])
+        }
+        return Self.makeInfo(from: saved)
+    }
+
+    /// Revokes one coach's access. The team itself is untouched.
+    func removeParticipant(_ participantID: String, teamRecordName: String) async throws -> TeamShareInfo {
+        let share = try await share(forTeamRecordName: teamRecordName)
+        guard let participant = share.participants.first(where: {
+            $0.userIdentity.userRecordID?.recordName == participantID
+        }) else {
+            throw CloudKitError.participantNotFound
+        }
+        share.removeParticipant(participant)
+        let saved = try await save(share: share)
+        shareCache[teamRecordName] = saved
+        Task { @MainActor in
+            Analytics.signal("team.share.participant_removed")
+        }
+        return Self.makeInfo(from: saved)
+    }
+
+    /// Deletes the share, revoking access for everyone at once. The root Team
+    /// record and the owner's local copy both survive.
+    func stopSharing(teamRecordName: String) async throws {
+        let share = try await share(forTeamRecordName: teamRecordName)
+        do {
+            _ = try await privateDB.deleteRecord(withID: share.recordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            // Already gone — that is the state we wanted.
+        }
+        shareCache[teamRecordName] = nil
+        Task { @MainActor in
+            Analytics.signal("team.share.stopped")
+        }
+    }
+
+    // MARK: - Sharing Helpers
+
+    /// Returns the cached CKShare for a team, fetching it if this is the first
+    /// touch of the session.
+    private func share(forTeamRecordName recordName: String) async throws -> CKShare {
+        if let cached = shareCache[recordName] { return cached }
+
+        let recordID   = CKRecord.ID(recordName: recordName, zoneID: ckZone.zoneID)
+        let teamRecord = try await privateDB.record(for: recordID)
+        guard let shareRef = teamRecord.share,
+              let share = try await privateDB.record(for: shareRef.recordID) as? CKShare else {
+            throw CloudKitError.notShared
+        }
+        shareCache[recordName] = share
+        return share
+    }
+
+    /// Saves a modified CKShare and returns the server's copy, so the caller
+    /// holds a record with a current change tag for the next edit.
+    private func save(share: CKShare) async throws -> CKShare {
+        let (results, _) = try await privateDB.modifyRecords(saving: [share], deleting: [])
+        guard case .success(let saved) = results[share.recordID],
+              let savedShare = saved as? CKShare else {
+            throw CloudKitError.shareSaveFailed
+        }
+        return savedShare
+    }
+
+    /// Best available human name for a share participant.
+    ///
+    /// CloudKit only learns a name once someone accepts, and often never learns
+    /// one for the current user at all, so this falls back through email/phone
+    /// before giving up. Returns nil rather than a placeholder so callers can
+    /// decide what an unknown coach should read as in context.
+    nonisolated static func displayName(for participant: CKShare.Participant?) -> String? {
+        guard let identity = participant?.userIdentity else { return nil }
+        if let components = identity.nameComponents {
+            let formatted = PersonNameComponentsFormatter.localizedString(from: components, style: .default)
+            if !formatted.isEmpty { return formatted }
+        }
+        return identity.lookupInfo?.emailAddress ?? identity.lookupInfo?.phoneNumber
+    }
+
+    /// Flattens a CKShare into the value snapshot the UI renders from.
+    private nonisolated static func makeInfo(from share: CKShare) -> TeamShareInfo {
+        let others = share.participants
+            .filter { $0.role != .owner }
+            .map { ShareParticipantInfo(participant: $0) }
+
+        return TeamShareInfo(
+            state: .shared,
+            url: share.url,
+            linkPermission: TeamSharePermission(share.publicPermission),
+            participants: others
+        )
+    }
+
+    // MARK: - Error Presentation
+
+    /// Maps a CloudKit failure onto something a coach can act on.
+    ///
+    /// The old share path put `error.localizedDescription` straight into an alert,
+    /// which showed people a CKRecordID and a pointer address.
+    nonisolated static func friendlyMessage(for error: Error) -> String {
+        if let stlError = error as? CloudKitError, let message = stlError.errorDescription {
+            return message
+        }
+        guard let ckError = error as? CKError else {
+            return "Something went wrong. Try again in a moment."
+        }
+        switch ckError.code {
+        case .networkUnavailable, .networkFailure:
+            return "You're offline. Reconnect and try again."
+        case .notAuthenticated:
+            return "Sign in to iCloud in Settings to share a team."
+        case .quotaExceeded:
+            return "Your iCloud storage is full. Free up some space and try again."
+        case .unknownItem:
+            return "This team hasn't finished syncing to iCloud. Try again in a moment."
+        case .permissionFailure:
+            return "This iCloud account isn't allowed to share. Check iCloud settings for Stack the Lineup."
+        case .zoneBusy, .serviceUnavailable, .requestRateLimited:
+            return "iCloud is busy right now. Try again in a moment."
+        case .managedAccountRestricted:
+            return "Sharing is turned off for this iCloud account."
+        default:
+            return "iCloud couldn't complete that. Try again in a moment."
+        }
+    }
+
+
     // MARK: - One-Time KV Store Migration
     
     /// Migrates all existing teams from NSUbiquitousKeyValueStore to CloudKit.

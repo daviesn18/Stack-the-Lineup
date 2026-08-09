@@ -810,11 +810,13 @@ struct TeamFormView: View {
     @State private var pendingTeamImport: TeamImporter.ImportedTeam? = nil
     @State private var teamImportError: String? = nil
     @State private var showingSharedTeamsPaywall = false
-    @State private var cloudKitShareItem: CloudKitShareItem? = nil
-    @State private var isPreparingShare = false
-    @State private var sharePreparationError: String? = nil
-    @State private var cloudKitManageItem: CloudKitShareItem? = nil
-    @State private var isPreparingManage = false
+
+    /// Trailing text on the Assistant Coaches row ("Not shared", "2 coaches").
+    /// Nil until TeamSharingView has read the real state from CloudKit — the row
+    /// simply shows no subtitle until then rather than guessing. TeamSharingView
+    /// writes through this binding, so popping back from it never leaves a
+    /// stale count behind.
+    @State private var shareSummary: String? = nil
 
     private struct TeamExportShareItem: Identifiable {
         let id = UUID()
@@ -822,12 +824,15 @@ struct TeamFormView: View {
         let filename: String
     }
 
-    /// Identifiable wrapper so the CKShare sheet can use .sheet(item:).
-    private struct CloudKitShareItem: Identifiable {
-        let id = UUID()
-        let share: CKShare
-        let container: CKContainer
-        let teamName: String
+    /// True when this team came from another coach rather than being owned here.
+    private func isReceivedTeam(_ id: UUID) -> Bool {
+        store.teams.first(where: { $0.id == id })?.isSharedParticipant ?? false
+    }
+
+    /// "Assistant Coaches" is the owner's framing. A coach who was invited isn't
+    /// managing assistants — they are one.
+    private func sharingRowTitle(_ id: UUID) -> String {
+        isReceivedTeam(id) ? "Shared With You" : "Assistant Coaches"
     }
 
     private var assignedInningsInLineup: Int {
@@ -944,96 +949,65 @@ struct TeamFormView: View {
                             }
                         }
 
-                        // Share Team — creates or retrieves the CKShare and
-                        // presents UIActivityViewController so the owner can send
-                        // the invite link via Messages, Mail, AirDrop, etc.
-                        Button {
-                            if purchaseManager.isPro {
-                                guard let team = store.teams.first(where: { $0.id == id }) else { return }
-                                isPreparingShare = true
-                                Task {
-                                    do {
-                                        var teamToShare = team
-                                        if teamToShare.ckRecordName == nil {
-                                            try await CloudKitManager.shared.ensureZoneExists()
-                                            let recordName = try await CloudKitManager.shared.saveTeam(teamToShare)
-                                            teamToShare.ckRecordName = recordName
-                                            if let idx = store.teams.firstIndex(where: { $0.id == id }) {
-                                                store.teams[idx].ckRecordName = recordName
-                                            }
-                                        }
-                                        let (share, container) = try await CloudKitManager.shared.createShare(for: teamToShare)
-                                        cloudKitShareItem = CloudKitShareItem(
-                                            share: share,
-                                            container: container,
-                                            teamName: teamToShare.name
-                                        )
-                                    } catch {
-                                        sharePreparationError = error.localizedDescription
+                    } header: {
+                        Text("Backup & Transfer")
+                    } footer: {
+                        Text("Export a .stlteam file to back the team up, or move it to another device.")
+                    }
+
+                    // Assistant Coaches — one row into TeamSharingView, which owns
+                    // invite, participants, link access, and stop sharing.
+                    //
+                    // Deliberately not two rows. "Share Team" and "Manage Access"
+                    // used to sit side by side here, both calling createShare(), and
+                    // both gated on `ckRecordName != nil` — which only means the team
+                    // reached iCloud, not that it was ever shared. Every synced team
+                    // therefore read "Shared" and offered access management for a
+                    // share that did not exist.
+                    Section {
+                        // A received team is never paywalled here. Pro buys the
+                        // ability to *share* a team; this row is the only place an
+                        // invited coach can find out who invited them and what
+                        // they're allowed to do, and locking that behind a
+                        // purchase would withhold an answer about access the coach
+                        // already has.
+                        if purchaseManager.isPro || isReceivedTeam(id) {
+                            NavigationLink {
+                                TeamSharingView(teamID: id, summary: $shareSummary)
+                            } label: {
+                                HStack {
+                                    Label(sharingRowTitle(id), systemImage: "person.2")
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    if let summary = shareSummary {
+                                        Text(summary)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
                                     }
-                                    isPreparingShare = false
                                 }
-                            } else {
-                                showingSharedTeamsPaywall = true
                             }
-                        } label: {
-                            HStack {
-                                Label("Share Team", systemImage: "person.2.wave.2")
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                if isPreparingShare {
-                                    ProgressView().scaleEffect(0.8)
-                                } else if store.teams.first(where: { $0.id == id })?.ckRecordName != nil {
-                                    Text("Shared")
+                            .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
+                        } else {
+                            Button {
+                                showingSharedTeamsPaywall = true
+                            } label: {
+                                HStack {
+                                    Label("Assistant Coaches", systemImage: "person.2")
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Image(systemName: "lock.fill")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                             }
-                        }
-                        .disabled(isPreparingShare)
-                        .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
-
-                        // Manage Access — only shown when the team is already shared.
-                        // Opens UICloudSharingController so the owner can change
-                        // per-participant permissions (read-only vs read-write) or
-                        // stop sharing entirely.
-                        if store.teams.first(where: { $0.id == id })?.ckRecordName != nil {
-                            Button {
-                                if purchaseManager.isPro {
-                                    guard let team = store.teams.first(where: { $0.id == id }) else { return }
-                                    isPreparingManage = true
-                                    Task {
-                                        do {
-                                            let (share, container) = try await CloudKitManager.shared.createShare(for: team)
-                                            cloudKitManageItem = CloudKitShareItem(
-                                                share: share,
-                                                container: container,
-                                                teamName: team.name
-                                            )
-                                        } catch {
-                                            sharePreparationError = error.localizedDescription
-                                        }
-                                        isPreparingManage = false
-                                    }
-                                } else {
-                                    showingSharedTeamsPaywall = true
-                                }
-                            } label: {
-                                HStack {
-                                    Label("Manage Access", systemImage: "person.badge.key")
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                    if isPreparingManage {
-                                        ProgressView().scaleEffect(0.8)
-                                    }
-                                }
-                            }
-                            .disabled(isPreparingManage)
+                            .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
                         }
                     } header: {
-                        Text("Backup & Transfer")
+                        Text("Sharing")
                     } footer: {
-                        Text("Share your team with an assistant coach — they can build positions, you finalize. Or export a .stlteam file to back the team up manually.")
+                        Text(isReceivedTeam(id)
+                             ? "This team was shared with you by another coach."
+                             : "Share your team with an assistant coach — they can build positions, you finalize.")
                     }
                 }
 
@@ -1048,6 +1022,18 @@ struct TeamFormView: View {
                                 Label("Delete Team", systemImage: "trash")
                                 Spacer()
                             }
+                        }
+                        // Anchor the dialog to the button itself, not the whole Form
+                        .confirmationDialog("Delete Team?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+                            Button("Delete Team", role: .destructive) {
+                                if case .edit(let id) = mode {
+                                    store.deleteTeam(id: id)
+                                }
+                                dismiss()
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("This will permanently delete \"\(teamName)\" and all its data.")
                         }
                     } footer: {
                         Text("Deleting a team removes all its players, lineup, and game history. This cannot be undone.")
@@ -1064,17 +1050,6 @@ struct TeamFormView: View {
                     Button("Save") { save() }
                         .disabled(teamName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-            }
-            .confirmationDialog("Delete Team?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-                Button("Delete Team", role: .destructive) {
-                    if case .edit(let id) = mode {
-                        store.deleteTeam(id: id)
-                    }
-                    dismiss()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will permanently delete \"\(teamName)\" and all its data.")
             }
             .confirmationDialog("Shorten game?", isPresented: $showingShortenConfirmation, titleVisibility: .visible) {
                 Button("Shorten to \(pendingInningCount) Innings", role: .destructive) {
@@ -1097,14 +1072,6 @@ struct TeamFormView: View {
             .sheet(item: $teamExportShareItem) { item in
                 ShareSheet(items: [item.data], filename: item.filename)
             }
-            .sheet(item: $cloudKitShareItem) { item in
-                CloudKitSharingView(share: item.share, container: item.container, teamName: item.teamName)
-                    .ignoresSafeArea()
-            }
-            .sheet(item: $cloudKitManageItem) { item in
-                CloudKitManageView(share: item.share, container: item.container)
-                    .ignoresSafeArea()
-            }
             .sheet(item: $pendingTeamImport) { imported in
                 TeamImportView(imported: imported) { _ in
                     dismiss()
@@ -1121,11 +1088,6 @@ struct TeamFormView: View {
                 ProGate(source: "shared_teams", navTitle: "Shared Teams")
                     .environmentObject(purchaseManager)
             }
-            .alert("Couldn't Prepare Share", isPresented: .constant(sharePreparationError != nil)) {
-                Button("OK") { sharePreparationError = nil }
-            } message: {
-                Text(sharePreparationError ?? "")
-            }
             .onAppear {
                 if case .edit(let id) = mode,
                    let team = store.teams.first(where: { $0.id == id }) {
@@ -1134,6 +1096,15 @@ struct TeamFormView: View {
                     gameInningCount = team.gameInningCount
                     coachName = team.coachName
                 }
+            }
+            .task {
+                // Resolve the row's subtitle from CloudKit rather than inferring
+                // it from ckRecordName. Only for Pro — a free coach can't share,
+                // so there is nothing to look up and no reason to hit the network.
+                guard case .edit(let id) = mode,
+                      purchaseManager.isPro || isReceivedTeam(id),
+                      let team = store.teams.first(where: { $0.id == id }) else { return }
+                shareSummary = try? await CloudKitManager.shared.shareInfo(for: team).summary
             }
         }
     }

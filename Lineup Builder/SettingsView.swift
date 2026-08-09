@@ -13,6 +13,10 @@ struct SettingsView: View {
     @State private var showingPaywall = false
     @State private var showingSeedConfirmation = false
     @State private var showingSeedDoneAlert = false
+    @State private var seedSucceeded = false
+    @State private var seedTeamName = "Test Team"
+    /// The name actually used, so the result alert names the right team.
+    @State private var seededTeamName = "Test Team"
     @State private var showingResetTipsConfirmation = false
     @State private var showingResetTipsDoneAlert = false
     @State private var showingTourRestartedAlert = false
@@ -161,6 +165,7 @@ struct SettingsView: View {
                         if versionTapCount >= 7 {
                             versionTapCount = 0
                             lastVersionTapAt = nil
+                            seedTeamName = suggestedSeedName()
                             showingSeedConfirmation = true
                         }
                     }
@@ -230,19 +235,20 @@ struct SettingsView: View {
             } message: {
                 Text("This will permanently delete all players, lineups, team name, and settings. This cannot be undone.")
             }
-            .confirmationDialog("Seed Sample History?", isPresented: $showingSeedConfirmation, titleVisibility: .visible) {
-                Button("Create Test Team") {
-                    DebugDataSeeder.seed(into: store)
-                    showingSeedDoneAlert = true
-                }
+            .alert("Create Test Team", isPresented: $showingSeedConfirmation) {
+                TextField("Team name", text: $seedTeamName)
+                Button("Create") { runSeed() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Creates a separate \"Test Team\" with 10 fake players and 5 archived games. Your real teams are not affected.")
+                Text("Creates a team with 10 fake players, 5 archived games, templates and a schedule. Your real teams are not affected.")
             }
-            .alert("Test Team Created", isPresented: $showingSeedDoneAlert) {
-                Button("OK") {}
+            .alert(seedSucceeded ? "Test Team Created" : "Couldn't Create Test Team",
+                   isPresented: $showingSeedDoneAlert) {
+                Button("OK") { if seedSucceeded { dismiss() } }
             } message: {
-                Text("Switch to \"Test Team\" from the Players tab to review the History tab. Delete the team when you're done.")
+                Text(seedSucceeded
+                     ? "\"\(seededTeamName)\" is now your active team, with 10 players and 5 archived games. Delete it when you're done."
+                     : "The team wasn't added. Check the console for the cause.")
             }
             .confirmationDialog("Reset Onboarding?", isPresented: $showingResetTipsConfirmation, titleVisibility: .visible) {
                 Button("Reset Welcome and Tips", role: .destructive) {
@@ -264,6 +270,31 @@ struct SettingsView: View {
                 Text("Close and reopen the app, then tips will appear again as you move through the tabs.")
             }
         }
+    }
+
+    /// Seeds under the entered name and reports honestly.
+    ///
+    /// Lives outside `body` on purpose: SettingsView's body is already close to
+    /// the type-checker's budget, and inlining this tipped it over.
+    private func runSeed() {
+        let trimmed = seedTeamName.trimmingCharacters(in: .whitespaces)
+        seededTeamName = trimmed.isEmpty ? "Test Team" : trimmed
+        // Only claim success when a team actually appeared. This used to be
+        // unconditional, which made a failed seed look exactly like a good one.
+        seedSucceeded = DebugDataSeeder.seed(into: store, name: seededTeamName) != nil
+        showingSeedDoneAlert = true
+    }
+
+    /// A name that isn't already taken, so seeding a second and third team
+    /// doesn't produce three identical rows in the switcher. Prefilled rather
+    /// than forced — the field is editable and this is only the suggestion.
+    private func suggestedSeedName() -> String {
+        let base     = "Test Team"
+        let existing = Set(store.teams.map(\.name))
+        guard existing.contains(base) else { return base }
+        var n = 2
+        while existing.contains("\(base) \(n)") { n += 1 }
+        return "\(base) \(n)"
     }
 
     private func resetAllData() {
