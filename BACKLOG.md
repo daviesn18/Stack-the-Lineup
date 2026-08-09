@@ -244,8 +244,8 @@ It also casts doubt on step 5. Setting the participant to Can edit appeared to s
 2. Tap in, choose **View only**, tap Invite. Send the link to the second account.
 3. Accept on the second device. Back on the owner: the coach appears with a real name or email, and **View only** — confirm it does *not* silently read "Can edit". That single check is bug 4.
 4. Reopen Edit Team. The row now reads **1 coach**. Reopen sharing — the permission is still View only after a round trip. Bug 4 only showed itself on the second visit.
-5. Change the participant to Can edit, pop back, reopen. It sticks.
-6. Change the **link** permission and confirm the already-joined coach is unaffected — the two are separate in CloudKit and the screen claims they are.
+5. **Rewritten 9 Aug for 1.10 — the old step tested a control that no longer exists.** It used to read *"change the participant to Can edit, pop back, reopen. It sticks."* There is no per-participant picker any more. Instead: open the coach's row and confirm **Access is read-only text**, not a picker, and that the footer points at Invite Link. Confirm **Remove Coach still works** from that screen — it is the only action left on it, so nothing else covers it.
+6. **Also rewritten — this one now asserts the opposite of what it used to.** It used to say *"change the link permission and confirm the already-joined coach is unaffected."* That was the bug. Change the **link** permission with a coach already joined and confirm the joined coach **does** change with it, and that the screen said so before you tapped. This is the check that the app and CloudKit finally agree.
 7. Remove the coach. Then Stop Sharing. The team, roster, and history all survive on the owner's device.
 8. **Stale record path:** this is the one that produced the original alert and is worth forcing. Delete the team's record from the CloudKit dashboard while the app holds its `ckRecordName`, then open sharing. Expect the plain "This team isn't in iCloud yet" screen and a cleared record name — not a `CKRecordID` in an alert.
 
@@ -289,6 +289,10 @@ Fixed by branching on `isSharedParticipant` into a new `.participant` state that
 9. Accept an invite with the app **fully closed** — not backgrounded. The team should be active and in front when the app opens, not sitting in the switcher.
 10. On that team, open Edit Team → Sharing. The row reads **Shared With You**, and the screen names the head coach and your access level. This is the screenshot from 8 Aug.
 11. Confirm the received team still has its `ckRecordName` after visiting that screen — bug (a) silently cleared it.
+11a. **Cold-launch token check — added 9 Aug for 1.9, and do this before 12.** With the assistant's device on Console (or `idevicesyslog`, as used on 7 Aug), force-quit the app and cold-launch it. `Log.push` must show **`Received APNs device token`**, followed by **`DeviceToken saved for team …`** for each team including the shared one.
+
+> **Repeat the cold launch two or three times.** 1.9 is a race, and the *old* code won it sometimes — so a single pass proves less than it looks like it does. Three clean launches is the bar. This log line is better evidence than the notification arriving, because it tests the mechanism directly instead of the whole chain; if it is present and the push still doesn't come, the fault is downstream and the Worker's `triggeredBy` exclusion is the next thing to check (see 1.9 — that mechanism is inferred from the 9 Aug asymmetry, not read from the Worker source).
+
 12. Without relaunching, have the owner finalize a lineup. **The push must arrive on the newly joined device.** That is bugs (b) and (c) together and is the one that needs no relaunch to be a fair test.
 13. Repeat 12 after a cold start, to confirm the launch-time path still works.
 
