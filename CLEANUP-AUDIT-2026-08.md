@@ -1,6 +1,6 @@
 # Codebase Cleanup Audit — Stack the Lineup (Lineup Builder)
 
-> **Closed.** The two follow-ups that survive — `PositionSummaryView.pitchingRows()` (2.2a) and the debounced CloudKit push (6.2) — are [`BACKLOG.md`](BACKLOG.md) items 3.1 and 3.2, both deferred by decision. The iPad read-only test plan at the end is backlog item 1.4, still needing a device.
+> **Closed.** The two follow-ups that survive — `PositionSummaryView.pitchingRows()` (2.2a) and the debounced CloudKit push (6.2) — are [`BACKLOG.md`](BACKLOG.md) items 3.1 and 3.2, both deferred by decision. The iPad read-only test plan at the end was backlog item 1.4; **it ran on 8 Aug 2026 and all eight steps pass**, so nothing in this document is now waiting on hardware.
 >
 > ⚠️ **8.3a's conclusions were wrong** and are corrected in place — the 2 Aug Worker fixes *were* deployed, the CloudKit record type *was* promoted, and the actual fault was a Production server-to-server key that had never been created. Push was silently failing until 6 Aug. Read the correction there before trusting anything in 8.3a.
 
@@ -12,7 +12,7 @@
 
 Verification for every change below: `xcodebuild build` → **BUILD SUCCEEDED**, `Lineup BuilderTests` → **TEST SUCCEEDED**. Fifteen tests were added across the two passes — five for the badge fix, six for the Edit Team save path, four pinning the per-cell bench predicate before it was consolidated. Final run: **295 passed, 0 failed**, on both the iPhone and iPad simulators.
 
-One thing here is **not** verified by that: the iPad read-only fix (2.4a) needs a real shared team on two devices. See the test plan at the end.
+One thing here was **not** verified by that: the iPad read-only fix (2.4a), which needed a real shared team on two devices. **Run and passed 8 Aug 2026** — see the test plan at the end.
 
 ## Executive Summary
 
@@ -38,7 +38,7 @@ Counts include the 6 Aug 2026 pass that closed the July audit's Phase 2 and Phas
 
 ### The four that mattered
 
-1. **A view-only coach could edit anything on iPad** (2.4a). `iPadDashboardView` had no read-only enforcement at all, and the picker sheets it presents don't carry their own — iPhone gates their call sites instead. A participant with view-only access to a shared team could reassign positions, reorder the batting order, clear positions and finalize the lineup, which notifies the whole team. Found by consolidating a duplicated chip; the biggest thing in this document, and the only one still unverified on hardware.
+1. **A view-only coach could edit anything on iPad** (2.4a). `iPadDashboardView` had no read-only enforcement at all, and the picker sheets it presents don't carry their own — iPhone gates their call sites instead. A participant with view-only access to a shared team could reassign positions, reorder the batting order, clear positions and finalize the lineup, which notifies the whole team. Found by consolidating a duplicated chip; the biggest thing in this document. **Verified on hardware 8 Aug 2026 — all eight steps of the test plan pass**, including step 7, which confirms an owned team on the same iPad still edits normally.
 2. **The iPhone warnings badge was wrong two ways** (2.1). Both terms of `inningIssues + gameIssues` counted the selected inning's open slots, so one missing shortstop in the inning you were looking at read as 2. And `gameWideIssueCount` summed per-rule counts where every other surface counts distinct players — the same lineup showed a different number on iPhone than iPad. Both fixed; the sheet behind the badge now lists exactly what the badge counts.
 3. **Deleting a shared team never stopped its push notifications** (1.10). `removeTokens(for:)` existed, documented for exactly this, and had no caller. Wired into `deleteTeam(id:)` — and see 1.10a, because wiring it up exposed a worse bug inside it.
 4. **`STLWidget/WidgetSnapshot.swift` was in no build target** (7.1). Flagged in July, still present, byte-identical to the copy the widget actually compiles. Deleted.
@@ -136,7 +136,7 @@ The July audit's Phase 3 item 4. `DefensiveGridView.playerChip` and `iPadDashboa
 
 Now one `PlayerChip` (`PlayerChip.swift`), taking the player, the inning, `isReadOnly` and an `onTap` closure — the closure is what the two panes actually needed to differ on, since each tracks its own sheet state and the iPhone also dismisses its undo bar. Two incidental cleanups came with it: the stringly-typed `badge: String` compared against `"BN"`/`"ABS"` at four points became a `Kind` enum that owns its label and colour, and the back-to-back-bench check is now `Lineup.hasConsecutiveBench` (see 2.5). Cosmetics unify on the iPhone values, so **iPad chips change very slightly**: 1pt tighter badge spacing, 2pt taller badge.
 
-**2.4a — iPad had no read-only enforcement at all. Fixed (6 Aug 2026).**
+**2.4a — iPad had no read-only enforcement at all. Fixed (6 Aug 2026), verified on hardware (8 Aug 2026).**
 
 The July note guessed the missing `isReadOnly` guard on the iPad chip "may be gated upstream." It wasn't, and the gap was much wider than the chip: `iPadDashboardView.swift` contained **zero** references to `isReadOnly`. The picker sheets don't help — `PositionPickerView` and `PlayerPickerView` have no read-only handling of their own, because iPhone gates every one of their call sites instead.
 
@@ -261,7 +261,11 @@ Worth a manual look before shipping: the warnings badge on the iPhone Positions 
 
 ---
 
-## Test plan: iPad read-only (2.4a)
+## Test plan: iPad read-only (2.4a) — ✅ all 8 steps pass, 8 Aug 2026
+
+> **Run on device 8 Aug 2026. Every step passes.** The assistant's device shared a team read-only; the iPad ran the reworked 3.3 build. Steps 1–6 confirm the gate engages, **step 7 confirms it releases** — an owned team on the same iPad still edits normally, so the fix did not over-reach — and step 8 confirms the unified `PlayerChip` reads as one component on both devices.
+>
+> One caveat on the run: it was not recorded which build type each device carried. If the iPad ran a Debug build while the other device was on TestFlight, the two sat in different CloudKit environments and the iPad was reading a locally cached copy rather than a live share. **The result stands either way** — the gating reads `isReadOnly` off local state — but the sync path would not have been exercised. See `BACKLOG.md` 1.7.
 
 Nothing in the automated suite exercises a shared-team participant, so this needs two devices and a real share. Everything below is expected to be **blocked** on iPad, and already is on iPhone.
 

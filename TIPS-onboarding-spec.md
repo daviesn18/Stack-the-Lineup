@@ -183,7 +183,7 @@ Fires on first archive. One idea: *you don't have to build this from scratch aga
 |---|---|---|---|---|
 | 1 | `ReuseApplyTemplateTip` | Pick your template when you set the next game — batting order and locked positions come back with it. | `GameSummaryCard` (Lineup) | — |
 | 2 | `AutoFillConstraintsTip` | "Jack pitches 3 and 4, keep Maya off catcher." It works around your instructions and says so if it can't. | `boltButton` (Positions) | PRO |
-| 3 | `ShareTeamTip` | Invite another coach to build positions with you. You still finalize. | Share Team button (team-edit sheet, ordered last) | PRO |
+| 3 | `ShareTeamTip` | Invite another coach to build positions with you. You still finalize. | Assistant Coaches row (team-edit sheet, ordered last) | PRO |
 
 **`Tour.history` — Pro-only (ordered), behind `LockedHistoryView`:**
 

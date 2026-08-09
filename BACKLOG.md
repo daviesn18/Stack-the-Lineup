@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 7 Aug 2026 (at the archive).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 8 Aug 2026 (sharing rework, second device round).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (36)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -8,14 +8,18 @@
 
 ## ▶ Start here
 
-**Everything left before you can submit 3.3 is the rest of one device session.** ~~1.3~~ closed and ~~2.3~~ failed-and-deferred and ~~2.4~~ passed on 7 Aug. **One item remains: 1.4**, which needs the iPad and a real shared team — and carries the push test with it. Plus 1.5, commands against the archive. Nothing else blocks them; the build-settings and backend blockers were cleared on 6 Aug.
+**Sharing was reworked into 3.3 on 8 Aug — see 1.7.** That was a deliberate scope call: a release is still weeks out, and device testing on 7 Aug found the whole Shared Team surface unusable. **~~1.4~~ closed the same day — all eight steps of the 2.4a plan pass on hardware**, which was the largest finding in the August audit and had never been exercised on a device.
+
+**Two things stand between here and the submission: 1.7 and 1.5.**
 
 1. **Archive and upload to TestFlight.** The widget version mismatch that would have failed validation (1.1) is fixed, and a Release build for a device was verified on 6 Aug — builds clean, app and widget resolving to the same build number in their built `Info.plist`s. The build has since moved to **36**; both targets resolve to it from the project level. See the 7 Aug note in 1.1 — the drift came back once.
 2. **Run the two checks in 1.5 against the finished archive** before you rely on the build. Both are one command, both catch a problem that would otherwise look like something else entirely.
-3. **On device, in one sitting:** ~~1.3 (nine Siri phrases — ✅ 7 Aug)~~, ~~2.3 (one tip transition — ❌ 7 Aug, failed; fix deferred to 3.4)~~, ~~2.4 (tip copy at large Dynamic Type — ✅ 7 Aug)~~, **1.4** (iPad read-only with a real shared team, don't skip step 7).
-4. **While a real shared team is set up for 1.4**, finalize a lineup and confirm a push actually arrives. That's the one part of the notification chain never exercised — see the caveat in 1.2.
+3. **Run 1.7 — the reworked sharing surface.** Steps 1–11 can go from Xcode builds and are the fast loop; **steps 12–13 need TestFlight**, because push cannot work from a Debug build against the current Worker. See the environment note in that item before you start, and make sure all three devices run the same build type.
+4. **The push test rides on 1.7 step 12.** It used to hang off 1.4; it was being tracked in three places and now lives in one. It is still the only part of the notification chain never exercised — see the caveat in 1.2.
 
-State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`, including the new `PitchingSummaryTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+> **Where the 8 Aug session stopped.** The sharing and notification rework is **written, building, and unit-green, but uncommitted** — 14 modified files plus the new `Lineup Builder/TeamSharingView.swift`, all on `main` at `24dad6f`. **`CURRENT_PROJECT_VERSION` is still 36 and needs bumping to 37** at the project level in Xcode, not by hand — see 1.1, where app/widget drift has already recurred once. Plan for 9 Aug: archive 37, upload to TestFlight, install on **all three devices** so they share one CloudKit environment, then run 1.7 end to end including the push steps.
+
+State of the repo: `main` is at the 7 Aug tip and pushed, **with the 8 Aug sharing rework uncommitted on top**; **`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -30,9 +34,10 @@ State of the repo: `main` is at the 7 Aug tip and pushed; **`feature/app-intents
 | ~~1.1~~ | ~~Widget bundle version mismatch~~ | — | ✅ **6 Aug** — versions now project-level |
 | ~~1.2~~ | ~~Worker deploy + Production CloudKit~~ | — | ✅ **6 Aug** — was silently broken; fixed and verified |
 | ~~1.3~~ | ~~Siri phrases on a physical device~~ | — | ✅ **7 Aug** — 6 of 9 pass; 3 entity ones accepted picker-degraded |
-| **1.4** | **iPad read-only on two devices** | M | **A TestFlight build + a real shared team** |
+| ~~1.4~~ | ~~iPad read-only on two devices~~ | — | ✅ **8 Aug** — all 8 steps pass; 2.4a confirmed both ways |
 | **1.5** | **Two checks on the finished archive** | S | **An archive existing.** Both are one command |
 | ~~1.6~~ | ~~What's New quotes Siri phrases that can't work~~ | — | ✅ **7 Aug** — copy rewritten; ships in 36 |
+| **1.7** | **Verify the reworked sharing surface on device** | M | **A second iCloud account.** Steps 1–11 run from Xcode; 12–13 need TestFlight |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -89,19 +94,94 @@ So the spoken name never reaches this code at all. Not mistranscribed, not unmat
 
 **Size:** M. **Closed 7 Aug** on the terms above.
 
-### 1.4 Verify iPad read-only with a real shared team
+### ~~1.4 Verify iPad read-only with a real shared team~~ — ✅ all 8 steps pass, 8 Aug 2026
 
 **Source:** `CLEANUP-AUDIT-2026-08.md` §2.4a and its test plan.
 
-Fixed in code on 6 Aug, unverified on hardware. Before that fix, a view-only participant on iPad could reassign positions, reorder the batting order, clear positions and finalize the lineup — which notifies the whole team.
+Before the 6 Aug fix, a view-only participant on iPad could reassign positions, reorder the batting order, clear positions and finalize the lineup — which notifies the whole team. `iPadDashboardView` had no read-only enforcement at all.
 
-The eight-step plan is at the end of the audit. **Step 7 is the one not to skip:** switch back to a team you own on the same iPad and confirm editing still works. The gating is per-team, not per-device, and the plausible way to get this wrong is to over-gate and lock a coach out of their own team.
+**Run on device 8 Aug 2026.** The assistant's device created the team and granted read-only; the iPad ran the reworked build. **All eight steps pass.**
 
-**Blocked on:** two devices and an accepted view-only share. Pairs naturally with 1.3 — same TestFlight build.
+- **Steps 1–6 — the gate engages.** Banner and strip, By Inning, By Position, Pitching, sidebar, and Clear positions all held read-only exactly as specified.
+- **Step 7 — the gate releases.** The check the audit called the one that matters most. An owned team on the same iPad still edits normally, so the fix did not over-reach and lock a coach out of their own team. Gating is per-team, not per-device, and that is now confirmed rather than assumed.
+- **Step 8 — cosmetics.** The unified `PlayerChip` reads as one component on both devices.
 
-**Also do this here:** finalize a lineup from the owning device and confirm the push arrives on the other. That's the only way to exercise APNs (see 1.2).
+**2.4a is confirmed in both directions.** It was the largest finding in the August audit and the only one that had never been exercised on hardware.
 
-**Size:** M.
+**Note on the run:** the view-only share this needed could not be created at all until 1.7 landed — `createShare` forced every share back to read-write.
+
+**Left deliberately out of this item:** the push test that used to hang off it. It is not part of 2.4a and was being tracked in three places at once; it now lives in **1.7 step 12**, with the build-environment caveat attached. See also 1.2's standing caveat that APNs has never delivered a real push.
+
+**Open question about the 8 Aug run, carried to 1.7:** which build type each device ran. If the iPad ran an Xcode build while the assistant's phone was on TestFlight, the two were in different CloudKit environments and the iPad was reading a locally cached copy rather than a live share. **The result above stands either way** — the gating reads `isReadOnly` off local state — but the sync path would not have been exercised, and 1.7's steps 9–13 depend on it.
+
+### 1.7 Verify the reworked sharing surface on device
+
+**Written 8 Aug 2026.** Device testing on 7 Aug found the Shared Team surface broken in four separate ways. All four are fixed in code; none of the fixes can be confirmed without a real iCloud account and a second one to accept with.
+
+**What was wrong, and where.**
+
+1. **"Shared" meant nothing.** The badge and the Manage Access row were both gated on `ckRecordName != nil`, which only ever meant "this team reached iCloud". Every synced team therefore read as shared and offered access management for a share that did not exist. Nothing on `Team` recorded owner-side share state at all — `isSharedParticipant` is the receiving side.
+2. **"Couldn't Prepare Share — Record not found"** was the same bug one step later. Manage Access called `createShare`, which fetches the record first; the team held a `ckRecordName` for a record the server did not have. The alert also printed `error.localizedDescription` raw, so a coach saw a `CKRecordID` and a pointer address.
+3. **`UICloudSharingController` could not be made presentable.** Generic document icon, an "(Owner)" row for the coach themselves with no name attached — CloudKit has no discoverable name for your own identity — and no way to configure any of it.
+4. **View Only did save, and then got overwritten.** `createShare` unconditionally forced `publicPermission` back to `.readWrite` on every call. The comment said it was repairing legacy shares stuck at `.none`; because it was unconditional it also reverted every deliberate `.readOnly`. **This is what made 1.4 impossible** — a view-only participant could not be created, because the share was forced back to read-write before the invite went out.
+
+**What replaced it.** One `Assistant Coaches` row under a `Sharing` header in Edit Team, pushing `TeamSharingView.swift` — a native screen covering invite, participant list, per-participant permission, link permission, and stop sharing. `UICloudSharingController` is gone; the system share sheet is kept only for sending the link. `CloudKitManager` now splits `shareInfo(for:)` (read, never mutates) from `createShare(for:permission:)`, and returns Sendable `TeamShareInfo` snapshots so no `CKShare` reaches the view layer. The legacy repair survives but only fires on `.none`/`.unknown`. `CKError` is mapped to coach-readable copy via `CloudKitManager.friendlyMessage(for:)`.
+
+**Verified in the simulator on 8 Aug:** all four screen states render — not-synced, not-shared, shared with two participants, participant detail. That is layout only. **Everything below needs hardware.**
+
+**On device, with a second iCloud account:**
+
+1. Owning account: open Edit Team → Sharing. The row should read **Not shared**, not "Shared". This is the regression that started all of this.
+2. Tap in, choose **View only**, tap Invite. Send the link to the second account.
+3. Accept on the second device. Back on the owner: the coach appears with a real name or email, and **View only** — confirm it does *not* silently read "Can edit". That single check is bug 4.
+4. Reopen Edit Team. The row now reads **1 coach**. Reopen sharing — the permission is still View only after a round trip. Bug 4 only showed itself on the second visit.
+5. Change the participant to Can edit, pop back, reopen. It sticks.
+6. Change the **link** permission and confirm the already-joined coach is unaffected — the two are separate in CloudKit and the screen claims they are.
+7. Remove the coach. Then Stop Sharing. The team, roster, and history all survive on the owner's device.
+8. **Stale record path:** this is the one that produced the original alert and is worth forcing. Delete the team's record from the CloudKit dashboard while the app holds its `ckRecordName`, then open sharing. Expect the plain "This team isn't in iCloud yet" screen and a cleared record name — not a `CKRecordID` in an alert.
+
+**Then run 1.4 against the view-only share from step 2** rather than making a second one.
+
+**Blocked on:** a second iCloud account, and — for the push steps only — a TestFlight build. **Size:** M.
+
+#### Xcode builds cover most of this; the push steps need TestFlight
+
+Direct-from-Xcode installs are fine for everything except push, and are worth using: the loop is a rebuild rather than a TestFlight round trip, and running from Xcode picks up the scheme's `.storekit` config, so Pro works without the simctl workaround.
+
+**All three devices must run the same build type.** CloudKit sharing is per-environment — Xcode builds talk to **Development**, TestFlight to **Production** — and a share created in one is not visible in the other at all. Not stale, not read-only: invisible. Mixing build types across the three devices is the fastest way to produce a failure that looks like a sharing bug and isn't.
+
+**Push cannot work from an Xcode build against the current Worker**, for two independent reasons:
+
+1. The Worker runs `CLOUDKIT_ENV = production` (see 1.2). A Debug build writes its `DeviceToken` records to Development, so the Worker's query matches nothing and it returns before ever contacting Apple.
+2. `aps-environment` is `development` in the entitlements, so a Debug build registers against **sandbox** APNs. Those tokens are invalid for `api.push.apple.com`, which is the host 1.2 deployed.
+
+Either one alone produces silence that looks exactly like a Worker fault — the failure 1.5a warns costs the most time. Repointing the Worker at Development + `api.sandbox.push.apple.com` would work but means two redeploys and risks leaving it in the state 1.2 just fixed. Not worth it.
+
+**So:** steps 1–11 and all of 1.4 except its push step from Xcode; steps 12–13 and 1.4's push step from a TestFlight build. That TestFlight pass is needed for 1.5a anyway.
+
+#### 8 Aug, second device round — three more, all on the receiving side
+
+The first device test covered the owner. Sharing *to* this device found three separate faults, two of which share a cause.
+
+**a. A received team rendered "This team isn't in iCloud yet".** `shareInfo(for:)` always read `privateDB`. A participant's record isn't there — it lives in the owner's zone in the **shared** database — so the fetch threw `unknownItem` and the screen reported the team as unsynced. Worse, that path then called `clearStaleRecordName`, wiping the record name the shared-database merge uses to match the local copy.
+
+Fixed by branching on `isSharedParticipant` into a new `.participant` state that names the head coach and states this coach's own access, and by never clearing a record name for a received team. The share is cached during `fetchSharedTeams`, which is the only place the owner's zone is enumerated.
+
+**b. Accepting an invite left the team in the background — and cost the push.** `SceneDelegate` posted `.cloudKitShareAccepted` through NotificationCenter and nothing held it. Tapping an invite usually **cold-starts** the app, and the accept callback lands before `ContentView` subscribes, so the post went to nobody: no fetch, no `switchTeam`, and the team surfaced later via ordinary sync without becoming active.
+
+`switchTeam` is also what calls `refreshTokenForCurrentTeam`. **So the dropped notification explains the missing notification too** — the switch never ran, so this device never registered a token for that team. Fixed with `PendingShareAcceptance`, a durable hand-off both the running and cold-launch paths drain exactly once.
+
+**c. Device tokens were only ever written at launch or on switch.** `didRegister` iterates the teams that exist *at that moment*; `refreshTokenForCurrentTeam` covers the active team. A team that arrives mid-session had no `DeviceToken` record at all, so the Worker had nothing to push to. Now registered when a shared team is appended in `mergeCloudKitChanges` — a coach can be sent a team, never open it, and still expect to hear when the lineup is final.
+
+**The build version was a red herring.** The iPad received the finalize push on an old build and the iPhone didn't on the new one; the variable was not the version but *when each device acquired the team relative to its last cold start*. The iPad had it from a previous session, so its launch-time registration covered it.
+
+**Extra device steps, on the receiving device:**
+
+9. Accept an invite with the app **fully closed** — not backgrounded. The team should be active and in front when the app opens, not sitting in the switcher.
+10. On that team, open Edit Team → Sharing. The row reads **Shared With You**, and the screen names the head coach and your access level. This is the screenshot from 8 Aug.
+11. Confirm the received team still has its `ckRecordName` after visiting that screen — bug (a) silently cleared it.
+12. Without relaunching, have the owner finalize a lineup. **The push must arrive on the newly joined device.** That is bugs (b) and (c) together and is the one that needs no relaunch to be a fair test.
+13. Repeat 12 after a cold start, to confirm the launch-time path still works.
 
 ### ~~1.6 The What's New sheet quotes Siri phrases that can't work~~ — ✅ rewritten 7 Aug 2026
 
