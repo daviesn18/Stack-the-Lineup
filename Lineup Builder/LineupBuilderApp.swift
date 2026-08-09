@@ -64,14 +64,23 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     // MARK: - APNs Token Registration
     //
     // Called by iOS after UIApplication.registerForRemoteNotifications() succeeds.
-    // Posts the token via NotificationCenter so ContentView can forward it to
-    // DeviceTokenManager with full LineupStore context.
+    //
+    // Hands the token to DeviceTokenManager *first*, then posts. The post alone
+    // could not carry this: on a cold launch this callback beats ContentView's
+    // subscription, and a post with no subscriber is lost — which left the
+    // device with no token cached and no DeviceToken record for the whole
+    // session. See backlog 1.9. The notification stays for the already-running
+    // case, where it prompts the write; the cached token is what makes a cold
+    // launch survive.
 
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         Log.push.info("APNs registration succeeded")
+        MainActor.assumeIsolated {
+            DeviceTokenManager.shared.receiveToken(deviceToken)
+        }
         NotificationCenter.default.post(
             name: .apnsTokenReceived,
             object: deviceToken

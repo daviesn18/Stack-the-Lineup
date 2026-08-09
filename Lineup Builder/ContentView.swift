@@ -279,6 +279,12 @@ struct ContentView: View {
                 store.load()
                 // Pull CloudKit changes (owned + shared teams) concurrently.
                 Task { await store.fetchCloudKitChanges() }
+                // Write this device's APNs token for every team, if one arrived
+                // before there was a view to receive it. On a cold launch that
+                // is the normal case, not the edge case — see backlog 1.9.
+                // Runs after load() so store.teams is populated. No-ops once
+                // the token has been written.
+                DeviceTokenManager.shared.flushPendingRegistration(store: store)
                 // Refresh the home screen widget so it reflects any changes made
                 // on another device or since the last app session.
                 WidgetCenter.shared.reloadAllTimelines()
@@ -289,9 +295,12 @@ struct ContentView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .apnsTokenReceived)) { notification in
-            guard let tokenData = notification.object as? Data else { return }
-            DeviceTokenManager.shared.didRegister(deviceToken: tokenData, store: store)
+        .onReceive(NotificationCenter.default.publisher(for: .apnsTokenReceived)) { _ in
+            // The token itself came from AppDelegate straight into the manager;
+            // this only prompts the write for the already-running case. Both
+            // entry points drain the same flag, so whichever wins does the work
+            // and the other finds nothing — same contract as share acceptance.
+            DeviceTokenManager.shared.flushPendingRegistration(store: store)
         }
         .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { _ in
             // Both entry points drain the same stored value, so whichever wins

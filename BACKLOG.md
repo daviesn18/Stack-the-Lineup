@@ -26,7 +26,7 @@
 
 State of the repo: `main` is at `a9649d3` and **pushed** — the four commits from the 8 Aug session (`007a18e` the sharing rework and notification fixes, `e0353f9` the 1.4 device results and 1.7, `3050bbe` opening 1.8 and 3.5, `d6e9a9c` closing both), then `2e0b834` recording the Pro decisions and 3.6, and `a9649d3` the build bump.
 
-**`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green (`Lineup BuilderTests`). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+**`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. ⚠️ **The suite is not green — see 3.7.** Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -60,6 +60,7 @@ State of the repo: `main` is at `a9649d3` and **pushed** — the four commits fr
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
 | 3.6 | A seed produced no team; cause unknown | ? | **One TestFlight seed.** Leading theory is a KV-store clobber — a data-loss shape |
+| **3.7** | **Two `STLRouteTests` fail — the suite is not green** | S? | **Nothing.** Found 9 Aug; predates 1.9 and reproduces in isolation |
 | **Stage 4 — decisions and long poles** ||||
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
@@ -153,7 +154,9 @@ Settings and the team switcher stay — reading and switching are not mutations.
 
 ### 1.9 A cold-launched device never registers for push
 
-**Diagnosed 9 Aug 2026 from the device session.** This is why 1.7 steps 12 and 13 both failed, and it is the **fourth** instance of one bug class: a launch-time hand-off posted through NotificationCenter with nobody durably holding it.
+**Diagnosed 9 Aug 2026 from the device session, fixed the same day.** This is why 1.7 steps 12 and 13 both failed. It is the **second and last** instance of one bug class: a launch-time hand-off posted through NotificationCenter with nobody durably holding it.
+
+> **Correction to what this item first said.** It claimed this was the *fourth* instance, conflating the class with 1.7's "four separate ways" — which were four unrelated sharing faults, only one of them (bug (b), share acceptance) a dropped post. A sweep on 9 Aug found **exactly two `NotificationCenter.default.post` call sites in the whole app**, both in `LineupBuilderApp.swift`: share acceptance, made durable on 8 Aug, and this one, made durable now. **There is no third to hunt for**, and the class is closed rather than merely reduced.
 
 **What the device showed, and why it is conclusive.** The owner finalized and the read-only assistant got nothing. Then the assistant — by then Can edit — finalized, and **the owner did get a notification.** That direction proves the Worker, production APNs, the signing from 1.5, and the owner's own `DeviceToken` record are all healthy. The asymmetry is only explicable if **the assistant's device has no `DeviceToken` record for that team.**
 
@@ -165,7 +168,15 @@ The two directions differ because `triggeredBy` is `team.coachName` (`Notificati
 
 > **The test instruction is what exposed it.** 1.7 step 9 requires accepting the invite **cold**, to exercise `PendingShareAcceptance`. A warm accept would very likely have passed step 12 and hidden this entirely. Worth remembering when a step looks pedantic.
 
-**Fix:** give the token the same durable hand-off — store it on receipt and drain it once `ContentView` is subscribed, exactly as `PendingShareAcceptance` does. Then sweep for any other launch-time `NotificationCenter.post` with a single view-level listener; this is the fourth.
+**Fixed 9 Aug.** The token had no home outside the notification: `cachedTokenHex` was only ever set inside `didRegister`, which needed a `LineupStore`, which needed a view. Receiving is now separated from writing.
+
+- `receiveToken(_:)` takes **no store**, so `AppDelegate` calls it before any view exists and the hex is cached the instant APNs answers. It arms a `needsFlush` flag, held separately from the token because the token stays cached all session and so cannot double as the "still needs writing" signal.
+- `flushPendingRegistration(store:)` performs the CloudKit write, guarded on that flag so it is safe to call repeatedly.
+- `ContentView` calls the flush from **two** places — `scenePhase == .active`, after `store.load()` so `teams` is populated, and the token notification. Whichever wins does the work; the other finds nothing. Same contract as share acceptance.
+
+**The knock-on matters as much as the direct fix.** `registerToken` and `refreshTokenForCurrentTeam` both guard on `cachedTokenHex`; neither was broken, both were starved. With the token cached immediately, bug (c)'s mid-session registration works for the first time — the other half of why the assistant never heard anything.
+
+**No unit test.** The failure is a launch-ordering race against UIKit and APNs; the test target cannot reach it. **Verification is the device**, below.
 
 **Confirm before fixing** (either is enough, neither needs the CloudKit dashboard):
 
@@ -544,6 +555,31 @@ That is the same shape as the July 2026 wipe those comments reference, and there
 **Live risk while testing:** the iPhone and iPad share an Apple ID, so they share one KV store and can clobber each other by this same path. Xcode builds on both sidesteps it.
 
 **Size:** unknown until reproduced. **Blocked on:** one TestFlight seed.
+
+### 3.7 Two `STLRouteTests` fail, and the backlog said the suite was green
+
+**Found 9 Aug 2026** while checking whether 1.9's fix regressed anything. It did not — but the check turned up that **`Lineup BuilderTests` has been failing**, and this file has been asserting "Suite green" regardless.
+
+```
+STLRouteTests.testHandleRejectsForeignURLsWithoutSettingARequest()
+STLRouteTests.testRepeatingTheSameRouteProducesADistinctRequest()
+```
+
+**320 of 322 pass.** These two fail **on a clean tree with 1.9's changes stashed**, so they are nothing to do with the push work.
+
+**They are deterministic, not flaky.** The first read of the full-suite run suggested parallel-clone contention — both failures landed on one simulator clone while sibling cases passed on others, which is the classic shape of shared static state across a parallelized run. **The baseline disproved that:** run alone, as the only test class, both still fail. Whatever this is, it reproduces in isolation.
+
+Both names describe `AppRouter`/pending-request state rather than pure URL parsing — one asserts a rejected URL leaves *no* pending request, the other that a repeat produces a *distinct* one — so the likely area is `STLRoute.handle` and the nonce, not `STLRoute` parsing, which passes everywhere else in the class.
+
+**Why this matters more than two tests.** The suite is the gate every other item in this file leans on when it says "unit-green", and it has been reporting a state that isn't true. Until this is fixed, "the tests pass" is not evidence of anything.
+
+**First step:** open the `.xcresult` for the assertion text — `xcodebuild`'s console output does not carry it.
+
+```
+~/Library/Developer/Xcode/DerivedData/Lineup_Builder-*/Logs/Test/
+```
+
+**Size:** S to diagnose, unknown to fix. **Blocked on:** nothing.
 
 ### ~~3.5 iPad has no PDF export at all~~ — built 8 Aug 2026, pulled into 3.3
 

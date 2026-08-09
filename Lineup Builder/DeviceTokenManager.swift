@@ -30,6 +30,11 @@ final class DeviceTokenManager {
     // Cached token string so we can register for all teams after a team switch.
     private var cachedTokenHex: String?
 
+    /// Set when a token arrives, cleared when it has been written to CloudKit.
+    /// Held separately from the token itself: the token stays cached for the
+    /// whole session, so it can't double as the "still needs writing" flag.
+    private var needsFlush = false
+
     // MARK: - APNs Registration
 
     /// Call once on launch. Registers for remote notifications so iOS delivers
@@ -38,12 +43,35 @@ final class DeviceTokenManager {
         UIApplication.shared.registerForRemoteNotifications()
     }
 
-    /// Called by AppDelegate when iOS provides (or refreshes) the device token.
-    /// Writes the token to CloudKit for every team the coach is on.
-    func didRegister(deviceToken: Data, store: LineupStore) {
-        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
-        cachedTokenHex = hex
+    /// Called by AppDelegate the moment iOS provides (or refreshes) the token.
+    ///
+    /// Caches it and nothing else. **Deliberately takes no `LineupStore`**, so
+    /// it can run before there is a view — which is the whole point: on a cold
+    /// launch APNs calls back before `ContentView` has subscribed to anything,
+    /// and the token used to be posted through NotificationCenter with
+    /// `ContentView` as its only listener. A post with no subscriber is lost,
+    /// `cachedTokenHex` stayed nil for the entire session, and every writer
+    /// below then no-opped on its own `guard let hex` — so the device wrote no
+    /// `DeviceToken` record at all and silently received no notifications.
+    /// That was backlog 1.9, found on device 9 Aug 2026.
+    ///
+    /// Same shape as `PendingShareAcceptance`, and for the same reason.
+    func receiveToken(_ deviceToken: Data) {
+        cachedTokenHex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        needsFlush = true
         Log.push.info("Received APNs device token")
+    }
+
+    /// Writes the cached token to CloudKit for every team the coach is on.
+    ///
+    /// Call from anywhere a `LineupStore` is in hand — `ContentView` does it
+    /// both on becoming active and on the token notification, so whichever
+    /// happens first performs the write and the other finds nothing to do.
+    /// No-ops when no token has arrived yet; `receiveToken` arms it when one
+    /// does, and the next call through either entry point picks it up.
+    func flushPendingRegistration(store: LineupStore) {
+        guard needsFlush, let hex = cachedTokenHex else { return }
+        needsFlush = false
         Task {
             await saveTokenForAllTeams(tokenHex: hex, store: store)
         }
@@ -75,8 +103,10 @@ final class DeviceTokenManager {
     /// DeviceToken record at all, so the Worker had nothing to push to and the
     /// coach silently received no notifications for it until the next cold start.
     ///
-    /// No-ops before APNs has handed us a token; `didRegister` covers that case
-    /// when it arrives, because by then the team is in `store.teams`.
+    /// No-ops before APNs has handed us a token; the flush covers that case when
+    /// one arrives, because by then the team is in `store.teams`. Since 1.9 the
+    /// token is cached the instant APNs provides it, so this guard now means
+    /// "APNs hasn't answered yet" rather than "the token was dropped".
     func registerToken(forTeamID teamID: UUID, coachName: String) {
         guard let hex = cachedTokenHex else { return }
         Task {
