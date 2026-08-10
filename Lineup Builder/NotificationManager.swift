@@ -108,12 +108,24 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         var fullMetadata = metadata
         fullMetadata["teamName"] = team.name
 
-        let payload: [String: Any] = [
+        // triggeredBy is the display name the notification body reads back
+        // ("<name> finalized the lineup"). triggeredByToken is what the Worker
+        // excludes on, and the two are deliberately different things: coachName
+        // is UIDevice.current.name, which iOS 16 reduced to "iPhone" on every
+        // device, so using it as an identity matched every token and delivered
+        // nothing. Omitted rather than sent empty when APNs hasn't answered yet
+        // — the Worker treats absence as "legacy client" and falls back to the
+        // name comparison, where an empty string would match no one and notify
+        // the sender of their own action. See backlog 1.11.
+        var payload: [String: Any] = [
             "teamID":      team.id.uuidString,
             "eventType":   eventType,
             "triggeredBy": team.coachName,
             "metadata":    fullMetadata,
         ]
+        if let tokenHex = DeviceTokenManager.shared.currentTokenHex {
+            payload["triggeredByToken"] = tokenHex
+        }
 
         guard let url = URL(string: workerURL),
               let body = try? JSONSerialization.data(withJSONObject: payload) else {

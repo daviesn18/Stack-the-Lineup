@@ -30,6 +30,17 @@ final class DeviceTokenManager {
     // Cached token string so we can register for all teams after a team switch.
     private var cachedTokenHex: String?
 
+    /// This device's APNs token, once APNs has provided one.
+    ///
+    /// Read by `NotificationManager.postEvent` so the Worker can exclude the
+    /// device that caused an event from being notified about it. That exclusion
+    /// used to key on `coachName`, which is `UIDevice.current.name` — "iPhone"
+    /// on every device since iOS 16 — so it matched every token and no push was
+    /// ever delivered on a shared team. The APNs token is unique per device and
+    /// per install, which is exactly the property the exclusion needs. See
+    /// backlog 1.11.
+    var currentTokenHex: String? { cachedTokenHex }
+
     /// Set when a token arrives, cleared when it has been written to CloudKit.
     /// Held separately from the token itself: the token stays cached for the
     /// whole session, so it can't double as the "still needs writing" flag.
