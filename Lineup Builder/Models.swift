@@ -2150,6 +2150,21 @@ class LineupStore: ObservableObject {
     /// is load-bearing on the unchanged path and a duplicate upload on the
     /// changed one. Always saves — name, colour and coach name have no
     /// equivalent early return.
+    /// Sets just the coach's name for a team.
+    ///
+    /// Separate from `updateTeamDetails` because the sharing screen has no
+    /// business knowing a team's colour or inning count in order to record who
+    /// the coach is — and reading those back to pass them through unchanged is
+    /// how a screen ends up overwriting a field it never showed.
+    ///
+    /// Local-only, like the field itself: never synced, and preserved across
+    /// merges, so each device names its own coach. See `mergeCloudKitChanges`.
+    func setCoachName(_ coachName: String, teamID: UUID) {
+        guard let idx = teams.firstIndex(where: { $0.id == teamID }) else { return }
+        teams[idx].coachName = coachName
+        save()
+    }
+
     func updateTeamDetails(id: UUID, name: String, color: Color, coachName: String, gameInningCount: Int) {
         guard let idx = teams.firstIndex(where: { $0.id == id }) else { return }
         teams[idx].name = name

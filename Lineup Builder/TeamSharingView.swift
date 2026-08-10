@@ -35,6 +35,25 @@ struct TeamSharingView: View {
     @State private var inviteLink: InviteLink?
     @State private var showingStopConfirmation = false
 
+    // MARK: - Coach name
+    //
+    // Asked for here, at the one moment it starts mattering to someone else.
+    // `coachName` is what the assistant's notification reads back ("<name>
+    // finalized the lineup"), and its default is UIDevice.current.name — which
+    // iOS 16 reduced to the model, so it is "iPhone" on every device. Coaches
+    // could always set it in Edit Team; nothing ever asked them to, so nobody
+    // did. See backlog 1.11.
+    //
+    // Deliberately not blocking: skipping still sends the invite. Sharing is
+    // the goal the coach came here for, and a name is worth asking for, not
+    // worth refusing over.
+
+    @State private var showingCoachNamePrompt = false
+    @State private var enteredCoachName = ""
+    /// The invite the prompt is standing in front of, run either way once it
+    /// is answered.
+    @State private var inviteAwaitingName: (() -> Void)?
+
     /// The access level a *new* share is created with. Only meaningful before
     /// the team is shared; afterwards the link's own permission is authoritative.
     @State private var pendingPermission: TeamSharePermission = .readWrite
@@ -100,6 +119,24 @@ struct TeamSharingView: View {
             if let busyMessage {
                 busyOverlay(busyMessage)
             }
+        }
+        .alert("What should we call you?", isPresented: $showingCoachNamePrompt) {
+            TextField("Your name", text: $enteredCoachName)
+                .textInputAutocapitalization(.words)
+            Button("Continue") {
+                let trimmed = enteredCoachName.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    store.setCoachName(trimmed, teamID: teamID)
+                }
+                inviteAwaitingName?()
+                inviteAwaitingName = nil
+            }
+            Button("Skip", role: .cancel) {
+                inviteAwaitingName?()
+                inviteAwaitingName = nil
+            }
+        } message: {
+            Text("Assistant coaches see this when you finalize a lineup. Without it, their notification just says \"iPhone\".")
         }
         .sheet(item: $inviteLink) { link in
             ShareInviteSheet(url: link.url, teamName: link.teamName)
@@ -243,7 +280,7 @@ struct TeamSharingView: View {
     private var inviteButtonSection: some View {
         Section {
             Button {
-                createShareAndInvite()
+                askForNameThenInvite { createShareAndInvite() }
             } label: {
                 HStack {
                     Spacer()
@@ -285,7 +322,7 @@ struct TeamSharingView: View {
             }
 
             Button {
-                shareExistingLink(info)
+                askForNameThenInvite { shareExistingLink(info) }
             } label: {
                 Label(
                     info.participants.isEmpty ? "Send Invite Link" : "Invite Another Coach",
@@ -411,6 +448,30 @@ struct TeamSharingView: View {
     }
 
     /// First-time share: make sure the team is in iCloud, create the share at the
+    /// True when `coachName` carries no information about who the coach is.
+    ///
+    /// Empty is the obvious case. Matching `UIDevice.current.name` is the
+    /// non-obvious one: that is the default every team was seeded with, and
+    /// since iOS 16 it returns the model name rather than anything the coach
+    /// chose, so "iPhone" is a placeholder wearing a real value's clothes.
+    /// Comparing against it also repairs teams created before this prompt
+    /// existed, without a migration that would overwrite a genuine name.
+    private var needsCoachName: Bool {
+        let trimmed = (team?.coachName ?? "").trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed == UIDevice.current.name
+    }
+
+    /// Runs `invite`, asking for the coach's name first when there isn't one.
+    private func askForNameThenInvite(_ invite: @escaping () -> Void) {
+        guard needsCoachName else {
+            invite()
+            return
+        }
+        enteredCoachName = ""
+        inviteAwaitingName = invite
+        showingCoachNamePrompt = true
+    }
+
     /// chosen permission, then hand the link to the share sheet.
     private func createShareAndInvite() {
         guard var team else { return }
