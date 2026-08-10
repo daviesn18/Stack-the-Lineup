@@ -48,6 +48,7 @@ State of the repo: `main` is at `a9649d3` and **pushed** — the four commits fr
 | ~~1.8~~ | ~~iPad nav bar read-only gating~~ | — | ✅ **9 Aug** — step 9 passes both ways on device |
 | **1.9** | **A cold-launched device never registers for push** | M | **Nothing.** Diagnosed 9 Aug; the fix is the 8 Aug `PendingShareAcceptance` pattern |
 | **1.10** | **Link permission overrides an assistant's own permission** | M | **Fixed in code 9 Aug** — decided: honest UI. Needs a device pass |
+| **1.11** | **Push identity is a display name, and every device's is "iPhone"** | M | **Nothing for the delivery fix.** Spans the app and the Worker |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -222,6 +223,44 @@ It also casts doubt on step 5. Setting the participant to Can edit appeared to s
 **Worth treating as a 3.3 blocker.** It is a silent privilege escalation on the exact guarantee the release spent two device sessions verifying. That is a judgement call, but it should be made deliberately rather than by shipping.
 
 **Size:** M. **Blocked on:** the decision above.
+
+### 1.11 Push identity is a display name, and every device's is "iPhone"
+
+**Found 10 Aug 2026 from the Worker's own logs**, after 1.9's fix was confirmed working and the notification *still* didn't arrive. Read, not inferred — this is what the Worker printed:
+
+```
+Fetched 1 device token(s) for team A5331C3F-CBAD-4975-A4AF-824DDBD24E87
+Sending to 0 recipient(s) after filtering out iPhone
+```
+
+**One root cause, three symptoms.** The Worker excludes the sender so they aren't notified of their own action (`stl-worker/src/index.ts:55`):
+
+```ts
+t => t.coachName.toLowerCase() !== triggeredBy.toLowerCase()
+```
+
+`triggeredBy` is `team.coachName`, which is set from `UIDevice.current.name` for both a received team (`Models.swift:1678`) and a new one (`Models.swift:2482`). **Since iOS 16 that API no longer returns the user's device name** — it returns the model, `"iPhone"`, unless the app holds the user-assigned-device-name entitlement, which this one does not.
+
+So every device writes `coachName: "iPhone"`, every event sends `triggeredBy: "iPhone"`, and a rule meant to exclude *one* device excludes *all* of them. Confirmed on both devices: the name reads "iPhone" in the app on the owner's phone and the assistant's.
+
+| Symptom | Where |
+|---|---|
+| **No push ever arrives on a shared team** | Worker filter, above |
+| **"iPhone finalized the lineup for…"** in the notification body | `stl-worker/src/index.ts:144` |
+| **"Finalized by iPhone"** in the app | `lastFinalizedBy`, `Models.swift:1806` |
+
+**Why 1.9 looked like the whole story and wasn't.** Yesterday the assistant had no `DeviceToken` record at all, which was real and is fixed. This sat underneath it and could not surface until a token existed to be filtered out.
+
+**The fix is two independent changes; don't conflate them.**
+
+1. **Stop keying identity on a display name.** The app already holds something unique per device — the APNs token hex it just wrote to `apnsToken`. Send it as `triggeredByToken` and have the Worker exclude on `apnsToken` instead. **No CloudKit schema change**: the field already exists. The Worker should fall back to the `coachName` comparison when `triggeredByToken` is absent, so installs on older builds keep behaving as they do now rather than notifying senders of their own actions.
+2. **Give `coachName` a real value.** It is user-facing in two places and currently reads "iPhone" for everyone. Options: prompt for it during team setup, seed it from the CloudKit participant name where one is discoverable, or leave it empty and fall back to something honest like "Your assistant". **A product decision, not a cleanup** — and worth checking how many existing teams already carry "iPhone".
+
+> ⚠️ **Fix 1 spans two repos and needs a Worker deploy.** Shipping the app half alone changes nothing; shipping the Worker half alone breaks nothing but helps nothing. Redeploy carries the 1.2 caveat: watch Observability → Events and the `sent` count, never the error rate.
+
+**`Fetched 1`, not 2 — a loose end.** Only one token existed for that team at 16:20. With both devices registering, there should be two. Either the assistant's record landed under a different `teamID` or it was written after those requests. **Check before assuming fix 1 is sufficient:** CloudKit Dashboard → Production → Public → `DeviceToken`, filtered `teamID == A5331C3F-CBAD-4975-A4AF-824DDBD24E87`. Two records means the name collision was the only bug.
+
+**Size:** M across both repos. **Blocked on:** nothing for fix 1; a product call for fix 2.
 
 ### 1.7 Verify the reworked sharing surface on device
 
