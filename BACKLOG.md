@@ -69,6 +69,7 @@ State of the repo: `main` is at `a9649d3` and **pushed** — the four commits fr
 | 4.4 | Localization / string catalog | **L** | A design decision on assembled strings |
 | 4.5 | Swift 6 language mode — 12 warnings become errors | M | Nothing. Do it early in a cycle, not late |
 | 4.6 | iOS 27 App Intents readiness — `indexingKey`, App Schemas | M | An iOS 27 beta to verify against |
+| 4.7 | Should `CKSubscription` replace the Worker entirely? | M | 3.3 shipping. A question, not a plan |
 
 ---
 
@@ -730,6 +731,25 @@ The shape of the work isn't silencing warnings — it's deciding what is genuine
 **One trap.** `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is set on the **app target only** — not the widget, not the tests. `WidgetSnapshot.swift` and `STLWidget.swift` compile into *both* the app and `STLWidgetExtension` (confirmed from the build's `SwiftFileList`s, not the project file), so the same source compiles MainActor-by-default in one target and nonisolated-by-default in the other. Any isolation annotation added to those two has to hold under both.
 
 **Size: M**, and unusually front-loaded — the diagnosis is most of it, the edits are small. Do it at the *start* of a cycle: the failure mode is flipping the language mode late, hitting twelve errors in five files, and reverting under time pressure.
+
+### 4.7 Should CloudKit send the pushes itself, and the Worker go away?
+
+**Opened 10 Aug 2026**, after a day in which the push chain produced three separate faults (1.9, 1.11, and 1.2 back on 6 Aug). Worth asking deliberately rather than drifting into.
+
+**The Worker exists for one reason: CloudKit offers no server-side hook.** Everything painful about push on this project traces to reaching into CloudKit *from outside* — per-environment server-to-server keys, SEC1 vs PKCS#8, a Development share being **invisible** rather than stale in Production, and a `DeviceToken` mirror of state CloudKit already knows.
+
+`CKSubscription` on the shared zone would delete that whole surface: no device tokens, no `DeviceToken` records, no sender-exclusion rule, no S2S key, no environment mismatch, no Worker, no second repo, no deploy step. Every one of 1.9, 1.11 and 1.2 lives in machinery that would stop existing.
+
+**Two things to settle before believing any of that:**
+
+1. **Does CloudKit notify the device that made the change?** The entire 1.11 defect was a hand-rolled answer to that question. If CloudKit suppresses the originator, the problem disappears; if not, it comes back in a new costume.
+2. **Can the alert say what it needs to say?** Subscription-driven alerts have constrained content. "Nick finalized the lineup vs the Rockhounds" likely needs a **silent** push plus a locally composed notification — and silent pushes are throttled by iOS and **do not arrive at all when the app has been force-quit**. A coach who swipes the app away and misses the lineup is a worse outcome than any bug fixed today.
+
+**That second point is probably why the Worker was built**, and it may well be the right answer. Rich, immediate, reliable alert text is a genuine benefit, not an accident. **Do not treat this item as a foregone conclusion** — it is a question, and "keep the Worker" is a legitimate answer to write down.
+
+**What is *not* worth doing: switching providers.** Reviewed 10 Aug against the day's actual defects. 1.9 and 3.7 were app-side and toolchain, and would have followed any stack. Cloudflare caused essentially nothing — two minor gotchas, the 0%-error-rate trap in 1.2 and `crypto.subtle` needing PKCS#8. Firebase would have prevented 1.9 (its SDK owns token persistence) and made 1.11 unlikely (it hands you an installation ID), but at the price of an account system, a second datastore or a CloudKit→Firebase mapping, privacy disclosures and cost — more moving parts, in an app that is serverless and authless *because* it is CloudKit.
+
+**Size:** M to evaluate, L if adopted. **Blocked on:** 3.3 shipping. **Do not start this inside a release.**
 
 ### 4.6 iOS 27 App Intents readiness
 

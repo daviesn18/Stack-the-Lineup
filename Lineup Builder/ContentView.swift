@@ -130,8 +130,17 @@ struct ContentView: View {
                 selectedTab = 0
             }
 
-            // v3.0: Request push notification permission once and set up
-            // CloudKit subscriptions for lineup-finalized alerts.
+            // Asks for notification permission once per install, then registers
+            // for remote notifications on every launch so APNs re-issues the
+            // token. That registration is the whole delivery path: the token
+            // goes to a DeviceToken record in public CloudKit, and the
+            // Cloudflare Worker reads it when a lineup is finalized.
+            //
+            // This comment used to say it "set up CloudKit subscriptions for
+            // lineup-finalized alerts". It never did — there is no CKSubscription
+            // anywhere in the app, and there never has been. Whether there
+            // *should* be is a real question, since it would remove the Worker,
+            // the token records and their whole failure surface; see backlog 4.7.
             NotificationManager.shared.requestPermissionIfNeeded()
 
             if !showingWelcome, WhatsNewManager.shouldShow(), let content = WhatsNewContent.current {
