@@ -258,7 +258,11 @@ So every device writes `coachName: "iPhone"`, every event sends `triggeredBy: "i
 
 > ⚠️ **Fix 1 spans two repos and needs a Worker deploy.** Shipping the app half alone changes nothing; shipping the Worker half alone breaks nothing but helps nothing. Redeploy carries the 1.2 caveat: watch Observability → Events and the `sent` count, never the error rate.
 
-**`Fetched 1`, not 2 — a loose end.** Only one token existed for that team at 16:20. With both devices registering, there should be two. Either the assistant's record landed under a different `teamID` or it was written after those requests. **Check before assuming fix 1 is sufficient:** CloudKit Dashboard → Production → Public → `DeviceToken`, filtered `teamID == A5331C3F-CBAD-4975-A4AF-824DDBD24E87`. Two records means the name collision was the only bug.
+**`Fetched 1`, not 2 — a loose end.** Only one token existed for that team at 16:20. With both devices registering, there should be two. Either the assistant's record landed under a different `teamID` or it was written after those requests. This decides whether fix 1 is sufficient or merely necessary.
+
+> **Read the count off the Worker log, not the CloudKit dashboard.** `Fetched N device token(s) for team …` *is* this query — the Worker runs it with its own credentials, environment and predicate, which makes it better evidence than the console rather than a substitute for it. Install on both devices, launch both, finalize once, read N. **2** means the name collision was the only fault; **1** means a registration gap remains.
+>
+> The dashboard route was tried on 10 Aug and abandoned. Querying `DeviceToken` there fails with **"Field 'recordName' is not marked queryable"** — the console sorts by `recordName` when no predicate is set, and that field has no index in Production. Adding one means a schema change in Development plus a deploy, which is not worth it mid-release when the Worker already prints the answer.
 
 **Size:** M across both repos. **Blocked on:** nothing for fix 1; a product call for fix 2.
 
