@@ -15,7 +15,7 @@
 1. **Assistants are asked their name when they join** — 1.11 fix 2, receiving side. Build 39 asks the *owner* on both invite paths; nothing asked the assistant, so the head coach still reads "iPhone finalized the lineup" from an assistant who joined on 39. See 1.12.
 2. **A shared team the head coach deletes now goes from the assistant's device**, with a notice saying why. It never did — the classifier that claims to handle it can't see shared-database deletions at all. See 1.13.
 
-**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **3.5's locked path was checked in the iPad simulator on 12 Aug and failed** — see 3.8, which is a code fix rather than a device step, and wants to land before 3.3 ships.
+**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **3.5's locked path was checked in the iPad simulator on 12 Aug, failed, and is fixed** — see ~~3.8~~. The check turned up **3.9** on iPhone, which is the one thing here that could matter to App Review.
 
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
@@ -74,7 +74,8 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | ~~3.6~~ | ~~A seed produced no team; cause unknown~~ | — | ✅ **12 Aug** — several clean seeds on TestFlight; closed unreproduced, tripwire left armed |
 | ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
 | **Stage 4 — decisions and long poles** ||||
-| **3.8** | **`ProGate` is broken at iPad size** | S | **Nothing.** Found 12 Aug in the simulator; the fix is the detent |
+| ~~3.8~~ | ~~`ProGate` is broken at iPad size~~ | — | ✅ **12 Aug** — peek detent is compact-width only now; verified in the simulator |
+| **3.9** | **Subscription terms truncate mid-word at the paywall's default detent** | S | **Nothing.** Found 12 Aug on iPhone; worth checking against App Review's terms rules |
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
 | 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
@@ -785,17 +786,39 @@ Both names describe `AppRouter`/pending-request state rather than pure URL parsi
 >
 > **At the peek detent, which is what a coach sees first.** `ProGate` opens `PaywallView` as a sheet at `.fraction(0.6)` (`ProGate.swift:61`). On iPhone that is a bottom-anchored peek with the preview above it. **On iPad a sheet is a centered floating card**, so the peek concept does not exist: the locked PDF shows above *and* below, the "YOU JUST TRIED / Coaches Guide PDF" block is cut in half by the pricing panel overlapping it, and the legal footer truncates mid-word at *"Renews automatically unless c…"*.
 >
-> **Dragged to `.large` it is nearly right** — blue block intact, feature list visible, footer complete and legible. One defect survives: the scrolling feature list is **bisected**, with the "Lineup Templates" row sliced horizontally by the pinned pricing panel. The scroll content's bottom inset is short by roughly one row.
+> **Dragged to `.large` it is right** — blue block intact, feature list visible, footer complete and legible.
 >
-> **The cheap fix is the detent.** On regular width, initialise `detent` to `.large` and drop `.fraction(0.6)` from the set. The peek exists to keep the preview visible above the paywall, and on iPad the backdrop is visible around the card anyway — so the detent buys nothing there and costs the whole layout.
+> **Fixed 12 Aug, and verified.** `ProGate` now offers the peek only at compact width; at regular width `.large` is the only detent, read through a computed binding so the first frame is correct rather than corrected in `onAppear`. `presentationBackgroundInteraction` had to move with it: it was capped at the peek, which on iPad would have scrimmed `.large` and made the nav-bar **Close** button — the one non-committal exit — unreachable. Re-checked on the same clean simulator: opens at `.large`, upsell block whole, footer complete, backdrop undimmed. iPhone still opens at the peek and still drags to `.large`.
 >
-> **Open question, deliberately not guessed:** whether the bisected feature row is iPad-only or also on iPhone. It survives at `.large`, which is the detent iPhone reaches too, so it may be a pre-existing content-inset bug rather than anything about iPad. Check before deciding whether this belongs with the detent fix or with **4.3** (paywall dark mode + Dynamic Type), which is already the paywall-polish item.
+> **A correction, because it was written here as fact.** This item first recorded a second defect: the feature list "bisected", with the "Lineup Templates" row sliced by the pinned pricing panel. **That was a misreading — the list simply scrolls.** Dragging it reveals the row in full, then Shared Teams and Game History below. On iPhone at `.large` the whole list fits without scrolling, which is the only reason the two looked different. Nothing to fix.
+>
+> ### ⚠️ The iPhone comparison turned up something separate — see 3.9
+>
+> Checking whether the bisection was iPad-only meant looking at iPhone at both detents, and **at the peek detent the subscription legal text is truncated mid-word**: *"…is charged to your Apple Accou…"*. It is one ellipsised line there and four full lines at `.large`. The peek is iPhone's **default** state, so this is what a coach sees unless they drag the sheet up. Not iPad-specific and not caused by anything here. Recorded as **3.9**.
 >
 > **Why the first attempt at this test proved nothing, worth knowing for next time:** the iPad simulator it was run on turned out to be **Pro**, from a StoreKit-testing transaction left by an earlier Xcode run. Those persist per simulator. It rendered a full unlocked PDF and looked like a pass. The tell was the menu reading "Coaches Guide" rather than "Coaches Guide (Pro)"; History being unlocked confirmed it. **Verify the device is actually non-Pro before testing a locked path** — a fresh simulator, or check that History is paywalled.
 
 **Size:** M. **Blocked on:** nothing. Can be pulled into 3.3 if the assistant-printing story should ship whole — the iPhone path works today, so it is a judgement call, not a blocker.
 
 ---
+
+### 3.9 The subscription terms truncate mid-word at the paywall's default detent
+
+**Found 12 Aug 2026 on iPhone**, while checking whether 3.8's suspected second defect was iPad-specific. It wasn't, and this is what the comparison actually turned up.
+
+At the peek detent — `.fraction(0.6)`, which is what `ProGate` opens at on iPhone and therefore **the default state a coach sees** — the legal line under Restore Purchase renders as a single ellipsised line:
+
+> *"After the 7-day free trial, $9.99/year is charged to your Apple Accou…"*
+
+Dragged to `.large` the same text wraps to four full lines and reads completely: price, renewal, cancellation window, where to manage it, and the Terms/Privacy links. So the copy is right and the room for it is not.
+
+**Why this is worth more than a cosmetic ticket.** App Review's guidelines on auto-renewable subscriptions expect the price, duration and renewal terms to be legible before purchase, and here the "Start 7-day free trial" button is fully visible while the sentence explaining what happens after the trial is cut mid-word. **I have not confirmed how the current guidelines word this** — worth reading them rather than taking the risk on my summary — but a truncated terms line directly above a purchase button is the shape of thing that draws a rejection.
+
+**Not caused by 3.8's fix and not fixed by it.** 3.8 removed the peek at regular width, so iPad now opens at `.large` and reads correctly. iPhone still opens at the peek by design, which is where this shows.
+
+**Options, cheapest first:** give the footer room at the peek (it is the pinned block, so the space is a layout constant, not a scroll problem); or raise the peek fraction; or open at `.large` everywhere and drop the peek entirely — though that would throw away the preview-above-paywall idea the peek exists for, which is worth keeping.
+
+**Size:** S. **Blocked on:** nothing.
 
 ## Stage 4 — decisions and long poles
 
