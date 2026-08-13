@@ -15,7 +15,15 @@
 1. **Assistants are asked their name when they join** — 1.11 fix 2, receiving side. Build 39 asks the *owner* on both invite paths; nothing asked the assistant, so the head coach still reads "iPhone finalized the lineup" from an assistant who joined on 39. See 1.12.
 2. **A shared team the head coach deletes now goes from the assistant's device**, with a notice saying why. It never did — the classifier that claims to handle it can't see shared-database deletions at all. See 1.13.
 
-**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. 3.5's locked path and 3.6's seed are still open and are free while installing.
+**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. 3.5's locked path is the only other thing still open, and is free while installing. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight.
+
+> **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
+>
+> CloudKit sharing is per-environment — Xcode builds talk to **Development**, TestFlight to **Production** — and a share created in one is invisible in the other. Push cannot work from a Debug build at all, for two independent reasons (see the subsection under 1.7). The KV-store path that 3.6 turns on is `#if !DEBUG`. Three separate mechanisms behave differently, and every one of them fails in a way that reads as an app bug.
+>
+> It has already cost real time twice: **1.4 closed with an open question about which build type each device ran**, which is why its result had to be qualified, and 3.6's one data point came from a Debug build where the mechanism it blames is compiled out. Neither ambiguity can arise again under this rule.
+>
+> **The cost, accepted:** the loop is a TestFlight round trip rather than a rebuild, and Pro needs the simctl workaround or a run from Xcode instead of the scheme's `.storekit` config. Worth it — a failure you can trust is cheaper than a fast one you can't.
 
 > ⚠️ **1.13's device pass has a step that is easy to skip and is the one that matters:** put the assistant's device in airplane mode and foreground the app. A thrown shared fetch must leave every shared team alone. The failure mode if that guard is wrong is every received team disappearing the first time iCloud is unreachable — a worse bug than the one being fixed.
 
@@ -63,7 +71,7 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
-| 3.6 | A seed produced no team; cause unknown | ? | **One TestFlight seed.** Leading theory is a KV-store clobber — a data-loss shape |
+| ~~3.6~~ | ~~A seed produced no team; cause unknown~~ | — | ✅ **12 Aug** — several clean seeds on TestFlight; closed unreproduced, tripwire left armed |
 | ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
 | **Stage 4 — decisions and long poles** ||||
 | 4.1 | History paywall auto-opens | S | Product decision |
@@ -129,6 +137,8 @@ Before the 6 Aug fix, a view-only participant on iPad could reassign positions, 
 **Note on the run:** the view-only share this needed could not be created at all until 1.7 landed — `createShare` forced every share back to read-write.
 
 **Left deliberately out of this item:** the push test that used to hang off it. It is not part of 2.4a and was being tracked in three places at once; it now lives in **1.7 step 12**, with the build-environment caveat attached. See also 1.2's standing caveat that APNs has never delivered a real push.
+
+> **Resolved 12 Aug 2026.** The question below was whether the sync path had actually been exercised, or whether the iPad had been reading a locally cached copy. It no longer matters: **1.7's steps 9–13 passed on TestFlight build 39 with all three devices in Production CloudKit**, which exercises that path directly. The ambiguity itself is retired by the standing decision under ▶ Start here — this is one of the two times it cost real time.
 
 **Open question about the 8 Aug run, carried to 1.7:** which build type each device ran. If the iPad ran an Xcode build while the assistant's phone was on TestFlight, the two were in different CloudKit environments and the iPad was reading a locally cached copy rather than a live share. **The result above stands either way** — the gating reads `isReadOnly` off local state — but the sync path would not have been exercised, and 1.7's steps 9–13 depend on it.
 
@@ -364,6 +374,8 @@ Two places read the result, both on the *head coach's* screen: the push body the
 **Blocked on:** a second iCloud account, and — for the push steps only — a TestFlight build. **Size:** M.
 
 #### Xcode builds cover most of this; the push steps need TestFlight
+
+> **Superseded 12 Aug 2026 — device testing is on TestFlight now, full stop.** See the standing decision under ▶ Start here. The section below is kept because it is the clearest statement of *why* the two environments differ, which is the part worth understanding; the recommendation at the top of it is no longer the one to follow.
 
 Direct-from-Xcode installs are fine for everything except push, and are worth using: the loop is a rebuild rather than a TestFlight round trip, and running from Xcode picks up the scheme's `.storekit` config, so Pro works without the simctl workaround.
 
@@ -651,7 +663,17 @@ A third option worth ten minutes first: find out whether `currentTipUpdates` yie
 
 A real debounce needs a trailing-edge flush on `scenePhase` and opens a window where a crash loses the last write — on the sync path behind the July incident. **A design pass, not a cleanup.** **Size:** M, and higher risk than its size suggests.
 
-### 3.6 A seed produced no team, and the cause is still unknown
+### ~~3.6 A seed produced no team, and the cause is still unknown~~ — ✅ **closed unreproduced, 12 Aug 2026**
+
+> **Closed on the evidence, not on a diagnosis.** Several teams were seeded on **TestFlight** during the 11–12 Aug notification session — the environment where the KV-store path is live — and every one of them worked. The symptom has not returned.
+>
+> **This is a "did not recur", not a "fixed".** The 8 Aug incident was never explained. What makes several clean seeds meaningful rather than merely quiet is the pair of fixes that landed the same day: `DebugDataSeeder.seed` returns the new team's ID and the alert only claims success if the count actually rose, so a seed that did nothing can no longer look like one that worked. Before those, "it worked" was not an observation.
+>
+> **What would have made this conclusive and wasn't done:** the theory's failure is *create-then-clobber*, not create-fail. Catching it needs the team to survive an external KV write from another device on the same Apple ID — that notification is what replaces `teams` wholesale. Ordinary seeding may never trigger it. So the theory is unconfirmed rather than disproved.
+>
+> **The tripwire stays.** `Analytics.signal("sync.blob_shrank")` (`Models.swift:1542`) still fires on any sync that reduces the team or game-log count. If this was real and merely dormant, that is what will say so, and it costs nothing to leave armed. Reopen this item if it ever fires.
+>
+> The investigation below is kept because the leading theory is a data-loss shape and the reasoning would otherwise have to be rebuilt from scratch.
 
 **Open investigation, 8 Aug 2026.** Not reproduced, not diagnosed. Recorded because the leading theory is a data-loss path, and because the next data point costs nothing — it either recurs on TestFlight or it doesn't.
 
