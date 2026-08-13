@@ -203,6 +203,13 @@ final class RemoteDeletionClassificationTests: XCTestCase {
     }
 
     func testASharedTeamIsRemovedWithoutAsking() {
+        // ⚠️ This branch is unreachable in production and this test does not
+        // show otherwise — it calls the classifier directly. The only caller
+        // feeds it `fetchChanges().deletedRecordNames`, which comes from the
+        // coach's own private zone, and a received team's record lives in the
+        // owner's zone in the shared database. A head coach deleting a shared
+        // team is handled by `classifyRevokedShares` instead. Kept because the
+        // rule is correct if this input ever does carry a shared record.
         let shared = team("Eagles", recordName: "team-eagles", readOnly: true)
         let outcome = LineupStore.classifyRemoteDeletions(
             recordNames: ["team-eagles"],
@@ -302,5 +309,156 @@ final class RemoteDeletionClassificationTests: XCTestCase {
             declined: []
         )
         XCTAssertEqual(outcome.prompt.first?.displayName, "This team")
+    }
+}
+
+// MARK: - RevokedShareClassificationTests
+//
+// A team the coach was invited to, that the head coach then deleted or stopped
+// sharing. The classifier above cannot see this: its input comes from the
+// private database's own zone, and a received team's record lives in the
+// owner's zone in the shared database.
+//
+// Absence from the shared fetch is the whole signal, so these tests are mostly
+// about the cases where absence must NOT mean revoked.
+
+final class RevokedShareClassificationTests: XCTestCase {
+
+    private func team(_ name: String, recordName: String?) -> Team {
+        var team = Team(name: name)
+        team.ckRecordName = recordName
+        return team
+    }
+
+    func testAReceivedTeamMissingFromTheFetchIsRevoked() {
+        let received = team("Eagles", recordName: "team-eagles")
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [received],
+            fetchedRecordNames: [],
+            receivedRecordNames: ["team-eagles"]
+        )
+        XCTAssertEqual(revoked.count, 1)
+        XCTAssertEqual(revoked.first?.teamID, received.id)
+        XCTAssertEqual(revoked.first?.teamName, "Eagles")
+    }
+
+    func testAReceivedTeamStillInTheFetchIsLeftAlone() {
+        let received = team("Eagles", recordName: "team-eagles")
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [received],
+            fetchedRecordNames: ["team-eagles"],
+            receivedRecordNames: ["team-eagles"]
+        )
+        XCTAssertTrue(revoked.isEmpty)
+    }
+
+    func testAnOwnedTeamIsNeverRevoked() {
+        // The guard that makes this safe, and the mirror of
+        // testAnOwnedTeamAsksInsteadOfVanishing. An owned team is absent from
+        // every shared fetch by definition — it lives in the coach's own private
+        // zone. Only the ledger separates the two, so if this ever passes an
+        // owned team through, the shared fetch silently deletes the coach's own
+        // teams on a device that has ever joined a share.
+        let owned = team("Rockhounds", recordName: "team-rockhounds")
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [owned],
+            fetchedRecordNames: [],
+            receivedRecordNames: ["team-eagles"]
+        )
+        XCTAssertTrue(revoked.isEmpty)
+    }
+
+    func testATeamWithNoRecordNameIsSkippedRatherThanGuessedAt() {
+        // The state bug (a) used to create by clearing record names on received
+        // teams. There is nothing to match against the fetch, so the safe answer
+        // is to leave it alone.
+        let orphan = team("Eagles", recordName: nil)
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [orphan],
+            fetchedRecordNames: [],
+            receivedRecordNames: ["team-eagles"]
+        )
+        XCTAssertTrue(revoked.isEmpty)
+    }
+
+    func testAnEmptyRecordNameIsNotAWildcard() {
+        let blank = team("Eagles", recordName: "")
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [blank],
+            fetchedRecordNames: [],
+            receivedRecordNames: [""]
+        )
+        XCTAssertTrue(revoked.isEmpty)
+    }
+
+    func testOwnedAndRevokedAreSeparatedInOneBatch() {
+        let owned    = team("Rockhounds", recordName: "team-rockhounds")
+        let kept     = team("Cyclones",   recordName: "team-cyclones")
+        let revokedT = team("Eagles",     recordName: "team-eagles")
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [owned, kept, revokedT],
+            fetchedRecordNames: ["team-cyclones"],
+            receivedRecordNames: ["team-cyclones", "team-eagles"]
+        )
+        XCTAssertEqual(revoked.map { $0.teamID }, [revokedT.id])
+    }
+
+    func testARevocationIsIdentifiedByItsRecord() {
+        let received = team("Eagles", recordName: "team-eagles")
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [received],
+            fetchedRecordNames: [],
+            receivedRecordNames: ["team-eagles"]
+        )
+        XCTAssertEqual(revoked.first?.id, "team-eagles")
+    }
+
+    func testAnUnnamedTeamStillReadsAsSomething() {
+        let unnamed = team("", recordName: "team-blank")
+        let revoked = LineupStore.classifyRevokedShares(
+            teams: [unnamed],
+            fetchedRecordNames: [],
+            receivedRecordNames: ["team-blank"]
+        )
+        XCTAssertEqual(revoked.first?.displayName, "A shared team")
+    }
+}
+
+// MARK: - CoachNamePlaceholderTests
+//
+// What counts as "this coach hasn't told us their name". Both askers — the
+// invite path in TeamSharingView and the join path in CoachNamePrompt — go
+// through this one rule, and the device-name case is the load-bearing half:
+// since iOS 16 `UIDevice.current.name` returns the model, so the default every
+// team is seeded with is "iPhone" and looks like a real value.
+
+final class CoachNamePlaceholderTests: XCTestCase {
+
+    func testAnEmptyNameIsAPlaceholder() {
+        XCTAssertTrue(LineupStore.isPlaceholderCoachName("", deviceName: "iPhone"))
+    }
+
+    func testWhitespaceOnlyIsAPlaceholder() {
+        XCTAssertTrue(LineupStore.isPlaceholderCoachName("   ", deviceName: "iPhone"))
+    }
+
+    func testTheDeviceNameIsAPlaceholder() {
+        XCTAssertTrue(LineupStore.isPlaceholderCoachName("iPhone", deviceName: "iPhone"))
+    }
+
+    func testTheDeviceNameIsAPlaceholderEvenWithWhitespace() {
+        XCTAssertTrue(LineupStore.isPlaceholderCoachName("  iPhone  ", deviceName: "iPhone"))
+    }
+
+    func testARealNameIsNotAPlaceholder() {
+        XCTAssertFalse(LineupStore.isPlaceholderCoachName("Nick", deviceName: "iPhone"))
+    }
+
+    func testACoachActuallyCalledAfterTheirDeviceIsComparedLive() {
+        // An iPad-owning coach named "iPhone" is not a case worth designing for,
+        // but a coach on a device whose name differs from the string they set is:
+        // the comparison is against this device's name today, not a value frozen
+        // at team creation, which is what lets the test repair old teams.
+        XCTAssertFalse(LineupStore.isPlaceholderCoachName("iPhone", deviceName: "iPad"))
     }
 }

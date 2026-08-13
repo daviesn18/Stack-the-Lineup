@@ -1241,6 +1241,29 @@ class LineupStore: ObservableObject {
             TeamStorage.saveDeclinedDeletions(declinedRemoteDeletions)
         }
     }
+
+    /// Record names of teams that arrived through the shared database. Written
+    /// as they arrive, and the only durable way to recognise a received team
+    /// after a relaunch — see `TeamStorage.receivedSharesKey`.
+    var receivedShareRecordNames: Set<String> = TeamStorage.loadReceivedShares() {
+        didSet {
+            guard receivedShareRecordNames != oldValue else { return }
+            TeamStorage.saveReceivedShares(receivedShareRecordNames)
+        }
+    }
+
+    /// Shared teams that have gone from the shared database — the head coach
+    /// deleted them or stopped sharing. Already removed by the time these are
+    /// published; the notice only explains where the team went. In-memory: a
+    /// coach who never saw it has nothing left to act on by the next launch.
+    @Published var pendingShareRevocations: [RevokedShare] = []
+
+    /// A team this coach joined that needs a name for them before it can
+    /// attribute anything they do. Set on accepting an invite. In-memory —
+    /// the Edit Team field is the durable path, and a prompt that survives
+    /// relaunches becomes nagging.
+    @Published var pendingCoachNameRequest: CoachNameRequest?
+
     /// Drives the share-sheet roster import flow. Set when the app receives a
     /// CSV/.stlroster file via .onOpenURL. ContentView observes this and presents
     /// the team-picker and preview chain.
@@ -1575,6 +1598,11 @@ class LineupStore: ObservableObject {
             deletedRecordNames: []
         )
         var sharedTeams: [Team] = []
+        // Absence only means "taken away" if we actually heard back. A thrown
+        // shared fetch leaves the array empty too, and treating that as an empty
+        // shared database would remove every received team on the device the
+        // first time iCloud was unreachable.
+        var sharedFetchSucceeded = false
 
         do {
             privateChanges = try await CloudKitManager.shared.fetchChanges()
@@ -1584,19 +1612,25 @@ class LineupStore: ObservableObject {
 
         do {
             sharedTeams = try await CloudKitManager.shared.fetchSharedTeams()
+            sharedFetchSucceeded = true
         } catch {
             Log.sync.error("CloudKit shared fetch failed: \(error.localizedDescription, privacy: .public)")
         }
 
         await MainActor.run {
-            self.mergeCloudKitChanges(privateChanges, sharedTeams: sharedTeams)
+            self.mergeCloudKitChanges(
+                privateChanges,
+                sharedTeams: sharedTeams,
+                sharedFetchSucceeded: sharedFetchSucceeded
+            )
         }
     }
 
     @MainActor
     private func mergeCloudKitChanges(
         _ changes: CloudKitManager.FetchChangesResult,
-        sharedTeams: [Team]
+        sharedTeams: [Team],
+        sharedFetchSucceeded: Bool
     ) {
         var didChange = false
 
@@ -1621,16 +1655,19 @@ class LineupStore: ObservableObject {
             didChange = true
         }
 
-        // A record deleted on the server means two different things depending on
-        // whose team it is.
-        //
-        // Read-only (shared) teams are removed outright — the owner deleted it,
-        // and a participant's copy has no independent existence.
+        // A record deleted from THIS coach's own private zone — their team, gone
+        // from one of their other devices.
         //
         // Owned teams are NOT auto-removed. That rule predates this code and is
         // right: a spurious or misread deletion would silently destroy a coach's
         // roster. But leaving it at that meant the other device just kept the
         // team forever and re-uploaded it. So we ask instead.
+        //
+        // The classifier also has a branch for read-only shared teams, which this
+        // call site can never reach: `changes` comes from the private database and
+        // a received team's record is in the owner's zone in the shared one. That
+        // case is handled after the shared merge below, on absence rather than on
+        // a delete notification, because absence is the only signal there is.
         let outcome = Self.classifyRemoteDeletions(
             recordNames: changes.deletedRecordNames,
             teams: teams,
@@ -1664,6 +1701,7 @@ class LineupStore: ObservableObject {
                 updated.coachName = localCoachName
                 updated.isSharedParticipant = true
                 teams[idx] = updated
+                rememberReceivedShare(updated.ckRecordName)
                 didChange = true
             } else {
                 // Same guard as the private path: a coach who left a shared team
@@ -1678,6 +1716,7 @@ class LineupStore: ObservableObject {
                 newTeam.coachName = UIDevice.current.name
                 newTeam.isSharedParticipant = true
                 teams.append(newTeam)
+                rememberReceivedShare(newTeam.ckRecordName)
                 didChange = true
 
                 // Register for this team's notifications now. Arriving here is
@@ -1688,6 +1727,57 @@ class LineupStore: ObservableObject {
                     forTeamID: newTeam.id,
                     coachName: newTeam.coachName
                 )
+            }
+        }
+
+        // A received team that is no longer in the shared database has been taken
+        // away at the other end: the head coach deleted it, or stopped sharing, or
+        // removed this coach from it. All three end the same way — there is no
+        // team here any more, and the local copy is an orphan that cannot sync,
+        // cannot be edited, and will never hear about another lineup.
+        //
+        // This is the case `classifyRemoteDeletions` above has always claimed to
+        // handle and never could. Its input comes from `fetchChanges`,
+        // which reads the private database's own zone; a received team's record
+        // lives in the *owner's* zone in the shared database and can never appear
+        // there. The rule was right and simply never reached.
+        //
+        // Removed rather than offered as a choice: "keep" would leave a team that
+        // does nothing. The coach is told instead — see `ShareRevocationNotice`.
+        //
+        // Deliberately NOT tombstoned, unlike every other removal here. A
+        // tombstone would make a false positive permanent, and the false positive
+        // is the case worth protecting against: a shared database that answers
+        // successfully but incompletely removes the team, and only a fresh invite
+        // could bring it back. Without one, a genuine deletion still never
+        // returns — the record is gone from the server — while a spurious removal
+        // repairs itself at the next fetch. The cost of that repair is the
+        // coach's own name on the team, which is re-seeded from the device.
+        if sharedFetchSucceeded {
+            let revoked = Self.classifyRevokedShares(
+                teams: teams,
+                fetchedRecordNames: Set(sharedTeams.compactMap { $0.ckRecordName }),
+                receivedRecordNames: receivedShareRecordNames
+            )
+            if !revoked.isEmpty {
+                let revokedIDs = Set(revoked.map { $0.teamID })
+                teams.removeAll { revokedIDs.contains($0.id) }
+                receivedShareRecordNames.subtract(revoked.map { $0.recordName })
+
+                for item in revoked where !pendingShareRevocations.contains(where: { $0.id == item.id }) {
+                    pendingShareRevocations.append(item)
+                }
+
+                // Same reason `deleteTeam` does it: the DeviceToken record lives in
+                // the public database and outlives the team, so without this the
+                // Worker keeps finding a token for a team this device no longer has.
+                for item in revoked {
+                    Task { await DeviceTokenManager.shared.removeTokens(for: item.teamID.uuidString) }
+                }
+
+                Log.sync.info("Removed \(revoked.count, privacy: .public) team(s) no longer shared with this device")
+                Analytics.signal("team.share.revoked", parameters: ["count": "\(revoked.count)"])
+                didChange = true
             }
         }
 
@@ -2165,6 +2255,45 @@ class LineupStore: ObservableObject {
         save()
     }
 
+    /// True when `coachName` tells you nothing about who the coach is.
+    ///
+    /// Empty is the obvious case. Matching the device name is the one that
+    /// matters: that is the default every team is seeded with, and since iOS 16
+    /// `UIDevice.current.name` returns the model rather than anything the coach
+    /// chose, so "iPhone" is a placeholder wearing a real value's clothes.
+    /// Comparing against it live also repairs teams created before anything
+    /// asked, without a migration that would overwrite a name someone set.
+    ///
+    /// `deviceName` is a parameter so the rule can be tested without UIKit, and
+    /// so both askers — the invite path and the join path — apply one definition.
+    nonisolated static func isPlaceholderCoachName(_ name: String, deviceName: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed == deviceName
+    }
+
+    /// The team a coach is being asked to name themselves for. Carries the name
+    /// rather than only the id so the alert's copy stays put while it dismisses.
+    nonisolated struct CoachNameRequest: Identifiable, Equatable {
+        let teamID: UUID
+        let teamName: String
+
+        var id: UUID { teamID }
+
+        var displayName: String { teamName.isEmpty ? "this team" : teamName }
+    }
+
+    /// Asks this coach for their name, if the team doesn't already know it.
+    ///
+    /// Called when an invite is accepted. An assistant's `coachName` is seeded
+    /// from the device name in `mergeCloudKitChanges`, so without this every
+    /// assistant is "iPhone" to the head coach — the receiving-side half of the
+    /// same fault the invite path already covers. See backlog 1.11.
+    func requestCoachNameIfPlaceholder(teamID: UUID) {
+        guard let team = teams.first(where: { $0.id == teamID }) else { return }
+        guard Self.isPlaceholderCoachName(team.coachName, deviceName: UIDevice.current.name) else { return }
+        pendingCoachNameRequest = CoachNameRequest(teamID: team.id, teamName: team.name)
+    }
+
     func updateTeamDetails(id: UUID, name: String, color: Color, coachName: String, gameInningCount: Int) {
         guard let idx = teams.firstIndex(where: { $0.id == id }) else { return }
         teams[idx].name = name
@@ -2579,6 +2708,57 @@ class LineupStore: ObservableObject {
         Analytics.signal("team.remote_deletion.declined")
     }
 
+    // MARK: - Revoked Shares
+
+    /// A team this coach was given access to, and no longer has. Already gone
+    /// from `teams` by the time one of these exists — the notice explains a
+    /// removal that has happened, it doesn't propose one.
+    nonisolated struct RevokedShare: Identifiable, Equatable {
+        let teamID: UUID
+        let teamName: String
+        let recordName: String
+
+        var id: String { recordName }
+
+        var displayName: String { teamName.isEmpty ? "A shared team" : teamName }
+    }
+
+    /// Which received teams have disappeared from the shared database.
+    ///
+    /// Pure and static, on the same terms as `classifyRemoteDeletions`: the rule
+    /// is the part worth testing and it needs no CloudKit session to exercise.
+    ///
+    /// `receivedRecordNames` is the ledger, not `Team.isSharedParticipant`. The
+    /// flag is rebuilt from each fetch and so is only ever true for teams that
+    /// are *still* shared — precisely the ones this is not looking for.
+    ///
+    /// A received team holding no record name is skipped rather than guessed at.
+    /// That state is what bug (a) used to create by clearing record names on
+    /// participant copies, and there is no way to match it against the fetch.
+    nonisolated static func classifyRevokedShares(
+        teams: [Team],
+        fetchedRecordNames: Set<String>,
+        receivedRecordNames: Set<String>
+    ) -> [RevokedShare] {
+        teams.compactMap { team in
+            guard let recordName = team.ckRecordName, !recordName.isEmpty else { return nil }
+            guard receivedRecordNames.contains(recordName) else { return nil }
+            guard !fetchedRecordNames.contains(recordName) else { return nil }
+            return RevokedShare(teamID: team.id, teamName: team.name, recordName: recordName)
+        }
+    }
+
+    /// Notes that a record arrived through the shared database.
+    func rememberReceivedShare(_ recordName: String?) {
+        guard let recordName, !recordName.isEmpty else { return }
+        receivedShareRecordNames.insert(recordName)
+    }
+
+    /// Clears a revocation notice once the coach has read it.
+    func acknowledgeShareRevocation(_ revoked: RevokedShare) {
+        pendingShareRevocations.removeAll { $0.id == revoked.id }
+    }
+
     /// The CloudKit record this team's deletion should remove, or nil if none.
     ///
     /// THE NIL CASES ARE THE POINT. A shared team's record belongs to the coach
@@ -2614,6 +2794,12 @@ class LineupStore: ObservableObject {
         // Recorded for shared teams too: leaving one shouldn't have it reappear
         // from the next shared-database fetch either.
         tombstones.remember(teamID: id, recordName: team.ckRecordName)
+
+        // A team the coach leaves is no longer a received team, so drop it from
+        // the ledger too. Left behind, the entry outlives the team it describes.
+        if let recordName = team.ckRecordName {
+            receivedShareRecordNames.remove(recordName)
+        }
 
         if let recordToDelete {
             // Fire-and-forget: the local delete has already happened, and the

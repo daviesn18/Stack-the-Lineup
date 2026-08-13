@@ -281,6 +281,8 @@ struct ContentView: View {
             Text(nudgeAlertMessage)
         }
         .remoteDeletionPrompt(store: store)
+        .shareRevocationNotice(store: store)
+        .coachNamePrompt(store: store)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 // Re-apply iCloud KV data immediately so changes from another device
@@ -359,6 +361,12 @@ struct ContentView: View {
 
             if let joined {
                 store.switchTeam(to: joined.id)
+                // Ask who this coach is, now that the answer has somewhere to go.
+                // Joining is the receiving-side counterpart of the question
+                // TeamSharingView asks before sending an invite: until it is
+                // answered, everything this coach does reaches the head coach
+                // attributed to "iPhone". See backlog 1.11.
+                store.requestCoachNameIfPlaceholder(teamID: joined.id)
                 Analytics.signal("team.share.opened_after_accept")
             } else {
                 Log.sync.error("Share accepted but no matching team arrived in the fetch")

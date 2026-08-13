@@ -447,18 +447,15 @@ struct TeamSharingView: View {
         }
     }
 
-    /// First-time share: make sure the team is in iCloud, create the share at the
     /// True when `coachName` carries no information about who the coach is.
-    ///
-    /// Empty is the obvious case. Matching `UIDevice.current.name` is the
-    /// non-obvious one: that is the default every team was seeded with, and
-    /// since iOS 16 it returns the model name rather than anything the coach
-    /// chose, so "iPhone" is a placeholder wearing a real value's clothes.
-    /// Comparing against it also repairs teams created before this prompt
-    /// existed, without a migration that would overwrite a genuine name.
+    /// The rule itself lives on `LineupStore` — the join path asks the same
+    /// question when an invite is accepted, and two copies of "is this a real
+    /// name?" would drift.
     private var needsCoachName: Bool {
-        let trimmed = (team?.coachName ?? "").trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty || trimmed == UIDevice.current.name
+        LineupStore.isPlaceholderCoachName(
+            team?.coachName ?? "",
+            deviceName: UIDevice.current.name
+        )
     }
 
     /// Runs `invite`, asking for the coach's name first when there isn't one.
@@ -472,6 +469,7 @@ struct TeamSharingView: View {
         showingCoachNamePrompt = true
     }
 
+    /// First-time share: make sure the team is in iCloud, create the share at the
     /// chosen permission, then hand the link to the share sheet.
     private func createShareAndInvite() {
         guard var team else { return }

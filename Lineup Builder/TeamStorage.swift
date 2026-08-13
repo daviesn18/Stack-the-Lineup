@@ -56,6 +56,29 @@ nonisolated enum TeamStorage {
         defaults.set(Array(names), forKey: declinedDeletionsKey)
     }
 
+    /// Record names this device has seen arrive through the shared database —
+    /// the durable form of `Team.isSharedParticipant`.
+    ///
+    /// THE FLAG CANNOT DO THIS JOB. `Team.init(from:)` forces
+    /// `isSharedParticipant` to false on every decode and only `fetchSharedTeams`
+    /// stamps it true again, so it is accurate only for teams that are *still*
+    /// shared. A team the head coach deleted is by definition absent from that
+    /// fetch, so it decodes as an ordinary owned team on the next cold launch and
+    /// the deletion becomes undetectable. Writing the record name down at the
+    /// moment it arrives is what survives the relaunch.
+    ///
+    /// Local-only, like the tombstones: this is one device's record of what it
+    /// received, not state to synchronise.
+    static let receivedSharesKey = "stl_received_share_records"
+
+    static func loadReceivedShares(defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: receivedSharesKey) ?? [])
+    }
+
+    static func saveReceivedShares(_ names: Set<String>, defaults: UserDefaults = .standard) {
+        defaults.set(Array(names), forKey: receivedSharesKey)
+    }
+
     // MARK: - Load Result
 
     /// The three outcomes callers must handle differently.
