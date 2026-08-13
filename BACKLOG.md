@@ -15,7 +15,7 @@
 1. **Assistants are asked their name when they join** — 1.11 fix 2, receiving side. Build 39 asks the *owner* on both invite paths; nothing asked the assistant, so the head coach still reads "iPhone finalized the lineup" from an assistant who joined on 39. See 1.12.
 2. **A shared team the head coach deletes now goes from the assistant's device**, with a notice saying why. It never did — the classifier that claims to handle it can't see shared-database deletions at all. See 1.13.
 
-**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. 3.5's locked path is the only other thing still open, and is free while installing. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight.
+**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **3.5's locked path was checked in the iPad simulator on 12 Aug and failed** — see 3.8, which is a code fix rather than a device step, and wants to land before 3.3 ships.
 
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
@@ -74,6 +74,7 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | ~~3.6~~ | ~~A seed produced no team; cause unknown~~ | — | ✅ **12 Aug** — several clean seeds on TestFlight; closed unreproduced, tripwire left armed |
 | ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
 | **Stage 4 — decisions and long poles** ||||
+| **3.8** | **`ProGate` is broken at iPad size** | S | **Nothing.** Found 12 Aug in the simulator; the fix is the detent |
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
 | 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
@@ -777,6 +778,20 @@ Both names describe `AppRouter`/pending-request state rather than pure URL parsi
 - **This export must NOT be read-only gated.** See 1.8: the rest of that nav bar should be, and this is the exception.
 
 **Worth verifying on device:** `ProGate` was designed against iPhone. Check it reads sanely as a full-screen cover on an iPad before trusting the locked path.
+
+> ### ❌ Checked 12 Aug 2026 in the iPad simulator — **it does not.** This is now 3.8.
+>
+> Run on a clean iPad Pro 13-inch simulator with no StoreKit transaction, owned team, `isPro == false`. The menu label is correct — **"Coaches Guide (Pro)"** — and tapping it presents `ProGate` as designed. The presentation is what fails.
+>
+> **At the peek detent, which is what a coach sees first.** `ProGate` opens `PaywallView` as a sheet at `.fraction(0.6)` (`ProGate.swift:61`). On iPhone that is a bottom-anchored peek with the preview above it. **On iPad a sheet is a centered floating card**, so the peek concept does not exist: the locked PDF shows above *and* below, the "YOU JUST TRIED / Coaches Guide PDF" block is cut in half by the pricing panel overlapping it, and the legal footer truncates mid-word at *"Renews automatically unless c…"*.
+>
+> **Dragged to `.large` it is nearly right** — blue block intact, feature list visible, footer complete and legible. One defect survives: the scrolling feature list is **bisected**, with the "Lineup Templates" row sliced horizontally by the pinned pricing panel. The scroll content's bottom inset is short by roughly one row.
+>
+> **The cheap fix is the detent.** On regular width, initialise `detent` to `.large` and drop `.fraction(0.6)` from the set. The peek exists to keep the preview visible above the paywall, and on iPad the backdrop is visible around the card anyway — so the detent buys nothing there and costs the whole layout.
+>
+> **Open question, deliberately not guessed:** whether the bisected feature row is iPad-only or also on iPhone. It survives at `.large`, which is the detent iPhone reaches too, so it may be a pre-existing content-inset bug rather than anything about iPad. Check before deciding whether this belongs with the detent fix or with **4.3** (paywall dark mode + Dynamic Type), which is already the paywall-polish item.
+>
+> **Why the first attempt at this test proved nothing, worth knowing for next time:** the iPad simulator it was run on turned out to be **Pro**, from a StoreKit-testing transaction left by an earlier Xcode run. Those persist per simulator. It rendered a full unlocked PDF and looked like a pass. The tell was the menu reading "Coaches Guide" rather than "Coaches Guide (Pro)"; History being unlocked confirmed it. **Verify the device is actually non-Pro before testing a locked path** — a fresh simulator, or check that History is paywalled.
 
 **Size:** M. **Blocked on:** nothing. Can be pulled into 3.3 if the assistant-printing story should ship whole — the iPhone path works today, so it is a judgement call, not a blocker.
 
