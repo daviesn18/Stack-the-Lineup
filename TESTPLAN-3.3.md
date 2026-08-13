@@ -4,18 +4,24 @@
 
 Work top to bottom. §0 takes two minutes and can invalidate the whole build, so don't skip ahead to the fun part.
 
-**Build under test:** TestFlight **`3.3 (37)`** — uploaded 9 Aug. This is the first build containing the sharing rework, the notification fixes, 1.8's read-only gating and 3.5's iPad export, so it is the first build on which most of this plan means anything.
+**Build under test:** TestFlight **`3.3 (39)`** — uploaded 12 Aug. The plan was written against 37 and ran across 37, 38 and 39; where a section names a build below, that is the build it was run on and it has been left alone.
 
-> **Most of this plan is closed.** §1, §2 and §4 passed (or, for 2.3, failed and were triaged) on build 35 on 7–8 Aug; §0b and §0c are settled as of 9 Aug. Their outcomes are recorded in place below and in `BACKLOG.md`. **What is left is device work only:** §0a's build check, then the newer items that postdate this plan and live in the backlog — **1.7** steps 1–13, **1.8** step 9, and **3.5**'s locked path. §3 is the same push test as 1.7 step 12; run it once, from 1.7.
+> ## ✅ This plan is closed — 12 Aug 2026
+>
+> Every section has passed or been triaged. §1, §2 and §4 finished on 7–8 Aug; §0b and §0c settled on 9 Aug; **§3, the push that had never been sent, finally arrived on build 39 on 12 Aug** — in both directions, on a cold-launched device and a warm one. Outcomes are recorded in place below and in [`BACKLOG.md`](BACKLOG.md).
+>
+> **Getting §3 to pass took five faults, found one at a time:** the Worker's CloudKit auth (1.2), two sharing bugs on the receiving side (1.7 (b) and (c)), a cold-launch token race (1.9), and an exclusion rule keyed on a display name that is "iPhone" on every device since iOS 16 (1.11). Each one hid the next.
+>
+> **Nothing here is still to run.** The two outstanding device passes are **1.12** and **1.13** in the backlog, both written after this session and neither on a build yet.
 
 ---
 
 ## Setup you need before starting
 
-- [ ] **Two devices** — one iPhone, one iPad. §2 can't be done with one.
-- [ ] **A real shared team**, with the iPad joined as a **view-only** participant. Set this up first; it gates §2 *and* §3.
-- [ ] **A Pro account** on the primary device. Two intents are Pro-gated (Fill Lineup, Game Recap) and three tips in §4 are Pro-only. A TestFlight build uses the sandbox StoreKit account, so buy Pro there if you haven't.
-- [ ] **A team with pitch data** — §1 asks Siri about a named player's pitching, which needs a roster with league ages and some archived games.
+- [x] **Two devices** — one iPhone, one iPad. §2 can't be done with one.
+- [x] **A real shared team**, with the iPad joined as a **view-only** participant. Set this up first; it gates §2 *and* §3.
+- [x] **A Pro account** on the primary device. Two intents are Pro-gated (Fill Lineup, Game Recap) and three tips in §4 are Pro-only. A TestFlight build uses the sandbox StoreKit account, so buy Pro there if you haven't.
+- [x] **A team with pitch data** — §1 asks Siri about a named player's pitching, which needs a roster with league ages and some archived games.
 
 ---
 
@@ -23,15 +29,13 @@ Work top to bottom. §0 takes two minutes and can invalidate the whole build, so
 
 **Do this before anything else.** Run every command in **Terminal**, from anywhere — they find the newest archive themselves.
 
-### 0a. Which build are you testing?
+### 0a. Which build are you testing? — ✅ build 39 on all three devices, 12 Aug
 
-**The device session runs on TestFlight build 37**, uploaded 9 Aug.
+Confirm on-device in Settings: Version **3.3**, Build **39**. Do this on **all three devices** before starting — a device left on an older build produces failures that read as sharing or push bugs.
 
-Confirm on-device in Settings: Version **3.3**, Build **37**. Do this on **all three devices** before starting — a device left on 35 or 36 will produce failures that read as sharing or push bugs.
-
-- [ ] iPhone (owner) shows `3.3` / build `37`
-- [ ] iPhone (assistant) shows `3.3` / build `37`
-- [ ] iPad shows `3.3` / build `37`
+- [x] iPhone (owner) shows `3.3` / build `39`
+- [x] iPhone (assistant) shows `3.3` / build `39`
+- [x] iPad shows `3.3` / build `39`
 
 **37 is the first build with a matching widget.** 35 shipped with the app at 35 and the widget at 34, from the window when the target-level override existed; it passed validation anyway because the *marketing* version matched and only `CFBundleVersion` differed. 36 fixed that, and 37 was verified before archiving — both targets resolve `37 / 3.3` from the project level, no overrides. Nothing in this plan touches the widget either way.
 
@@ -53,7 +57,7 @@ Both lines should read the same thing.
 nm "$(ls -td ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)/Products/Applications/Stack the Lineup.app/Stack the Lineup" | grep -c __llvm_prf
 ```
 
-- [ ] Prints **`0`**
+- [x] Prints **`0`**
 
 *Run 7 Aug: **0** for both the app and the widget.* This answers the question that was open — a plain `xcodebuild build -configuration Release` instruments with `-profile-generate` and produces ~9,000 profiling symbols, but **the Archive action does not**. Nothing to fix. Keep the check as a cheap regression guard if the scheme's Test options are ever edited.
 
@@ -213,7 +217,9 @@ The reading table above resolves to **none of its rows**: one success was a trai
 
 ---
 
-## §2 — iPad read-only with a real shared team (backlog 1.4)
+## §2 — iPad read-only with a real shared team (backlog 1.4) — ✅ all 8 steps pass, 8 Aug 2026
+
+> **Outcome — ✅ passed 8 Aug 2026.** All eight steps, including step 7, the owned-team regression that mattered most: gating is per-team, not per-device, so the fix did not lock a coach out of their own team. Full write-up in [`BACKLOG.md`](BACKLOG.md) **1.4**. Step 9 — the nav bar gap this plan missed entirely — was found later and passed on 9 Aug as **1.8**.
 
 **Source:** `CLEANUP-AUDIT-2026-08.md`, "Test plan: iPad read-only (2.4a)".
 
@@ -221,29 +227,29 @@ Fixed in code 6 Aug, never verified on hardware. Before the fix, a view-only par
 
 **Setup:** device A shares a team; the iPad accepts as **view-only**, then opens Positions. Everything below should be **blocked** on iPad, and already is on iPhone.
 
-- [ ] **1. Banner and strip** — read-only banner above the status strip; strip reads "View only" where Finalize/Reopen would be. Neither Finalize nor Reopen reachable.
-- [ ] **2. By Inning** — tapping a field slot does nothing, no picker sheet. Bench and absent chips don't respond. "+ Bench", "+ Absent" and Auto-Fill are absent.
-- [ ] **3. By Position** — tapping any matrix cell does nothing, including benched-player chips in the gray wells.
-- [ ] **4. Pitching** — tapping a row does not open the pitching assignment sheet.
-- [ ] **5. Sidebar** — no "+" add-players menu; batting-order rows can't be dragged.
-- [ ] **6. Clear positions** — the button is absent below the pane.
-- [ ] **7. ⚠️ Regression, same iPad, editable team** — switch to a team you own and confirm **every one of the above works normally.**
-- [ ] **8. Chip cosmetics** — bench/absent chips on iPad are 1pt tighter with a 2pt taller badge. Compare against iPhone; they should look like the same component, because now they are.
+- [x] **1. Banner and strip** — read-only banner above the status strip; strip reads "View only" where Finalize/Reopen would be. Neither Finalize nor Reopen reachable.
+- [x] **2. By Inning** — tapping a field slot does nothing, no picker sheet. Bench and absent chips don't respond. "+ Bench", "+ Absent" and Auto-Fill are absent.
+- [x] **3. By Position** — tapping any matrix cell does nothing, including benched-player chips in the gray wells.
+- [x] **4. Pitching** — tapping a row does not open the pitching assignment sheet.
+- [x] **5. Sidebar** — no "+" add-players menu; batting-order rows can't be dragged.
+- [x] **6. Clear positions** — the button is absent below the pane.
+- [x] **7. ⚠️ Regression, same iPad, editable team** — switch to a team you own and confirm **every one of the above works normally.**
+- [x] **8. Chip cosmetics** — bench/absent chips on iPad are 1pt tighter with a 2pt taller badge. Compare against iPhone; they should look like the same component, because now they are.
 
 > **Step 7 is the one not to skip.** The gating is per-team, not per-device, and the plausible way to get this wrong is to over-gate and lock a coach out of their own team. A pass on 1–6 with a fail on 7 is worse than the bug you're testing for.
 
 ---
 
-## §3 — The push that has never been sent (backlog 1.7 step 12)
+## §3 — The push that has never been sent (backlog 1.7 step 12) — ✅ **it arrives, 12 Aug 2026**
 
-> **This moved.** It used to hang off 1.4 and was being tracked in three places at once. It now lives in **`BACKLOG.md` 1.7 step 12**, which adds the condition that makes it a fair test of the 8 Aug fixes: run it on the newly joined device **without relaunching**, then again after a cold start (step 13). Run it from there; this section is kept for the debugging order below, which is still the right order.
+> **Outcome — ✅ passed on build 39, 12 Aug 2026.** The owner finalizes; the assistant's phone buzzes. Both directions, no relaunch needed (step 12) and again after a cold start (step 13). **This is the first real push this app has ever delivered.**
+>
+> **What it took, in the order the faults were found:** the Worker's CloudKit auth was broken and reporting a 0% error rate while failing every request (1.2, 6 Aug) → the receiving device dropped its share-acceptance hand-off and so never registered a token for the new team (1.7 (b) and (c), 8 Aug) → a cold launch dropped the APNs token itself, before any view existed to catch it (1.9, 9 Aug) → and underneath all of it, the Worker excluded the sending device by `coachName`, which iOS 16 reduced to "iPhone" on every device, so a rule meant to skip one recipient skipped all of them (1.11, 10 Aug). Each fix was necessary; none was sufficient until the last.
+>
+> The debugging order below is kept because it is still the right order, and because reason 3's note about the Worker log is what eventually found 1.11.
 
-Do this while the shared team is still set up. **APNs has never delivered a real push from this app.** The Worker's health check uses a nonexistent team, so it matches zero device tokens and returns before ever contacting Apple. The production APNs host is deployed but completely unexercised.
-
-**Health check ran clean on 9 Aug** — `{"sent":0}` / 200 — so CloudKit auth is good going into the session. That still proves nothing about APNs itself.
-
-- [ ] From the **owning** device, finalize a lineup
-- [ ] Confirm the notification **arrives on the other device**
+- [x] From the **owning** device, finalize a lineup
+- [x] Confirm the notification **arrives on the other device**
 
 If nothing arrives, check in this order — cheapest first, and note that the first two are far more likely than the third:
 
@@ -301,12 +307,12 @@ Tip copy has **never** been read on a device. Popover width is narrower than the
 
 ---
 
-## When you're done
+## When you're done — ✅ all done, 12 Aug 2026
 
-- [ ] Update `BACKLOG.md`: strike 1.5, 1.3, 1.4, 2.3, 2.4 as they pass
-- [ ] Fix 1.3's "two intents are voice-only" → **three** (see §1)
-- [ ] Record any Siri phrases that still fail, with **Siri's exact wording** — that text identifies which system handler won
-- [ ] Log 2.4's trim list somewhere durable
-- [ ] If §0 failed: re-archive before doing anything else with this build
+- [x] Update `BACKLOG.md`: strike 1.5, 1.3, 1.4, 2.3, 2.4 as they pass — done, along with 1.7, 1.9 and 1.10 from the later rounds
+- [x] Fix 1.3's "two intents are voice-only" → **three** — corrected in 1.3, with the arithmetic that implied it
+- [x] Record any Siri phrases that still fail, with **Siri's exact wording** — recorded in §1 above; the three that fail are the three carrying an entity slot, and a log capture proved `entities(matching:)` is never called
+- [x] Log 2.4's trim list somewhere durable — there was no trim list: nothing truncated at maximum Dynamic Type, and 112 characters is recorded in 2.4 as a demonstrated ceiling
+- [x] If §0 failed: re-archive — §0 passed on 39
 
-**Then 3.3 is submittable.** Everything in Stages 3 and 4 is deferred by choice and should stay deferred until it ships.
+**3.3 is submittable once 1.12 and 1.13 have had their device pass on build 40.** Everything in Stages 3 and 4 is deferred by choice and should stay deferred until it ships.
