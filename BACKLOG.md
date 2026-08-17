@@ -15,7 +15,9 @@
 1. **Assistants are asked their name when they join** — 1.11 fix 2, receiving side. Build 39 asks the *owner* on both invite paths; nothing asked the assistant, so the head coach still reads "iPhone finalized the lineup" from an assistant who joined on 39. See 1.12.
 2. **A shared team the head coach deletes now goes from the assistant's device**, with a notice saying why. It never did — the classifier that claims to handle it can't see shared-database deletions at all. See 1.13.
 
-**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **3.5's locked path was checked in the iPad simulator on 12 Aug, failed, and is fixed** — see ~~3.8~~. The check turned up **3.9** on iPhone, which is the one thing here that could matter to App Review.
+**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **3.5's locked path was checked in the iPad simulator on 12 Aug, failed, and is fixed** — see ~~3.8~~. The check turned up **3.9** on iPhone, the one item here that could have mattered to App Review; **~~3.9~~ is fixed as of 17 Aug** and rides in 40, which had not been archived yet, so the build number did not move.
+
+**Nothing else is left that has to be in the binary.** 1.12 and 1.13 are device *verification*, not code — the code for both is in 40. So the path to submission is: archive 40, upload, run the two device passes, submit. A build 41 is only needed if one of those passes fails.
 
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
@@ -75,7 +77,7 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
 | **Stage 4 — decisions and long poles** ||||
 | ~~3.8~~ | ~~`ProGate` is broken at iPad size~~ | — | ✅ **12 Aug** — peek detent is compact-width only now; verified in the simulator |
-| **3.9** | **Subscription terms truncate mid-word at the paywall's default detent** | S | **Nothing.** Found 12 Aug on iPhone; worth checking against App Review's terms rules |
+| ~~3.9~~ | ~~Subscription terms truncate mid-word at the paywall's default detent~~ | — | ✅ **17 Aug** — the disclosure is incompressible now; verified at the peek in the simulator |
 | 4.1 | History paywall auto-opens | S | Product decision |
 | 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
 | 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
@@ -802,7 +804,7 @@ Both names describe `AppRouter`/pending-request state rather than pure URL parsi
 
 ---
 
-### 3.9 The subscription terms truncate mid-word at the paywall's default detent
+### ~~3.9 The subscription terms truncate mid-word at the paywall's default detent~~ — ✅ **fixed 17 Aug 2026**
 
 **Found 12 Aug 2026 on iPhone**, while checking whether 3.8's suspected second defect was iPad-specific. It wasn't, and this is what the comparison actually turned up.
 
@@ -817,6 +819,18 @@ Dragged to `.large` the same text wraps to four full lines and reads completely:
 **Not caused by 3.8's fix and not fixed by it.** 3.8 removed the peek at regular width, so iPad now opens at `.large` and reads correctly. iPhone still opens at the peek by design, which is where this shows.
 
 **Options, cheapest first:** give the footer room at the peek (it is the pinned block, so the space is a layout constant, not a scroll problem); or raise the peek fraction; or open at `.large` everywhere and drop the peek entirely — though that would throw away the preview-above-paywall idea the peek exists for, which is worth keeping.
+
+**Fixed 17 Aug 2026.** None of the three options above: the room was never the problem.
+
+**The cause is one missing modifier.** Every other wrapping `Text` in `PaywallView` carries `.fixedSize(horizontal: false, vertical: true)` — the hero description, the free-tier card, the feature rows. The legal block did not. A plain `Text` is vertically *compressible*: offered too little height it truncates rather than insisting. The footer is pinned beside a `ScrollView`, which takes everything it is offered, so the scroll content won the space and the disclosure gave it up — one ellipsised line. `fixedSize` makes its wrapped height a minimum the stack has to grant, and the scroll content absorbs the difference. It has somewhere to put the loss; the disclosure does not.
+
+That also explains the shape of the symptom. A layout too short by a few points would have dropped one line; a *compressible* text collapses to one line, which is what was seen.
+
+**Verified in the simulator (iPhone 17, iOS 26.4, 17 Aug), at the peek detent:** the disclosure reads completely — price, renewal, cancellation window, where to manage it, and both links — at the default type size and at xxxL, the largest non-accessibility size. The same modifier is on the purchase-error text, which sits in the same footer and had the same trap.
+
+**Deliberately released at the accessibility type sizes,** where the footer wants more height than the whole sheet. Held rigid there it pushes the price and the purchase button off the bottom — a legible disclosure describing a purchase you cannot reach, which is worse than what it replaced. Those sizes now truncate exactly as they did before this change, so nothing regressed; the paywall's Dynamic Type calibration is **4.3**, and this is the second finding pointing at it.
+
+> **Worth recording, because it cost most of the time here.** A bounded, internally scrolling footer was built first — `ViewThatFits`, a measured height budget, `layoutPriority` — so the disclosure could be complete at *every* type size. It works, but wrapping the stack in a `GeometryReader` pins the content to the safe-area height, and the footer's background then stops short of the home indicator with the sheet's own colour showing through as a band. Two attempts at `ignoresSafeArea` did not shift it. Reverted for the one-line version. If 4.3 revisits this, the scrolling footer is the right shape and the safe-area seam is the thing to solve first — not an afterthought.
 
 **Size:** S. **Blocked on:** nothing.
 
@@ -833,6 +847,8 @@ They get a real path to game 2, but four tips are structurally invisible to them
 ### 4.3 Paywall dark mode + Dynamic Type
 
 Implemented with semantic colors and a large-type-tolerant footer, but the *visual* calibration was never done on device. The build ships 8 feature rows; 9 is the ceiling. (`PAYWALL-design-handoff.md`, "Still on Design.") **Size: S.**
+
+**"Large-type-tolerant" overstates it, measured 17 Aug** in the simulator while closing 3.9. At the accessibility sizes the whole footer degrades, not just one line: the plan headline, the subtitle, the CTA label and Restore Purchase all truncate mid-word, the CTA because `buyButton` is pinned to `.frame(height: 52)` regardless of type size. None of that is new and none of it regressed — but it is more than a colour pass, and the note under 3.9 records the layout approach already tried and where it snagged.
 
 ### 4.4 Localization
 

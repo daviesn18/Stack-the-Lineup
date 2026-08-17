@@ -14,6 +14,7 @@ import StoreKit
 struct PaywallView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
     @Environment(\.dismiss) var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let source: String
 
     // Must include www — the apex domain has no valid TLS certificate, so
@@ -199,6 +200,8 @@ struct PaywallView: View {
                         .font(.footnote)
                         .foregroundStyle(Color.red)
                         .multilineTextAlignment(.center)
+                        // Same compressible-Text trap as the disclosure below.
+                        .fixedSize(horizontal: false, vertical: !dynamicTypeSize.isAccessibilitySize)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
                 }
@@ -285,6 +288,24 @@ struct PaywallView: View {
         Text(legalAttributed)
             .font(.caption2)
             .tint(Color.accentColor)
+            // Incompressible, like every other wrapping Text in this view.
+            //
+            // This footer is pinned beside a ScrollView, which takes all the
+            // height it is offered. A plain Text is vertically compressible —
+            // it answers a too-small proposal by truncating — so the scroll
+            // content won the space and this disclosure ellipsised to a single
+            // line at the peek detent, the state iPhone opens at. That left
+            // "…is charged to your Apple Accou…" directly above a fully visible
+            // purchase button. fixedSize makes the wrapped height a minimum the
+            // stack must grant, and the scroll content absorbs the difference —
+            // it has somewhere to put the loss, and this does not. Backlog 3.9.
+            //
+            // Released again at the accessibility sizes, where the footer wants
+            // more height than the whole sheet: held rigid there it pushes the
+            // price and the purchase button off the bottom, which is worse than
+            // the truncation it replaced. Those sizes truncate exactly as they
+            // did before, and the paywall's Dynamic Type pass is 4.3.
+            .fixedSize(horizontal: false, vertical: !dynamicTypeSize.isAccessibilitySize)
     }
 
     private var legalAttributed: AttributedString {
