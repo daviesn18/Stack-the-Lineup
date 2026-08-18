@@ -12,7 +12,7 @@ Work top to bottom. §0 takes two minutes and can invalidate the whole build, so
 >
 > **Getting §3 to pass took five faults, found one at a time:** the Worker's CloudKit auth (1.2), two sharing bugs on the receiving side (1.7 (b) and (c)), a cold-launch token race (1.9), and an exclusion rule keyed on a display name that is "iPhone" on every device since iOS 16 (1.11). Each one hid the next.
 >
-> **Nothing here is still to run.** The two outstanding device passes are **1.12** and **1.13** in the backlog, both written after this session and neither on a build yet.
+> **Nothing here is still to run.** The two device passes that were outstanding when this closed — **1.12** and **1.13** — both ran against build 40 on **17 Aug 2026 and passed**; their results are recorded in [`BACKLOG.md`](BACKLOG.md), not here.
 
 ---
 
@@ -315,4 +315,4 @@ Tip copy has **never** been read on a device. Popover width is narrower than the
 - [x] Log 2.4's trim list somewhere durable — there was no trim list: nothing truncated at maximum Dynamic Type, and 112 characters is recorded in 2.4 as a demonstrated ceiling
 - [x] If §0 failed: re-archive — §0 passed on 39
 
-**3.3 is submittable once 1.12 and 1.13 have had their device pass on build 40.** Everything in Stages 3 and 4 is deferred by choice and should stay deferred until it ships.
+**3.3 is submittable. 1.12 and 1.13 both passed on build 40, 17 Aug 2026**, and 3.9 — a truncated subscription disclosure at the paywall's opening detent, the one item that could have drawn an App Review rejection — was fixed and archived into the same build. Everything in Stages 3 and 4 is deferred by choice and should stay deferred until it ships.

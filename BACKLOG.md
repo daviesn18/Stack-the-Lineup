@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 12 Aug 2026 (build 39 verified on device — push works end to end; 1.7, 1.9, 1.10 and 1.11's delivery fix all closed).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 17 Aug 2026 (build 40 verified on device — 1.12 and 1.13 both pass, and with them 1.11. Stage 1 is empty; 3.3 is ready to submit).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (40)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -10,14 +10,13 @@
 
 **Push works on real hardware, both directions, as of 12 Aug 2026.** That closes the longest-running thread in this file. It took five separate faults to get there — 1.2 (the Worker's CloudKit auth), 1.9 (the cold-launch token race), 1.11 fix 1 (an exclusion rule keyed on a display name that is "iPhone" on every device), and the two sharing bugs (b) and (c) under 1.7 — and no single one of them was visible from the others. **~~1.7~~, ~~1.9~~, ~~1.10~~ and 1.11's delivery half are all closed on build 39.**
 
-**What is left before the submission is two device passes on a build that doesn't exist yet.** Both changes below were written on 12 Aug, after the device session, and neither has run on hardware:
+**Stage 1 is empty as of 17 Aug 2026. Build 40 is verified on device and 3.3 is ready to submit.**
 
-1. **Assistants are asked their name when they join** — 1.11 fix 2, receiving side. Build 39 asks the *owner* on both invite paths; nothing asked the assistant, so the head coach still reads "iPhone finalized the lineup" from an assistant who joined on 39. See 1.12.
-2. **A shared team the head coach deletes now goes from the assistant's device**, with a notice saying why. It never did — the classifier that claims to handle it can't see shared-database deletions at all. See 1.13.
+Build 40 went to TestFlight on 17 Aug and both remaining device passes ran against it in Production CloudKit. **~~1.12~~ passes** — an assistant is asked their name when they join, and the head coach's notification and "Finalized by" both read it, which closes the display-name half of **~~1.11~~** and with it the whole push-identity thread. **~~1.13~~ passes**, airplane-mode step included: a deleted or unshared team leaves the assistant's device with a notice, and a shared fetch that *throws* leaves every received team alone.
 
-**Build 40 is bumped and ready to archive.** Upload it and run 1.12 and 1.13's device steps. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **3.5's locked path was checked in the iPad simulator on 12 Aug, failed, and is fixed** — see ~~3.8~~. The check turned up **3.9** on iPhone, the one item here that could have mattered to App Review; **~~3.9~~ is fixed as of 17 Aug** and rides in 40, which had not been archived yet, so the build number did not move.
+Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer truncates at the paywall's opening detent. It was the one open item that could have mattered to App Review, and it landed before the archive, so the build number never moved. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **~~3.8~~** fixed the iPad peek detent.
 
-**Nothing else is left that has to be in the binary.** 1.12 and 1.13 are device *verification*, not code — the code for both is in 40. So the path to submission is: archive 40, upload, run the two device passes, submit. A build 41 is only needed if one of those passes fails.
+**Nothing is blocking the submission.** What remains in this file is Stage 3 and Stage 4 — deferred engineering and product decisions, all of which should stay deferred until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
 
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
@@ -59,9 +58,9 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | ~~1.8~~ | ~~iPad nav bar read-only gating~~ | — | ✅ **9 Aug** — step 9 passes both ways on device |
 | ~~1.9~~ | ~~A cold-launched device never registers for push~~ | — | ✅ **12 Aug** — token cached before any view exists; verified on repeated cold launches |
 | ~~1.10~~ | ~~Link permission overrides an assistant's own permission~~ | — | ✅ **12 Aug** — honest UI confirmed on device |
-| **1.11** | **Push identity is a display name, and every device's is "iPhone"** | M | **Delivery fix ✅ 12 Aug.** The display name half continues in 1.12 |
-| **1.12** | **An assistant is never asked their name when they join** | S | **A device pass on build 40.** Written 12 Aug |
-| **1.13** | **A team the head coach deletes never leaves the assistant's device** | M | **A device pass on build 40.** Written 12 Aug |
+| ~~1.11~~ | ~~Push identity is a display name, and every device's is "iPhone"~~ | — | ✅ **17 Aug** — delivery fix 12 Aug, display-name half closed with 1.12 |
+| ~~1.12~~ | ~~An assistant is never asked their name when they join~~ | — | ✅ **17 Aug** — all steps pass on build 40 |
+| ~~1.13~~ | ~~A team the head coach deletes never leaves the assistant's device~~ | — | ✅ **17 Aug** — all steps pass on build 40, airplane mode included |
 | **Stage 2 — cheap while you're already on a device** ||||
 | ~~2.1~~ | ~~`LineupView` titled "Lineup Builder"~~ | — | ✅ **6 Aug** |
 | ~~2.2~~ | ~~Keep the `PRODUCT_NAME` rename?~~ | — | ✅ **6 Aug** — decided: keeping it |
@@ -252,13 +251,13 @@ It also casts doubt on step 5. Setting the participant to Can edit appeared to s
 
 **Size:** M. **Blocked on:** the decision above.
 
-### 1.11 Push identity is a display name, and every device's is "iPhone" — fix 1 ✅ **12 Aug 2026**; fix 2 continues in 1.12
+### ~~1.11 Push identity is a display name, and every device's is "iPhone"~~ — ✅ **both fixes closed 17 Aug 2026**
 
 > **Fix 1 is done and verified.** The app sends `triggeredByToken` (`9a8e5dc`), the Worker excludes on `apnsToken` with a `coachName` fallback for older installs (`stl-worker 88f4db3`, **deployed 12 Aug**), and pushes now arrive on real hardware in both directions. **This is the change that made notifications work at all.**
 >
 > **The `Fetched 1, not 2` loose end is closed by outcome.** It asked whether a registration gap remained underneath the name collision. Delivery to the assistant now works, which requires their `DeviceToken` record to exist *and* survive the filter — so the answer is that 1.9's fix had already covered it and the collision was the only remaining fault.
 >
-> **Fix 2 is half-shipped.** Build 39 asks the owner for a real name on both invite paths. Nothing asks the assistant, and a received team seeds `coachName` from the device name — so the head coach still reads "iPhone". That half is **1.12**.
+> **Fix 2 is done too, as of 17 Aug.** Build 39 asked the owner for a real name on both invite paths but never the assistant, which is the direction the name actually travels. Build 40 closes it and **1.12 passed on device** — the head coach's notification and "Finalized by" both read the assistant's real name. Nothing in this item is open.
 
 
 **Found 10 Aug 2026 from the Worker's own logs**, after 1.9's fix was confirmed working and the notification *still* didn't arrive. Read, not inferred — this is what the Worker printed:
@@ -301,7 +300,7 @@ So every device writes `coachName: "iPhone"`, every event sends `triggeredBy: "i
 
 **Size:** M across both repos. **Blocked on:** nothing — fix 1 shipped and verified, fix 2 continues in 1.12.
 
-### 1.12 An assistant is never asked their name when they join
+### ~~1.12 An assistant is never asked their name when they join~~ — ✅ **all steps pass on build 40, 17 Aug 2026**
 
 **Written 12 Aug 2026**, after the device session. The receiving-side half of 1.11 fix 2, and the reason the head coach can still be told "iPhone finalized the lineup" on build 39.
 
@@ -317,11 +316,15 @@ Two places read the result, both on the *head coach's* screen: the push body the
 
 **Not done, deliberately: seeding the name from another team.** `coachName` is per-team, so a coach on their third shared team is asked a third time. The obvious shortcut is to reuse a real name from any other team they hold, either silently or as a pre-filled field. Left out because the silent version applies a name the coach never sees applied, and the pre-filled version is more plumbing than the nag is worth today. Revisit if anyone is on enough shared teams to notice.
 
-**On device (build 40):** accept an invite on a device whose team name has never been set. The prompt appears once the team is in front, after the switch, not during it. Enter a name; have the assistant finalize; confirm the head coach's notification and "Finalized by" both read that name. Then accept a second invite on a device that already has a real name set and confirm it is **not** asked again.
+**On device (build 40) — run 17 Aug, all steps pass.** Accepted an invite on a device whose team name had never been set: the prompt appears once the team is in front, after the switch, not during it. Entered a name, finalized as the assistant, and the head coach's notification and "Finalized by" both read that name rather than "iPhone". A second invite on a device that already had a real name set was **not** asked again, so `isPlaceholderCoachName` is discriminating correctly against a live device name and not just against empty.
 
-**Size:** S. **Blocked on:** a device pass on build 40.
+That closes the display-name half of ~~1.11~~, and with it the whole push-identity thread.
 
-### 1.13 A team the head coach deletes never leaves the assistant's device
+**Still open, and not urgent:** the note above about `RemoteDeletionPrompt` being applied to both `ContentView` and `iPadDashboardView` — two mounts against one piece of store state. Not wrong, since both instances read the same state and answering either resolves it, but not what its own comment says it does. Worth settling in a quiet moment; nothing observed on device points at it.
+
+**Size:** S. **Blocked on:** nothing — closed.
+
+### ~~1.13 A team the head coach deletes never leaves the assistant's device~~ — ✅ **all steps pass on build 40, 17 Aug 2026**
 
 **Written 12 Aug 2026.** When a head coach deletes a shared team, or stops sharing it, the assistant keeps a copy indefinitely. It cannot sync, cannot be edited, and will never receive another lineup — and nothing tells the assistant any of that.
 
@@ -337,9 +340,13 @@ Two places read the result, both on the *head coach's* screen: the push body the
 2. **`Team.isSharedParticipant` cannot be the test.** It is forced to `false` on every decode (`Models.swift:1191`) and only re-stamped for teams *present* in a shared fetch — so it is accurate only for teams that are still shared, which is the opposite of what this looks for. A revoked team decodes as an ordinary owned team on the next cold launch. The durable form is a local ledger of received record names, `TeamStorage.receivedSharesKey`, written as they arrive. **Note this makes the flag's own doc comment wrong twice over:** it says "never persisted to the server blob", but there are no explicit `CodingKeys`, so the synthesized encoder writes it and only the hand-written `init(from:)` discards it. Worth correcting; do not "fix" it by decoding the value, which is what forcing it false is protecting against.
 3. **Deliberately not tombstoned**, unlike every other removal on that path. A tombstone would make a false positive permanent. Without one, a genuine deletion still never returns — the record is gone from the server — while a spurious removal repairs itself at the next fetch.
 
-**On device (build 40), on the assistant's device:** with a shared team joined and visible, have the head coach delete the team. Bring the assistant's app to the foreground and confirm the team is gone from the switcher with the notice explaining why. Repeat for **Stop Sharing** rather than delete — same path, same copy, and the copy has to be true for both. Then the one that must not break: **turn the assistant's device to airplane mode and foreground the app.** The shared fetch throws, and every shared team must still be there.
+**On device (build 40) — run 17 Aug, all steps pass.** With a shared team joined and visible on the assistant's device, the head coach deleted it: the team goes from the switcher with the notice explaining why. Same for **Stop Sharing**, same copy, true for both readings. Then the step that had to hold: a fresh share accepted, **airplane mode on, app backgrounded and brought back** — the shared fetch throws and **every shared team is still there**. The guard under (1) does what it claims.
 
-**Size:** M. **Blocked on:** a device pass on build 40.
+> **Clarification the run turned up, worth keeping in the step.** Nothing happens while the app is already in the foreground — the removal only appears after a background → foreground cycle. That is by design and not a defect: `fetchCloudKitChanges()` runs on the `scenePhase → .active` transition (`ContentView.swift:292`) and after accepting a share (`:352`), and nowhere else. There is no timer, and the Worker's pushes are for finalization, not deletion. So an assistant watching the app while the head coach deletes the team sees nothing until they switch away and back. Acceptable for a deletion; simply not what "foreground the app" reads like if the app never left the foreground.
+>
+> **The airplane-mode step needs a live shared team, which steps 1 and 2 have just removed.** Re-share and re-accept before running it, or it passes vacuously against an empty shared set and proves nothing.
+
+**Size:** M. **Blocked on:** nothing — closed.
 
 ### ~~1.7 Verify the reworked sharing surface on device~~ — ✅ **all steps pass on build 39, 12 Aug 2026**
 
