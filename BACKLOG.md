@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 17 Aug 2026 (build 40 verified on device — 1.12 and 1.13 both pass, and with them 1.11. Stage 1 is empty; 3.3 is ready to submit).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 17 Aug 2026 (build 40 verified on device — 1.12 and 1.13 both pass, and with them 1.11. Stage 1 is empty. 3.3 is ready to submit pending one open call: 3.10).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (40)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -16,7 +16,7 @@ Build 40 went to TestFlight on 17 Aug and both remaining device passes ran again
 
 Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer truncates at the paywall's opening detent. It was the one open item that could have mattered to App Review, and it landed before the archive, so the build number never moved. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **~~3.8~~** fixed the iPad peek detent.
 
-**Nothing is blocking the submission.** What remains in this file is Stage 3 and Stage 4 — deferred engineering and product decisions, all of which should stay deferred until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
+**Nothing is blocking the submission**, on the reading that **3.10** is not a blocker — a push tapped from the lock screen opens the app but does not switch to the team the push was about. Found on device 17 Aug, after 1.12 passed, by doing the one thing its steps do not ask for. It is not a regression (no shipping build has ever delivered a push a coach could tap) and it only bites a coach with more than one team, but 3.3 *is* the release that introduces notifications. **That call is open — see 3.10, and check the Worker's payload before making it.** Everything else here is Stage 3 and Stage 4, deferred by choice until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
 
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
@@ -71,6 +71,7 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
+| **3.10** | **Tapping a push lands on whatever team was already open** | S–M | **A decision: 3.3 or 3.4.** Found on device 17 Aug |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
 | ~~3.6~~ | ~~A seed produced no team; cause unknown~~ | — | ✅ **12 Aug** — several clean seeds on TestFlight; closed unreproduced, tripwire left armed |
 | ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
@@ -840,6 +841,33 @@ That also explains the shape of the symptom. A layout too short by a few points 
 > **Worth recording, because it cost most of the time here.** A bounded, internally scrolling footer was built first — `ViewThatFits`, a measured height budget, `layoutPriority` — so the disclosure could be complete at *every* type size. It works, but wrapping the stack in a `GeometryReader` pins the content to the safe-area height, and the footer's background then stops short of the home indicator with the sheet's own colour showing through as a band. Two attempts at `ignoresSafeArea` did not shift it. Reverted for the one-line version. If 4.3 revisits this, the scrolling footer is the right shape and the safe-area seam is the thing to solve first — not an afterthought.
 
 **Size:** S. **Blocked on:** nothing.
+
+### 3.10 Tapping a push notification lands on whatever team was already open
+
+**Found on device 17 Aug 2026**, after 1.12's steps had passed — by tapping the notification, which is not one of them. A push about **Team C** arrived while **Team A** was active; tapping it opened the app still on Team A. The coach has to find the switcher and change teams themselves, having just been told something happened somewhere else.
+
+**Cause: the tap handler does nothing with the tap.** `userNotificationCenter(_:didReceive:)` (`NotificationManager.swift:51`) fires a `push.received` analytics signal and calls `completionHandler()`. It never reads `response.notification.request.content.userInfo` and never navigates. Opening the app is iOS's doing, not the app's.
+
+**Everything needed already exists**, which is what makes this cheap:
+
+- The app already sends `"teamID": team.id.uuidString` to the Worker (`NotificationManager.swift:121`).
+- `STLRoute.team(UUID)` already exists, commented *"Make a team active without targeting anything inside it"* — written for exactly this shape of request.
+- `applyRoute` already handles it: `store.switchTeam(to:)` then the tab (`ContentView.swift:560`). `.team` resolves to the Lineup tab, which is where a `lineup_finalized` push should land.
+- `AppRouter.shared` exists to carry a route from a producer that may run *before* the view hierarchy does — precisely the cold-launch case a notification tap usually is.
+
+So the app-side change is close to one call: pull `teamID` out of `userInfo`, hand it to `AppRouter.shared.route(to: .team(id))`.
+
+**The unknown, and the reason the size is S–M: does the Worker forward `teamID` into the APNs payload's `userInfo`?** The app POSTs it, but the payload the Worker *builds* lives in [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker). If it already carries it, this is an app-only change. If not, it spans both repos and needs a Worker deploy — the same shape as ~~1.11~~, and worth checking the Worker's `buildPayload` before estimating anything.
+
+**Same species as the Spotlight tap-through fault:** the mechanism delivers, and the tap goes nowhere because nothing was wired to receive it. Worth a look at whether any *other* producer has the same gap.
+
+**Not a regression.** Pushes did not work end to end in any shipping build before 3.3, so no coach has ever tapped one. That cuts both ways: nothing is being taken away, and 3.3 is the first release where a coach can tap a notification at all.
+
+**Blast radius is narrow.** It only bites a coach with **more than one team** who receives a push about a team that isn't the active one. A single-team coach — presumably most — sees correct behaviour, because the team they land on is the team the push was about.
+
+**Recommendation: ship 3.3 without it, fix in 3.4.** It costs a build 41 and another TestFlight round trip to include, against a defect that a minority of a minority hits and that loses no data. **What would change that:** if the Worker already sends `teamID`, the app change is a few lines and low risk — then it becomes a judgement about whether shipping a brand-new notifications feature with an inert tap is the first impression worth having. Check the Worker first; the answer decides it.
+
+**Size:** S app-side, M if the Worker needs changing too. **Blocked on:** the decision above.
 
 ## Stage 4 — decisions and long poles
 
