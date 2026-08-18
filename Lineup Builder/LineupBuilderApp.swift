@@ -61,6 +61,32 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return config
     }
 
+    // MARK: - Launch
+    //
+    // Installs the notification delegate before launching finishes.
+    //
+    // A tap that cold-launches the app has its response delivered almost
+    // immediately, and iOS discards it if no delegate is registered yet.
+    // `NotificationManager` registers itself on init, but it is a lazy static
+    // and its first touch was `ContentView`'s requestPermissionIfNeeded() — a
+    // view lifecycle, which has not run this early. So a tap on a *backgrounded*
+    // app worked, because the delegate survived from the previous launch, while
+    // a tap on a terminated one silently did nothing. That is the common case
+    // for a push, and it is the half of backlog 3.10 that the simulator caught
+    // and the warm test did not.
+    //
+    // Same shape as ~~1.9~~, where the APNs token arrived before there was a
+    // view to receive it. Anything iOS hands back at launch needs a receiver
+    // that exists at launch, not one a view happens to create later.
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        NotificationManager.shared.installDelegate()
+        return true
+    }
+
     // MARK: - APNs Token Registration
     //
     // Called by iOS after UIApplication.registerForRemoteNotifications() succeeds.

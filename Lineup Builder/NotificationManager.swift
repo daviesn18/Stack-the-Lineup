@@ -23,7 +23,18 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     private override init() {
         super.init()
-        // Register as delegate so APNs notifications display when app is foregrounded.
+        installDelegate()
+    }
+
+    /// Registers as the notification-center delegate. Idempotent.
+    ///
+    /// Called from `init`, and again from `didFinishLaunchingWithOptions` — the
+    /// call that actually matters. See the comment there: a tap that cold-launches
+    /// the app is delivered before any view exists, and this type is a lazy static
+    /// whose first touch used to be a view lifecycle. Exposed as a method rather
+    /// than left to `init`'s side effect so the call site reads as intent, and so
+    /// moving the assignment later cannot quietly break the cold-launch path.
+    func installDelegate() {
         UNUserNotificationCenter.current().delegate = self
     }
 
@@ -48,17 +59,54 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// Fired when the user taps a notification (from lock screen, banner, or
     /// notification center). This is the common delivery path, since most
     /// pushes arrive while the app is backgrounded.
+    ///
+    /// Brings the team the push was about to the front. Until this routed, the
+    /// tap did nothing but open the app wherever it was left — a coach told
+    /// that something happened on Team C landed on Team A and had to find the
+    /// switcher themselves. Backlog 3.10.
+    ///
+    /// `teamID` has been in every payload since the Worker was written; it sits
+    /// at the top level beside `aps`, which is where APNs puts custom keys into
+    /// `userInfo`. So this needs nothing from the Worker and works for pushes
+    /// already sitting on a lock screen.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let eventType = response.notification.request.content.userInfo["eventType"] as? String ?? "unknown"
+        let userInfo = response.notification.request.content.userInfo
+        let eventType = userInfo["eventType"] as? String ?? "unknown"
+        let teamID = (userInfo["teamID"] as? String).flatMap(UUID.init(uuidString:))
+
         Task { @MainActor in
             Analytics.signal("push.received", parameters: [
                 "eventType": eventType,
                 "state": "tapped"
             ])
+
+            // Routed through AppRouter rather than acted on directly, because a
+            // tap from the lock screen usually cold-launches the app and there
+            // is no view hierarchy yet to receive it. The shared router holds
+            // the request until one appears — the same handoff Siri and
+            // Spotlight use.
+            //
+            // `.team` resolves to the Lineup tab, which is where the only event
+            // the app actually sends (`lineup_finalized`) belongs. Routing is
+            // keyed on the team rather than the event type deliberately: any
+            // team-scoped event wants the team in front first, and a payload
+            // with no usable teamID simply opens the app as before.
+            //
+            // Freshness is not a concern here even though `AppRouter.Request`
+            // discards a stale route on a first-ever drain: `createdAt` is
+            // stamped when the request is made, which is this tap, not when the
+            // push was sent. A notification opened an hour later is a
+            // deliberate request and reads as one.
+            //
+            // `applyRoute` ignores a team the device no longer holds, so a push
+            // for a team since left or unshared cannot select a phantom.
+            if let teamID {
+                AppRouter.shared.route(to: .team(teamID))
+            }
         }
         completionHandler()
     }

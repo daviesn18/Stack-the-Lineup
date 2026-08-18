@@ -16,7 +16,9 @@ Build 40 went to TestFlight on 17 Aug and both remaining device passes ran again
 
 Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer truncates at the paywall's opening detent. It was the one open item that could have mattered to App Review, and it landed before the archive, so the build number never moved. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **~~3.8~~** fixed the iPad peek detent.
 
-**Nothing is blocking the submission**, on the reading that **3.10** is not a blocker — a push tapped from the lock screen opens the app but does not switch to the team the push was about. Found on device 17 Aug, after 1.12 passed, by doing the one thing its steps do not ask for. It is not a regression (no shipping build has ever delivered a push a coach could tap) and it only bites a coach with more than one team, but 3.3 *is* the release that introduces notifications. **That call is open — see 3.10, and check the Worker's payload before making it.** Everything else here is Stage 3 and Stage 4, deferred by choice until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
+**~~3.10~~ is fixed and needs a build 41.** A tapped push opened the app without switching to the team it was about. The Worker turned out to need nothing — it has always sent `teamID` — so this was app-only. Fixing it also turned up a second, larger fault the first fix hid: the notification delegate was installed too late to receive a **cold-launch** tap, so the routing worked on a backgrounded app and did nothing on a terminated one, which is the common case. Both are fixed and both paths are verified.
+
+**So the remaining path to submission is: bump to 41, archive, upload, and one device check** — tap a push about a non-active team and confirm the app lands on that team, from a cold start as well as a warm one. 1.12 and 1.13 do not need re-running; nothing in this change touches sharing, CloudKit or the coach-name prompt. Everything else in this file is Stage 3 and Stage 4, deferred by choice until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
 
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
@@ -71,7 +73,7 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
-| **3.10** | **Tapping a push lands on whatever team was already open** | S–M | **A decision: 3.3 or 3.4.** Found on device 17 Aug |
+| ~~3.10~~ | ~~Tapping a push lands on whatever team was already open~~ | — | ✅ **17 Aug** — app-only fix; both warm and cold launch verified in the simulator |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
 | ~~3.6~~ | ~~A seed produced no team; cause unknown~~ | — | ✅ **12 Aug** — several clean seeds on TestFlight; closed unreproduced, tripwire left armed |
 | ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
@@ -842,7 +844,7 @@ That also explains the shape of the symptom. A layout too short by a few points 
 
 **Size:** S. **Blocked on:** nothing.
 
-### 3.10 Tapping a push notification lands on whatever team was already open
+### ~~3.10 Tapping a push notification lands on whatever team was already open~~ — ✅ **fixed 17 Aug 2026**
 
 **Found on device 17 Aug 2026**, after 1.12's steps had passed — by tapping the notification, which is not one of them. A push about **Team C** arrived while **Team A** was active; tapping it opened the app still on Team A. The coach has to find the switcher and change teams themselves, having just been told something happened somewhere else.
 
@@ -865,9 +867,29 @@ So the app-side change is close to one call: pull `teamID` out of `userInfo`, ha
 
 **Blast radius is narrow.** It only bites a coach with **more than one team** who receives a push about a team that isn't the active one. A single-team coach — presumably most — sees correct behaviour, because the team they land on is the team the push was about.
 
-**Recommendation: ship 3.3 without it, fix in 3.4.** It costs a build 41 and another TestFlight round trip to include, against a defect that a minority of a minority hits and that loses no data. **What would change that:** if the Worker already sends `teamID`, the app change is a few lines and low risk — then it becomes a judgement about whether shipping a brand-new notifications feature with an inert tap is the first impression worth having. Check the Worker first; the answer decides it.
+**The Worker needs nothing.** `sendAPNs` already puts `teamID` at the top level of the payload beside `aps`, which is where APNs lifts custom keys into `userInfo`. Every push build 40 has already delivered carries it. App-only fix, no deploy, no compatibility question in either direction.
 
-**Size:** S app-side, M if the Worker needs changing too. **Blocked on:** the decision above.
+**Fixed 17 Aug 2026, in two parts — and the second only surfaced because the first was tested properly.**
+
+**Part one, the routing.** `didReceive` now reads `teamID` from `userInfo` and calls `AppRouter.shared.route(to: .team(id))`. `applyRoute` does the rest, and ignores a team the device no longer holds, so a push for a team since left cannot select a phantom.
+
+**Part two, the delegate was not installed early enough to receive a cold-launch tap.** `NotificationManager` registers itself as the `UNUserNotificationCenter` delegate in its `init`, but it is a **lazy static** whose first touch was `ContentView`'s `requestPermissionIfNeeded()` — a view lifecycle. A tap that cold-launches the app has its response delivered before any view exists; with no delegate registered, iOS discards it. So part one worked on a *backgrounded* app, where the delegate survived from the previous launch, and did nothing at all on a terminated one — **which is the common case for a push.** Now installed from `application(_:didFinishLaunchingWithOptions:)`, via an explicit `installDelegate()` so the call site reads as intent.
+
+> **This is the third instance of one pattern in this app.** ~~1.9~~: the APNs token arrived before there was a view to receive it. The Spotlight tap-through: the entity was indexed but nothing handled the activity. Now this. **Anything iOS hands back at launch needs a receiver that exists at launch, not one a view happens to create later.** Worth checking any remaining launch-time callback against that rule rather than waiting for the next one to be found on a device.
+
+**Verified in the simulator (iPhone 17, iOS 26.4, 17 Aug)** with `xcrun simctl push`, which delivers a real payload through the same delegate path. Two teams; the push always names the one that is *not* active, and `stl_active_team_id` is read from the app's own preferences afterwards rather than inferred from the screen:
+
+| Case | Before | Push targets | After |
+|---|---|---|---|
+| Warm — app backgrounded | Tigers | unnamed team | **unnamed team** ✅, lands on Lineup |
+| Cold — app terminated, *before* part two | unnamed team | Tigers | unnamed team ❌ — no switch |
+| Cold — app terminated, *after* part two | unnamed team | Tigers | **Tigers** ✅ |
+
+Suite green, 336/336.
+
+**Noticed while fixing, not acted on:** `postEvent` has five event-type constants and the Worker builds bodies for all five, but the app only ever sends **`lineup_finalized`** — from `finalizeLineup` (`Models.swift:1906`), the single call site. `game_archived`, `archive_prompt`, `team_invite` and `tip` are dead as far as the app is concerned. That is why `.team` is the right route for every push today, and it is worth deciding whether those are unbuilt features or leftovers before someone builds against them.
+
+**Size:** S. **Blocked on:** nothing — closed.
 
 ## Stage 4 — decisions and long poles
 
