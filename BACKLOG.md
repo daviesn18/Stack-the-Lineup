@@ -2,7 +2,7 @@
 
 **Created 6 Aug 2026. Last updated 17 Aug 2026 (build 41 verified on device — every open item is closed. `3.3 (41)` is ready to submit to the App Store).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
-**The spine is the 3.3 submission.** Version is `3.3 (40)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
+**The spine is the 3.3 submission.** Version is `3.3 (41)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are both empty — everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
 ---
 
@@ -36,9 +36,9 @@ Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer 
 >
 > **The one habit that paid off:** 1.11 was found by reading the Worker's own log rather than inferring from the app. `Sending to 0 recipient(s) after filtering out iPhone` is a sentence no amount of app-side debugging would have produced.
 
-State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 app-side fix, `6f585fd` the coach-name prompt and the build 39 bump, `a147af0` and `92de588` documentation. The 12 Aug work for 1.12 and 1.13 is on top of that.
+State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 routing fix, `fff1c60` the build 41 bump, `68b2407` and `9cb6625` documentation. Earlier in the thread: `9a8e5dc` the 1.11 app-side fix and `6f585fd` the coach-name prompt.
 
-**`feature/app-intents-phase-0` is behind at `6324df3`** and needs a decision — it was at parity with `main` before the 6 Aug evening work. Suite green — **322 of 322**, restored 9 Aug by 3.7. Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+**`feature/app-intents-phase-0` is gone**, deleted 20 Aug 2026 — `git branch --merged` showed it fully contained in `main` with a zero-line diff, so the decision it was waiting on had already made itself. `fix/pitching-window-sunday` and `claude/little-league-pitching-rules-hn7237` went the same way for the same reason. Suite green — **322 of 322**, restored 9 Aug by 3.7. Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -148,11 +148,11 @@ Before the 6 Aug fix, a view-only participant on iPad could reassign positions, 
 
 **Open question about the 8 Aug run, carried to 1.7:** which build type each device ran. If the iPad ran an Xcode build while the assistant's phone was on TestFlight, the two were in different CloudKit environments and the iPad was reading a locally cached copy rather than a live share. **The result above stands either way** — the gating reads `isReadOnly` off local state — but the sync path would not have been exercised, and 1.7's steps 9–13 depend on it.
 
-### ~~1.8 The iPad nav bar has no read-only gating~~ — fixed in code 8 Aug 2026, needs the device step
+### ~~1.8 The iPad nav bar has no read-only gating~~ — ✅ **step 9 passes both ways on device, 9 Aug 2026**
 
 **Found and fixed 8 Aug 2026, reading `iPadDashboardView.swift` while scoping 3.5.** Same class as 2.4a, and it survived both the fix and the device test.
 
-> **Fixed:** Import Schedule and Archive Game are now wrapped in `if !isReadOnly` in `iPadNavBar`, matching `LineupView`. The new Export menu is deliberately outside that guard. **Unverified on hardware — run step 9 below.**
+> **Fixed and verified.** Import Schedule and Archive Game are now wrapped in `if !isReadOnly` in `iPadNavBar`, matching `LineupView`. The new Export menu is deliberately outside that guard. **Step 9 ran on device 9 Aug 2026 and passes in both directions** — the two buttons are absent on a shared read-only team and come back on a team the coach owns.
 
 `iPadNavBar` (lines 149–309) contains **zero** references to `isReadOnly`. The 6 Aug fix gated `SidebarRosterView` (740), `DetailPaneView` (1008) and `iPadPositionsPane` (1255) — every surface the test plan walks — and never touched the bar above them.
 
@@ -169,9 +169,9 @@ Neither `ArchiveGameSheet` nor `ScheduleImportView` guards internally — confir
 
 Settings and the team switcher stay — reading and switching are not mutations. The Export menu added by 3.5 also stays: exports must remain reachable for a view-only assistant, which is the entire point of the Coaches Guide unlock.
 
-**Step 9 of the 2.4a plan, to run on device:** on the shared read-only team, confirm Import Schedule and Archive Game are **absent** from the iPad nav bar while Export and Settings remain. Then switch to a team you own and confirm both come back. Same shape as step 7 — the gate has to release as well as engage.
+**Step 9 of the 2.4a plan — ✅ ran 9 Aug 2026:** on the shared read-only team, Import Schedule and Archive Game are **absent** from the iPad nav bar while Export and Settings remain. Switching to a team the coach owns brings both back. Same shape as step 7 — the gate releases as well as engages, so the fix did not over-reach.
 
-**Size:** S. **Blocked on:** a device pass. Pairs with 1.7.
+**Size:** S. **Closed 9 Aug.**
 
 ### ~~1.9 A cold-launched device never registers for push~~ — ✅ **verified on device 12 Aug 2026**
 
@@ -981,7 +981,7 @@ Things one of the docs still half-implies are open, that aren't:
 - **The `StackTheLineupTests` target** — removed from the project and the scheme.
 - **`cleanup-phase1.sh` / `.patch`** — deleted; they'd have failed if run.
 - **`roadmap.jsx`** — gone from the repo.
-- **3.3 ship-readiness** (`HANDOFF-app-intents.md` §9b.3) — that item says `MARKETING_VERSION` is still 3.2 with no 3.3 What's New entry. Both are done: version is `3.3 (40)` and the registry has its 3.3 entry, guarded by a test that fails the build if the version moves ahead of the registry.
+- **3.3 ship-readiness** (`HANDOFF-app-intents.md` §9b.3) — that item says `MARKETING_VERSION` is still 3.2 with no 3.3 What's New entry. Both are done: version is `3.3 (41)` and the registry has its 3.3 entry, guarded by a test that fails the build if the version moves ahead of the registry. **That doc has been corrected at the source** — §9b.3 now reads as done rather than outstanding.
 - **`AskSiriTip` discovery** — verified on screen 1 Aug.
 - **The app-name cleanup** — `ShortcutsLink` and the `navigationTitle` (2.1) are both done. Nothing still says "Lineup Builder" in user-facing copy.
 - **The `stl-worker` housekeeping** — it's under version control, has a GitHub repo, a README, current tooling (wrangler 4.119), and Workers Logs enabled. The backlog used to note "not under version control" as a to-do; that's closed.
@@ -994,12 +994,12 @@ Things one of the docs still half-implies are open, that aren't:
 | [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) | **Closed 12 Aug.** Every section passed or was triaged. Historical record of the 7–12 Aug device sessions. The two device passes still outstanding are 1.12 and 1.13 here, not there. |
 | `HANDOFF-app-intents.md` | **Live.** The 3.3 reference; §9 is the open part (1.3, 4.4). |
 | `CLEANUP-AUDIT-2026-08.md` | **Closed**, except 3.1 / 3.2 and the iPad test plan for 1.4. ⚠️ **§8.3a is factually wrong** — see 1.2. |
-| `CLEANUP-AUDIT.md` | **Closed.** All three phases. Historical record. |
 | `TIPS-onboarding-spec.md` | **Mostly closed.** 2.3, 2.4, 4.1, 4.2 come from here. |
 | `PAYWALL-design-handoff.md` | **Closed** except 4.3. Reference for the paywall's content rules. |
-| `HANDOFF-data-recovery.md` | **Closed 6 Aug.** Historical record of the July incident; every caution in it has expired. |
 | `AppStore-Screenshots*/SCREENSHOT-NOTES.md` | Reference for the store listing. Nothing open. |
 | [`stl-worker/README.md`](https://github.com/daviesn18/stl-worker) | **Live**, separate repo. The record for push: architecture, the environment trap, deploy and debugging. |
+
+> **Deleted 20 Aug 2026, both fully closed:** `CLEANUP-AUDIT.md` (19 Jul, all three phases done) and `HANDOFF-data-recovery.md` (the July incident). Neither had anything open and nothing live pointed into them. **They are still in git history** — `git show 9cb6625:CLEANUP-AUDIT.md` — if the evidence behind an old finding is ever wanted. The one caution from the recovery handoff that still matters was never doc-only: it sits at the point of danger in `Models.swift`, above the `#if !DEBUG` guard on the iCloud KV write.
 
 ---
 
@@ -1008,6 +1008,6 @@ Things one of the docs still half-implies are open, that aren't:
 The failure wasn't that work got dropped — almost none did. It's that five documents each held a piece of the picture, and three described a state the code had moved past. Two habits fix it:
 
 1. **One index, many records.** This file is the only place that says what's next. The handoffs stay as deep records of *why*, and they don't need a "next steps" section competing with this one.
-2. **Close things out loud.** When an item lands, strike it here and say so in the document it came from — and **delete the superseded instructions rather than layering new notes on top of them.** A closed item should read as one paragraph of "here's what happened," not as an archaeology of what people believed at each stage. `HANDOFF-data-recovery.md` telling you not to open an app on a device, four weeks after the reason expired, is what happens otherwise.
+2. **Close things out loud.** When an item lands, strike it here and say so in the document it came from — and **delete the superseded instructions rather than layering new notes on top of them.** A closed item should read as one paragraph of "here's what happened," not as an archaeology of what people believed at each stage. `HANDOFF-data-recovery.md` telling you not to open an app on a device, four weeks after the reason expired, is what happens otherwise. (That file was deleted on 20 Aug once it was fully spent — see the note under Document status.)
 
 **The 6 Aug lesson worth carrying:** the two worst problems that day — the widget version mismatch and the CloudKit outage — were both *invisible from where you'd normally look*. One printed a warning in a build log nobody reads. The other showed a 0% error rate on a dashboard while failing 100% of the time. Neither was in any document. When something matters and it's cheap, **check the live thing instead of the note about it.**

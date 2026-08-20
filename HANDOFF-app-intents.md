@@ -1,12 +1,12 @@
 # Handoff — v3.3 Siri & App Intents (2026-07-31)
 
-> **What's still open lives in [`BACKLOG.md`](BACKLOG.md), not here.** This document is the record of *why* — the dead ends, the measurements, the rules that came out of them. Section 9's remaining items are backlog 1.3 (Siri on a device — a submission blocker), 2.1, 2.2 and 4.4. Note that §9b.3's ship-readiness item is **done**: the version is `3.3 (36)` and the What's New registry has its 3.3 entry.
+> **What's still open lives in [`BACKLOG.md`](BACKLOG.md), not here.** This document is the record of *why* — the dead ends, the measurements, the rules that came out of them. Section 9's one remaining item is backlog **4.4** (localization). 1.3 closed 7 Aug — six of nine shortcuts pass, the three with an entity slot are accepted picker-degraded for 3.3 — and 2.1, 2.2 and §9b.3's ship-readiness item are all done: the version is `3.3 (41)` and the What's New registry has its 3.3 entry.
 
 ## TL;DR
 
 **Phases 0–4 are built, verified end to end on iPhone and iPad, and covered by 248 passing unit tests (0 failures — see 6ter). Every intent in 3.3 scope is delivered, plus a follow-on pitch-eligibility intent and the discovery surfaces (section 6bis).**
 
-> **One thing is still waiting on Nick — see 9a.2.** Parameterized Siri phrases don't surface in typed Spotlight, which makes the physical-device voice check a blocker rather than a nice-to-have.
+> **Settled on device, 7 Aug 2026 — see 9a.2 and backlog 1.3.** Parameterized Siri phrases don't surface in typed Spotlight, and the device run showed Siri never binds a spoken name into a phrase slot at all: `entities(matching:)` is never called. Six of the nine shortcuts pass outright; the three with an entity slot degrade to a picker and **ship that way in 3.3**.
 >
 > **9a.1 (`ShortcutsLink` app name) is fixed and verified on screen**, but it cost more than the doc predicted: the prescribed `INFOPLIST_KEY_CFBundleName` fix does nothing, and the only lever is `PRODUCT_NAME` — which also renames the executable and the `.app` wrapper. **Read 9a.1 before shipping it**; backing it out is one `git revert`.
 
@@ -586,7 +586,7 @@ Lineup Builder.xcscheme  BuildableName → "Stack the Lineup.app"   ×3
 
 **Test result after the rename: 247 passed, 1 failed** — `TeamStorageTests.testNoStoredDataReportsEmpty()`, **pre-existing, not caused by the rename** (verified against unmodified `HEAD` 99ae3bc in a separate worktree, where it failed identically). **Fixed separately — see 6ter. The suite is now 248 / 0.**
 
-**Still wrong, and not fixed:** `LineupView.swift:259` hardcodes `.navigationTitle("Lineup Builder")` — the old name, as the large title on the Lineup tab, which is far more visible than the `ShortcutsLink` button ever was. (`PDFGenerator.swift:457` uses it as a fallback header too.) Left alone deliberately: same product-identity call, and it's app copy rather than a build setting, so it's a one-word edit whenever you want it.
+**Fixed 6 Aug 2026 as backlog 2.1.** `LineupView.swift` hardcoded `.navigationTitle("Lineup Builder")` — the old name, as the large title on the Lineup tab, far more visible than the `ShortcutsLink` button ever was — and `PDFGenerator.swift` used it as a fallback header. Both now read "Stack the Lineup" (`LineupView.swift:256`). A sweep of the Swift sources finds no remaining user-facing use of the old name.
 
 **2. Parameterized phrases don't surface in typed Spotlight — and two shortcuts now depend on them.**
 
@@ -609,7 +609,7 @@ Getting there needed no saved template — the header anchor renders whenever `h
 
 1. **Localization is the long pole and it's overdue.** All four phases shipped `LocalizedStringResource` literals inline with **no string catalog in the repo** (`find . -name "*.xcstrings"` still returns nothing). Phase 4 added the most strings of any phase — nine `AppEnum` cases with synonyms, nine `shortLead` strings, and every sentence in `TeamRulesBuilder`. Note that the builder's phrasing is **assembled**, not literal ("Everyone active needs at least \(innings) in the infield"), which does not translate by swapping a table: plural rules and word order differ per language. That's a real design question to settle before Spanish, not a mechanical pass. See `1214429900445010`.
 2. **Verify the Siri phrases on a physical device — now a blocker, see 9a.2.** Still the only claim never proven in a simulator (section 8), and there are now **9** shortcuts resting on it, two of which are voice-only. Blocked by the standing rule against debug builds on Nick's devices — needs a TestFlight build or an explicit exception.
-3. **Ship-readiness, not in any Asana ticket.** `MARKETING_VERSION` is still **3.2** (build 33), and `WhatsNewContent.all` tops out at a 3.2 entry. The registry is keyed on `CFBundleShortVersionString`, so shipping 3.3 without adding an entry means the What's New sheet **silently never appears**. Nothing user-facing mentions Siri except the new tip and Settings row.
+3. **Ship-readiness, not in any Asana ticket. — ✅ DONE.** `MARKETING_VERSION` is **3.3** (build 41) and `WhatsNewContent.all` has its 3.3 entry, now guarded by a test that fails the build if the version moves ahead of the registry. The registry is keyed on `CFBundleShortVersionString`, so shipping 3.3 without an entry would have meant the What's New sheet **silently never appearing** — that trap is closed. Nothing user-facing mentions Siri except the tip and the Settings row.
 4. **Test every new intent cold, without Pro, and after rebooting the simulator.** See 2d-bis, 3e, 4c and the reboot gotcha in section 8 — every bug found across four phases was invisible warm, invisible with Pro, or invisible without a reboot.
 5. **Look at every intent's result, don't just test it.** Both Phase 4 bugs (6e) passed the full unit suite and were still wrong on screen. Two of the three Phase 3 findings were the same. A green suite says the facts are right, not that the answer is usable.
 

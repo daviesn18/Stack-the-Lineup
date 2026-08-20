@@ -1,6 +1,6 @@
 # Contextual Tips — Rethink
 
-> **Open items from this document are tracked in [`BACKLOG.md`](BACKLOG.md).** Four of them: the unverified `ReuseSaveTemplateTip` advance (2.3), reading tip copy at real size (2.4), and the two product questions — the History paywall auto-opening (4.1) and arc 2 giving free coaches 2 tips of 6 (4.2). Everything else here is built and verified on both platforms.
+> **Open items from this document are tracked in [`BACKLOG.md`](BACKLOG.md).** Two remain, both product questions: the History paywall auto-opening (**4.1**) and arc 2 giving free coaches 2 tips of 6 (**4.2**). The other two are closed — tip copy was read at large Dynamic Type on device 7 Aug and nothing truncates (2.4), and the `ReuseSaveTemplateTip` advance was run on device the same day and **failed**, which is now tracked as the fix in **3.4**. Everything else here is built and verified on both platforms.
 
 **Goal:** a first-run coach gets a guided, page-by-page walkthrough that covers adding players, building the lineup, setting positions, and exporting — and that names both Free and Pro features along the way.
 
@@ -16,7 +16,7 @@
 |---|---|
 | Build | ✅ `BUILD SUCCEEDED`, iOS Simulator, Debug |
 | Tests | ✅ 28 passed, 0 failed |
-| Visual verification | 🟡 **Both platforms fully walked.** iPhone: arc 1, arc 2, skip path, Pro history. iPad: arc 1 (Players + Lineup + Positions), skip-path re-entry, and Pro history. Ten bugs fixed total — five found on iPad (arc-1 tips firing over the welcome cover; skip-path `TourInSettingsTip` never presenting on the gear; the History pane having no navigation container, which made archived-game detail unreachable; `ReuseSaveTemplateTip` not advancing; **"Take the Tour" in Settings never actually replaying the tour**). One item still open: the **live in-place advance** of `ReuseSaveTemplateTip` is unverified on device — see the iPad Pro-history section |
+| Visual verification | 🟡 **Both platforms fully walked.** iPhone: arc 1, arc 2, skip path, Pro history. iPad: arc 1 (Players + Lineup + Positions), skip-path re-entry, and Pro history. Ten bugs fixed total — five found on iPad (arc-1 tips firing over the welcome cover; skip-path `TourInSettingsTip` never presenting on the gear; the History pane having no navigation container, which made archived-game detail unreachable; `ReuseSaveTemplateTip` not advancing; **"Take the Tour" in Settings never actually replaying the tour**). One item carried out of this doc: the **live in-place advance** of `ReuseSaveTemplateTip` was run on device 7 Aug 2026 and **fails** — dismissing tip 2 advances nothing until the app is quit and reopened. Diagnosed (the `currentTipUpdates` mirror doesn't yield on invalidation) and deferred to backlog **3.4**; see the iPad Pro-history section |
 | Layer 3 (checklist relocation) | ⛔️ dropped — checklist removed instead (see below) |
 
 ### Verification pass — 2026-07-23 (iPhone 17 Pro, iOS 26)
@@ -331,4 +331,4 @@ Run on an iPad simulator. Every tip should appear **exactly once** — the dupli
 
 - **The History paywall auto-opens.** `GameLogsView.swift:66` presents `ProGate` unprompted 0.35s after a free coach opens the tab, whether or not they did anything. Arc 2 routes around it, but routing around a behavior isn't the same as deciding it's right.
 - **Arc 2 gives free coaches 2 tips of 6.** They get a real path to game 2, but four are structurally invisible. If the season story matters for conversion, the alternative is one free-tier tip pointing at what archiving builds toward — at the cost of principle 3 above.
-- **Tip copy has never been read on a device.** Popover width is narrower than the tables here suggest; some messages may want trimming once seen at real size, especially at large Dynamic Type.
+- ~~**Tip copy has never been read on a device.**~~ ✅ **Closed 7 Aug 2026** (backlog 2.4). Every tip was walked on device at large Dynamic Type after a "Take the Tour" reset: nothing truncates, wraps badly, or overflows its popover, and no copy needs trimming. The worry that popover width is narrower than the tables here suggest did not bite — **112 characters is a demonstrated safe ceiling**, measured against `PlayersTeamSetupTip`, the longest string in the app.
