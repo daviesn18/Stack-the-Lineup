@@ -1,6 +1,6 @@
 # Backlog — Stack the Lineup
 
-**Created 6 Aug 2026. Last updated 17 Aug 2026 (build 40 verified on device — 1.12 and 1.13 both pass, and with them 1.11. Stage 1 is empty. ~~3.9~~ and ~~3.10~~ fixed since; version is now `3.3 (41)`, which needs an archive and one device check before submitting).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
+**Created 6 Aug 2026. Last updated 17 Aug 2026 (build 41 verified on device — every open item is closed. `3.3 (41)` is ready to submit to the App Store).** One place for everything open across the working documents in this repo, in the order I'd do it. Each item says where it's written down, what "done" looks like, and what it's blocked on — so nothing here needs you to re-read a 60 KB handoff to know what it is.
 
 **The spine is the 3.3 submission.** Version is `3.3 (40)` and `WhatsNewContent` has its 3.3 entry. Stages 1 and 2 are what stands between here and the App Store; everything after that is deferred by choice and should stay deferred until 3.3 is out.
 
@@ -10,15 +10,15 @@
 
 **Push works on real hardware, both directions, as of 12 Aug 2026.** That closes the longest-running thread in this file. It took five separate faults to get there — 1.2 (the Worker's CloudKit auth), 1.9 (the cold-launch token race), 1.11 fix 1 (an exclusion rule keyed on a display name that is "iPhone" on every device), and the two sharing bugs (b) and (c) under 1.7 — and no single one of them was visible from the others. **~~1.7~~, ~~1.9~~, ~~1.10~~ and 1.11's delivery half are all closed on build 39.**
 
-**Stage 1 is empty as of 17 Aug 2026. Build 40 is verified on device and 3.3 is ready to submit.**
+**Nothing is open. Build 41 is verified on device and `3.3 (41)` is ready to submit.**
 
 Build 40 went to TestFlight on 17 Aug and both remaining device passes ran against it in Production CloudKit. **~~1.12~~ passes** — an assistant is asked their name when they join, and the head coach's notification and "Finalized by" both read it, which closes the display-name half of **~~1.11~~** and with it the whole push-identity thread. **~~1.13~~ passes**, airplane-mode step included: a deleted or unshared team leaves the assistant's device with a notice, and a shared fetch that *throws* leaves every received team alone.
 
 Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer truncates at the paywall's opening detent. It was the one open item that could have mattered to App Review, and it landed before the archive, so the build number never moved. **~~3.6~~ closed 12 Aug** — several clean seeds on TestFlight. **~~3.8~~** fixed the iPad peek detent.
 
-**~~3.10~~ is fixed and needs a build 41.** A tapped push opened the app without switching to the team it was about. The Worker turned out to need nothing — it has always sent `teamID` — so this was app-only. Fixing it also turned up a second, larger fault the first fix hid: the notification delegate was installed too late to receive a **cold-launch** tap, so the routing worked on a backgrounded app and did nothing on a terminated one, which is the common case. Both are fixed and both paths are verified.
+**~~3.10~~ is fixed and verified on build 41.** A tapped push opened the app without switching to the team it was about. The Worker turned out to need nothing — it has always sent `teamID` — so this was app-only. Fixing it also turned up a second, larger fault the first fix hid: the notification delegate was installed too late to receive a **cold-launch** tap, so the routing worked on a backgrounded app and did nothing on a terminated one, which is the common case. **Both paths pass on device, cold start included.**
 
-**Build 41 is bumped and ready to archive** — `3.3 (41)`; the marketing version is unchanged, so the What's New registry guard still passes. **The remaining path to submission is: archive, upload, and one device check** — tap a push about a non-active team and confirm the app lands on that team, from a cold start as well as a warm one. 1.12 and 1.13 do not need re-running; nothing in this change touches sharing, CloudKit or the coach-name prompt. Everything else in this file is Stage 3 and Stage 4, deferred by choice until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
+**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
 
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
@@ -73,7 +73,7 @@ State of the repo: `main` is at `92de588` and **pushed** — `9a8e5dc` the 1.11 
 | 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
-| ~~3.10~~ | ~~Tapping a push lands on whatever team was already open~~ | — | ✅ **17 Aug** — app-only fix; both warm and cold launch verified in the simulator |
+| ~~3.10~~ | ~~Tapping a push lands on whatever team was already open~~ | — | ✅ **17 Aug** — app-only fix; warm and cold launch both pass on device (build 41) |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
 | ~~3.6~~ | ~~A seed produced no team; cause unknown~~ | — | ✅ **12 Aug** — several clean seeds on TestFlight; closed unreproduced, tripwire left armed |
 | ~~3.7~~ | ~~Two `STLRouteTests` fail — the suite is not green~~ | — | ✅ **9 Aug** — isolated deinit crash; 322/322 now |
@@ -886,6 +886,8 @@ So the app-side change is close to one call: pull `teamID` out of `userInfo`, ha
 | Cold — app terminated, *after* part two | unnamed team | Tigers | **Tigers** ✅ |
 
 Suite green, 336/336.
+
+**Confirmed on device 17 Aug, TestFlight build 41 — warm and cold both pass.** The cold case is the one that mattered: a terminated app, tapped from the lock screen, lands on the team the push was about. The simulator predicted device behaviour exactly here, which is worth knowing for next time — but only because part two moved delegate registration to `didFinishLaunchingWithOptions`. The launch-timing fault it fixed is precisely the kind that a simulator *can* hide, so the device check earned its keep rather than merely confirming what was already known.
 
 **Noticed while fixing, not acted on:** `postEvent` has five event-type constants and the Worker builds bodies for all five, but the app only ever sends **`lineup_finalized`** — from `finalizeLineup` (`Models.swift:1906`), the single call site. `game_archived`, `archive_prompt`, `team_invite` and `tip` are dead as far as the app is concerned. That is why `.team` is the right route for every push today, and it is worth deciding whether those are unbuilt features or leftovers before someone builds against them.
 
