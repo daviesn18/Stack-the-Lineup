@@ -8,7 +8,7 @@ import Foundation
 // into SwiftUI, so a view can never mutate a share by holding one.
 
 /// What a coach is allowed to do with a shared team.
-enum TeamSharePermission: String, Sendable, CaseIterable, Identifiable {
+nonisolated enum TeamSharePermission: String, Sendable, CaseIterable, Identifiable {
     case readWrite
     case readOnly
 
@@ -55,7 +55,7 @@ enum TeamSharePermission: String, Sendable, CaseIterable, Identifiable {
 
 /// One coach on a shared team, other than the owner.
 /// Hashable so it can be a `NavigationLink(value:)` destination.
-struct ShareParticipantInfo: Sendable, Hashable, Identifiable {
+nonisolated struct ShareParticipantInfo: Sendable, Hashable, Identifiable {
 
     /// The participant's iCloud user record name. Stable, and the handle the
     /// manager uses to find them again on a write.
@@ -104,7 +104,7 @@ struct ShareParticipantInfo: Sendable, Hashable, Identifiable {
 ///
 /// Replaces the old `ckRecordName != nil` test, which only ever meant "this team
 /// has been pushed to iCloud" and was wrong about sharing for every synced team.
-struct TeamShareInfo: Sendable, Equatable {
+nonisolated struct TeamShareInfo: Sendable, Equatable {
 
     enum State: Sendable, Equatable {
         /// No CloudKit record. `staleRecordName` is true when the team carried a

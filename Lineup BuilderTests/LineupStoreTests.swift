@@ -16,8 +16,7 @@ final class LineupStoreTests: XCTestCase {
 
     private var store: LineupStore!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
         store = LineupStore()
         // Start fresh with one team
         store.teams = [makeTeam("Reds")]

@@ -21,7 +21,7 @@ import TipKit
 // TipKit parameters mirroring app state. Kept in sync by TourState.sync(),
 // called from ContentView on appear and whenever the underlying data changes.
 
-enum TourState {
+nonisolated enum TourState {
     @Parameter static var hasPlayers: Bool = false
     @Parameter static var hasBattingOrder: Bool = false
     @Parameter static var hasPositions: Bool = false
@@ -52,7 +52,7 @@ enum TourState {
 // Appended to the title of a Pro feature's tip, and only for coaches who don't
 // have it. Labeling a feature PRO to someone who already pays reads as noise.
 
-private func tourTitle(_ text: String, pro: Bool = false) -> Text {
+private nonisolated func tourTitle(_ text: String, pro: Bool = false) -> Text {
     guard pro, !TourState.isPro else { return Text(text) }
     return Text(text)
         + Text("  PRO")
@@ -62,11 +62,11 @@ private func tourTitle(_ text: String, pro: Bool = false) -> Text {
 
 // MARK: - Shared Actions
 
-private var nextAction: [Tip.Action] {
+private nonisolated var nextAction: [Tip.Action] {
     [Tip.Action(id: "next", title: "Next")]
 }
 
-private var doneAction: [Tip.Action] {
+private nonisolated var doneAction: [Tip.Action] {
     [Tip.Action(id: "done", title: "Got it")]
 }
 

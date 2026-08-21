@@ -20,10 +20,12 @@ import os
 class PurchaseManager: ObservableObject {
 
     // Legacy one-time non-consumable. Still honored forever for grandfathering.
-    static let legacyProProductID = "com.stackthelineup.pro"
+    // `nonisolated` so the nonisolated `productGrantsPro` / `isProNow` (which run
+    // off the main actor for background-launched App Intents) can read them.
+    nonisolated static let legacyProProductID = "com.stackthelineup.pro"
 
     // Auto-renewable subscription sold going forward.
-    static let subscriptionProductID = "com.stackthelineup.pro.yearly"
+    nonisolated static let subscriptionProductID = "com.stackthelineup.pro.yearly"
 
     /// Three states, because "not Pro" and "we haven't asked yet" are different
     /// facts and treating them as one shows a paying coach a paywall.

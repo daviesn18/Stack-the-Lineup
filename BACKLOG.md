@@ -18,7 +18,7 @@ Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer 
 
 **~~3.10~~ is fixed and verified on build 41.** A tapped push opened the app without switching to the team it was about. The Worker turned out to need nothing — it has always sent `teamID` — so this was app-only. Fixing it also turned up a second, larger fault the first fix hid: the notification delegate was installed too late to receive a **cold-launch** tap, so the routing worked on a backgrounded app and did nothing on a terminated one, which is the common case. **Both paths pass on device, cold start included.**
 
-**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
+**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. **4.5 (Swift 6 language mode) landed 20 Aug** — all four targets are on Swift 6. The next cheap-early item is **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
 
 > **Three Stage 4 decisions were taken on 20 Aug 2026**, which is what they were waiting on rather than any engineering. **~~4.2~~** — no change, the free-tier upsell tip is rejected and principle 3 stands. **~~4.7~~** — **keep the Worker**; the trade was evaluated on its merits and settled, so do not reopen it after the next bad push day. **~~4.1~~** — a Pro coach must never see a paywall, and acting on that turned a product question into a real fix: eight gates were testing `!isPro`, which is `true` while StoreKit is still `.undetermined`. Read 4.1 before writing any new entitlement check.
 
@@ -86,7 +86,7 @@ State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 
 | ~~4.2~~ | ~~Arc 2 gives free coaches 2 tips of 6~~ | — | ✅ **20 Aug** — decided: no change, principle 3 stands |
 | 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
 | 4.4 | Localization / string catalog | **L** | A design decision on assembled strings |
-| 4.5 | Swift 6 language mode — 12 warnings become errors | M | Nothing. Do it early in a cycle, not late |
+| ~~4.5~~ | ~~Swift 6 language mode~~ | — | ✅ **20 Aug** — all four targets on Swift 6; pure types marked `nonisolated`; 340/0 |
 | 4.6 | iOS 27 App Intents readiness — `indexingKey`, App Schemas | M | An iOS 27 beta to verify against |
 | ~~4.7~~ | ~~Should `CKSubscription` replace the Worker entirely?~~ | — | ✅ **20 Aug** — decided: **keep the Worker** |
 
@@ -937,7 +937,7 @@ The hard part isn't the mechanical pass. `TeamRulesBuilder` **assembles** its se
 
 **Size: L.** Genuinely a project. Don't start it inside a release.
 
-### 4.5 Swift 6 language mode
+### ~~4.5 Swift 6 language mode~~ — ✅ **done 20 Aug 2026: all four targets on Swift 6, 340/0**
 
 **Source:** the Release build of 6 Aug. Detail in the correction under 1.1.
 
@@ -950,6 +950,12 @@ The shape of the work isn't silencing warnings — it's deciding what is genuine
 **One trap.** `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is set on the **app target only** — not the widget, not the tests. `WidgetSnapshot.swift` and `STLWidget.swift` compile into *both* the app and `STLWidgetExtension` (confirmed from the build's `SwiftFileList`s, not the project file), so the same source compiles MainActor-by-default in one target and nonisolated-by-default in the other. Any isolation annotation added to those two has to hold under both.
 
 **Size: M**, and unusually front-loaded — the diagnosis is most of it, the edits are small. Do it at the *start* of a cycle: the failure mode is flipping the language mode late, hitting twelve errors in five files, and reverting under time pressure.
+
+**Done 20 Aug 2026 — and the live error set was not the 2-Aug list.** Reproduced before touching anything (the count was stale): the `TeamRules`/`GameRecap` offenders had already been marked `nonisolated` since, and the errors that actually surfaced under `SWIFT_VERSION = 6.0` were a different set — `PurchaseManager` (2 static product-ID constants), the two App Intent entities' `urlRepresentation` (a non-Sendable stored `static let`, fixed by making it computed), the `PitchEligibility` → engine maths, the whole **AutoFill** result payload, **CloudKitManager**'s share snapshots (`TeamSharePermission`/`ShareParticipantInfo`/`TeamShareInfo`, added since the note), every `Tip`'s shared builders (`tourTitle`/`nextAction`/`doneAction` + `TourState`), and finally the **model layer** itself (`Player`, `Lineup`, `Team`, `FairPlayConfig`, `GameLog`, and the `Color(hex:)`/`toHex()` helpers). The backlog's own thesis held: nearly every fix was `nonisolated` on a pure-data or pure-computation type; `LineupStore` (the real `@MainActor ObservableObject`) was left alone. One real restructure: `AutoFillCoordinator.parseWithTimeout` raced a task group of `@MainActor` closures capturing the non-Sendable NL service, which trips a region-isolation-checker limitation — rewritten to race the parse **Task handle** (Sendable) instead, behaviour identical.
+
+**All four targets moved to Swift 6, not just the app.** The test target is nonisolated-default (an `@MainActor` XCTestCase breaks — `XCTestCase`'s inits are nonisolated, so a MainActor-default test target conflicts with every subclass; a brief attempt at that was reverted). Making the data models `nonisolated` is what lets the nonisolated logic tests build; three `@MainActor` test classes with synchronous `setUp()`/`tearDown()` moved to the `async` form. See [[swift6-mainactor-default-migration]].
+
+**Verified:** app + widget + both test targets compile under Swift 6, `Lineup BuilderTests` **340/0**, no isolation warnings remain. **Closed 20 Aug.**
 
 ### 4.7 Should CloudKit send the pushes itself, and the Worker go away?
 

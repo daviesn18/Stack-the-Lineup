@@ -37,17 +37,15 @@ final class TeamStorageTests: XCTestCase {
 
     private var defaults: UserDefaults!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
         // Clear first: a crashed previous run can leave the domain populated.
         UserDefaults.standard.removePersistentDomain(forName: Self.suiteName)
         defaults = UserDefaults(suiteName: Self.suiteName)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults?.removePersistentDomain(forName: Self.suiteName)
         defaults = nil
-        super.tearDown()
     }
 
     // MARK: - Helpers

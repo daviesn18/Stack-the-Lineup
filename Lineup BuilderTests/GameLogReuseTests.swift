@@ -15,8 +15,7 @@ final class GameLogReuseTests: XCTestCase {
     private var store: LineupStore!
     private var players: [Player]!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
         store = LineupStore()
         var team = Team()
         team.name = "Reds"

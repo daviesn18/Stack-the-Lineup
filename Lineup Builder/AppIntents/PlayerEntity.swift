@@ -59,7 +59,11 @@ nonisolated struct PlayerEntity: AppEntity, IndexedEntity, URLRepresentableEntit
     // cold-launch drain in ContentView rather than a second routing path.
     // STLRouteTests' round-trip test covers the format on the parsing side.
 
-    static let urlRepresentation: URLRepresentation = "stackthelineup://player/\(.id)"
+    // Computed rather than a stored `static let`: EntityURLRepresentation isn't
+    // Sendable, so a stored global of it trips Swift 6's concurrency check. It's
+    // a pure template with no state, so returning a fresh value per access is
+    // equivalent and safe.
+    static var urlRepresentation: URLRepresentation { "stackthelineup://player/\(.id)" }
 
     // MARK: - IndexedEntity
 

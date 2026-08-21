@@ -16,7 +16,7 @@ import Foundation
 
 // MARK: - Eligibility Status
 
-enum PitchEligibilityStatus: Equatable {
+nonisolated enum PitchEligibilityStatus: Equatable {
     /// No restrictions. Player is fully eligible to pitch.
     case eligible
 
@@ -78,7 +78,7 @@ private struct PitchEntry {
 
 // MARK: - Engine
 
-struct PitchEligibilityEngine {
+nonisolated struct PitchEligibilityEngine {
 
     // MARK: - Public API
 
@@ -311,7 +311,7 @@ struct PitchEligibilityEngine {
 // MARK: - Coaches Guide Summary
 
 /// A single row in the Coaches Guide pitching summary table.
-struct PitchingGuideSummaryRow {
+nonisolated struct PitchingGuideSummaryRow {
     let player: Player
     let pitchesInWindow: Int
     let dailyMax: Int

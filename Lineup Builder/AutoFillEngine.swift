@@ -3,7 +3,7 @@ import Foundation
 // MARK: - AutoFill Result Types
 
 /// Why a specific field position could not be filled during auto-fill.
-enum AutoFillUnfilledReason {
+nonisolated enum AutoFillUnfilledReason {
     /// The active roster has fewer players than field slots — all players
     /// were assigned somewhere, but open positions remain.
     case rosterTooSmall
@@ -22,14 +22,14 @@ enum AutoFillUnfilledReason {
 }
 
 /// A field position that auto-fill could not assign in a given inning.
-struct AutoFillUnfilledSlot {
+nonisolated struct AutoFillUnfilledSlot {
     let inningIndex: Int
     let position: FieldPosition
     let reason: AutoFillUnfilledReason
 }
 
 /// The complete result returned by every AutoFillEngine public method.
-struct AutoFillResult {
+nonisolated struct AutoFillResult {
     let lineup: Lineup
     let filledCount: Int
     /// Positions that could not be filled, with a reason for each.

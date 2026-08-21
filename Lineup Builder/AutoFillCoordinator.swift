@@ -266,23 +266,35 @@ final class AutoFillCoordinator: ObservableObject {
             return fresh
         }()
 
-        return await withTaskGroup(of: AutoFillNLParseResult.self) { group in
-            group.addTask { @MainActor in
-                do {
-                    return try await service.parse(prompt: prompt)
-                } catch {
-                    // Apple Intelligence unavailable, or the model call failed.
-                    // Proceed unconstrained rather than blocking the fill.
-                    return .empty
-                }
+        // Run the parse as its own main-actor task, then race its *handle*
+        // against a timeout. Racing the Task (which is Sendable) rather than
+        // capturing the non-Sendable `service` directly inside the task-group
+        // closures is what keeps this legible to Swift 6's region-isolation
+        // checker — a plain `group.addTask { @MainActor in service.parse(...) }`
+        // trips a checker limitation on the captured main-actor service.
+        let parseTask = Task { @MainActor in
+            do {
+                return try await service.parse(prompt: prompt)
+            } catch {
+                // Apple Intelligence unavailable, or the model call failed.
+                // Proceed unconstrained rather than blocking the fill.
+                return AutoFillNLParseResult.empty
             }
-            group.addTask { @MainActor in
+        }
+
+        // `nil` is the timeout marker; a real parse result is always non-nil.
+        return await withTaskGroup(of: AutoFillNLParseResult?.self) { group in
+            group.addTask { await parseTask.value }
+            group.addTask {
                 try? await Task.sleep(for: timeout)
-                return .empty
+                return nil
             }
-            let first = await group.next() ?? .empty
+            let first = await group.next() ?? nil
             group.cancelAll()
-            return first
+            // If the timeout won, stop the parse. Harmless if the model call
+            // ignores cancellation — its result is simply discarded.
+            parseTask.cancel()
+            return first ?? .empty
         }
     }
 }

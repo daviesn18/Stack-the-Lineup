@@ -69,12 +69,12 @@ nonisolated struct AutoFillConstraintSet {
 /// Which fair-play zone requirement (infield or outfield innings) was left
 /// unmet — used to give concrete, coach-readable feedback instead of vague
 /// "another zone" language.
-enum AutoFillMissingZone: Equatable {
+nonisolated enum AutoFillMissingZone: Equatable {
     case infield
     case outfield
 }
 
-enum AutoFillConstraintOverrideReason: Equatable {
+nonisolated enum AutoFillConstraintOverrideReason: Equatable {
     /// Assigned pitcher despite the player already being at the 2-inning
     /// soft cap, because of an explicit .assign constraint for that inning.
     case pitcherSoftCapBypassed
@@ -95,7 +95,7 @@ enum AutoFillConstraintOverrideReason: Equatable {
     case fairPlayZoneSkipped(missing: AutoFillMissingZone)
 }
 
-struct AutoFillConstraintOverride {
+nonisolated struct AutoFillConstraintOverride {
     let inningIndex: Int
     let playerID: UUID
     let target: AutoFillConstraintTarget

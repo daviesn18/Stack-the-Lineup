@@ -18,7 +18,7 @@ struct PDFDocument: Identifiable {
 
 // MARK: - Positions
 
-enum FieldPosition: String, CaseIterable, Codable, Sendable {
+nonisolated enum FieldPosition: String, CaseIterable, Codable, Sendable {
     case pitcher = "P"
     case catcher = "C"
     case firstBase = "1B"
@@ -115,7 +115,7 @@ enum FieldPosition: String, CaseIterable, Codable, Sendable {
 /// In v2.4 this is informational only — it persists the coach's selection
 /// but does not auto-apply rule presets yet. Preset application ships in
 /// v2.5 alongside the pitch count engine, which depends on league ruleset.
-enum LeagueRuleset: String, Codable, CaseIterable, Sendable {
+nonisolated enum LeagueRuleset: String, Codable, CaseIterable, Sendable {
     case littleLeague = "Little League"
     case calRipken    = "Cal Ripken"
     case babeRuth     = "Babe Ruth"
@@ -128,7 +128,7 @@ enum LeagueRuleset: String, Codable, CaseIterable, Sendable {
 
 /// Age bracket for pitch count rule lookup. Covers all rec-ball divisions up to 16.
 /// No bracket above 16 — out of scope for the recreational youth target audience.
-enum PitchingAgeBracket: String, Codable, CaseIterable, Sendable {
+nonisolated enum PitchingAgeBracket: String, Codable, CaseIterable, Sendable {
     case u8  = "7-8"
     case u10 = "9-10"
     case u12 = "11-12"
@@ -152,7 +152,7 @@ enum PitchingAgeBracket: String, Codable, CaseIterable, Sendable {
 
 /// Rest day thresholds and daily pitch maximum for a single age bracket.
 /// Upper tiers are optional — the 7-8 bracket has no 3 or 4 rest day tier.
-struct PitchingLimits: Codable, Sendable {
+nonisolated struct PitchingLimits: Codable, Sendable {
     /// Maximum pitches allowed in a single game for this age group.
     var dailyMax: Int
     /// Minimum pitches thrown that require 1 day of rest. 0 = no threshold at this tier.
@@ -193,7 +193,7 @@ struct PitchingLimits: Codable, Sendable {
 }
 
 /// How the rolling pitch-count window is measured.
-enum RollingWindowType: String, Codable, CaseIterable, Sendable {
+nonisolated enum RollingWindowType: String, Codable, CaseIterable, Sendable {
     case calendarWeek = "Calendar Week"
     case rolling      = "Rolling 7 Days"
 
@@ -202,7 +202,7 @@ enum RollingWindowType: String, Codable, CaseIterable, Sendable {
 
 /// Per-team pitching rules. Stored alongside FairPlayConfig on Team.
 /// Defaults to disabled so existing teams are unaffected on upgrade.
-struct PitchingConfig: Codable, Sendable {
+nonisolated struct PitchingConfig: Codable, Sendable {
 
     /// Master toggle. When false the rules engine is bypassed entirely.
     var rulesEnabled: Bool = false
@@ -273,7 +273,7 @@ struct PitchingConfig: Codable, Sendable {
 /// Per-team fair play rules. All defaults mirror the rules that were previously
 /// hardcoded, so existing teams decoded without this key get identical behavior.
 /// Lives on Team — a coach with a rec team and a travel team gets different rules for each.
-struct FairPlayConfig: Codable, Sendable {
+nonisolated struct FairPlayConfig: Codable, Sendable {
 
     // MARK: Position restrictions
     /// When true, Pitcher is removed from the valid position pool entirely.
@@ -374,7 +374,7 @@ struct FairPlayConfig: Codable, Sendable {
 
 // MARK: - Position Preference Tier
 
-enum PositionPreferenceTier: String, Codable, CaseIterable, Sendable {
+nonisolated enum PositionPreferenceTier: String, Codable, CaseIterable, Sendable {
     case strength  = "Strength"
     case capable   = "Capable"
     case emergency = "Emergency"
@@ -411,7 +411,7 @@ enum PositionPreferenceTier: String, Codable, CaseIterable, Sendable {
 
 // MARK: - Player
 
-struct Player: Identifiable, Codable, Equatable, Sendable {
+nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
     var id: UUID = UUID()
     var firstName: String
     var lastName: String
@@ -529,14 +529,14 @@ nonisolated struct InningAssignment: Codable, Sendable {
 
 /// Soft status indicating whether a coach considers the lineup locked in.
 /// Finalized reverts silently to Draft on any lineup mutation.
-enum LineupStatus: String, Codable, Sendable {
+nonisolated enum LineupStatus: String, Codable, Sendable {
     case draft
     case finalized
 }
 
 // MARK: - Lineup
 
-struct Lineup: Codable, Sendable {
+nonisolated struct Lineup: Codable, Sendable {
     /// Default inning count used when constructing a Lineup without team context
     /// (e.g. the default `Lineup()` initializer or decode fallback). Per-team
     /// inning count lives on `Team.gameInningCount`. The runtime source of truth
@@ -883,7 +883,7 @@ extension Lineup {
 // already has an assignment — so no AutoFillEngine changes are needed to
 // respect locks.
 
-struct PositionLock: Codable, Identifiable, Sendable, Equatable {
+nonisolated struct PositionLock: Codable, Identifiable, Sendable, Equatable {
     var id: UUID = UUID()
     var playerID: UUID
     var position: FieldPosition
@@ -898,7 +898,7 @@ struct PositionLock: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
-struct LineupTemplate: Identifiable, Codable, Sendable, Equatable {
+nonisolated struct LineupTemplate: Identifiable, Codable, Sendable, Equatable {
     var id: UUID = UUID()
     var name: String
     /// Full batting order — always fully specified, no partial locks.
@@ -938,7 +938,7 @@ struct LineupTemplate: Identifiable, Codable, Sendable, Equatable {
 // Freezes player identity at archive time so historical logs remain accurate
 // even if a player is later renamed or deleted from the active roster.
 
-struct PlayerSnapshot: Identifiable, Codable, Equatable, Sendable {
+nonisolated struct PlayerSnapshot: Identifiable, Codable, Equatable, Sendable {
     var id: UUID
     var firstName: String
     var lastName: String
@@ -957,7 +957,7 @@ struct PlayerSnapshot: Identifiable, Codable, Equatable, Sendable {
 // MARK: - GameLog
 // A fully self-contained snapshot of a completed game.
 
-struct GameLog: Identifiable, Codable, Sendable {
+nonisolated struct GameLog: Identifiable, Codable, Sendable {
     var id: UUID = UUID()
     var gameDate: Date
     var opponent: String
@@ -1022,7 +1022,7 @@ struct GameLog: Identifiable, Codable, Sendable {
 // MARK: - Season Stats
 // Computed client-side before every AI call.
 
-struct PlayerSeasonStats: Codable, Sendable {
+nonisolated struct PlayerSeasonStats: Codable, Sendable {
     var playerID: UUID
     var playerName: String
     var posCounts: [String: Int]
@@ -1036,7 +1036,7 @@ struct PlayerSeasonStats: Codable, Sendable {
     var neverPositionRawValues: [String]
 }
 
-struct SeasonStats: Codable, Sendable {
+nonisolated struct SeasonStats: Codable, Sendable {
     var players: [PlayerSeasonStats]
     var gameCount: Int
     var dateRange: String
@@ -1047,7 +1047,7 @@ struct SeasonStats: Codable, Sendable {
 /// A game imported from an iCal (.ics) subscription. Stored per-team.
 /// The icalUID is the stable dedup key — re-importing the same calendar
 /// updates existing records rather than creating duplicates.
-struct ScheduledGame: Identifiable, Codable {
+nonisolated struct ScheduledGame: Identifiable, Codable {
     var id: UUID = UUID()
     /// Stable unique ID from the VEVENT UID field. Used for dedup on re-sync.
     var icalUID: String
@@ -1066,7 +1066,7 @@ struct ScheduledGame: Identifiable, Codable {
 
 // MARK: - Team
 
-struct Team: Identifiable, Codable {
+nonisolated struct Team: Identifiable, Codable {
     var id: UUID = UUID()
     var name: String = ""
     var colorHex: String = "0000FF"
@@ -2871,7 +2871,7 @@ class LineupStore: ObservableObject {
 // MARK: - Color Hex Helpers
 
 extension Color {
-    init?(hex: String) {
+    nonisolated init?(hex: String) {
         var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         hexSanitized = hexSanitized.hasPrefix("#") ? String(hexSanitized.dropFirst()) : hexSanitized
         guard hexSanitized.count == 6, let intVal = UInt64(hexSanitized, radix: 16) else { return nil }
@@ -2881,7 +2881,7 @@ extension Color {
         self.init(red: r, green: g, blue: b)
     }
 
-    func toHex() -> String? {
+    nonisolated func toHex() -> String? {
         guard let components = UIColor(self).cgColor.components, components.count >= 3 else { return nil }
         let r = Int(components[0] * 255)
         let g = Int(components[1] * 255)

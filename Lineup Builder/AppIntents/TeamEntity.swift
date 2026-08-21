@@ -42,7 +42,8 @@ nonisolated struct TeamEntity: AppEntity, IndexedEntity, URLRepresentableEntity 
     // See the note on PlayerEntity — without this a Spotlight tap only launches
     // the app instead of switching to the team.
 
-    static let urlRepresentation: URLRepresentation = "stackthelineup://team/\(.id)"
+    // Computed rather than stored — see the note in PlayerEntity.
+    static var urlRepresentation: URLRepresentation { "stackthelineup://team/\(.id)" }
 
     // MARK: - IndexedEntity
 
