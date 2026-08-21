@@ -329,6 +329,6 @@ Run on an iPad simulator. Every tip should appear **exactly once** — the dupli
 
 ## Open questions
 
-- **The History paywall auto-opens.** `GameLogsView.swift:66` presents `ProGate` unprompted 0.35s after a free coach opens the tab, whether or not they did anything. Arc 2 routes around it, but routing around a behavior isn't the same as deciding it's right.
-- **Arc 2 gives free coaches 2 tips of 6.** They get a real path to game 2, but four are structurally invisible. If the season story matters for conversion, the alternative is one free-tier tip pointing at what archiving builds toward — at the cost of principle 3 above.
+- ~~**The History paywall auto-opens.**~~ ✅ **Decided 20 Aug 2026** (backlog 4.1): a Pro coach must never see a paywall. The audit that followed found eight gates testing `!isPro`, which is true while StoreKit is still undetermined — all now gated on `PurchaseManager.showsLockedUI`. The unprompted auto-open itself, for genuinely free coaches, is deliberately left as-is.
+- ~~**Arc 2 gives free coaches 2 tips of 6.**~~ ✅ **Decided 20 Aug 2026** (backlog 4.2): **no change.** The free-tier upsell tip is rejected — it would cost principle 3 above, and the goal is a friction-free experience for every coach. Two tips stand.
 - ~~**Tip copy has never been read on a device.**~~ ✅ **Closed 7 Aug 2026** (backlog 2.4). Every tip was walked on device at large Dynamic Type after a "Take the Tour" reset: nothing truncates, wraps badly, or overflows its popover, and no copy needs trimming. The worry that popover width is narrower than the tables here suggest did not bite — **112 characters is a demonstrated safe ceiling**, measured against `PlayersTeamSetupTip`, the longest string in the app.

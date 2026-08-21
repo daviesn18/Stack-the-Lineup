@@ -144,9 +144,12 @@ private struct LineupPDFExportModifier: ViewModifier {
                     // unlock's real usage is visible rather than inferred.
                     "entitlement": purchaseManager.isPro ? "pro" : "readonly_participant"
                 ])
-            } else {
+            } else if purchaseManager.showsLockedUI {
                 lockedPDF = doc
             }
+            // Still resolving: drop the request rather than show the gate to a
+            // coach who may already have paid. Tapping Export again once the
+            // entitlement lands produces the real document.
         }
     }
 }

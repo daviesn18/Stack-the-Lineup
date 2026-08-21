@@ -107,9 +107,11 @@ struct DefensiveGridView: View {
                             onAutoFill: {
                                 if purchaseManager.isPro {
                                     showingAutoFillPopover = true
-                                } else {
+                                } else if purchaseManager.showsLockedUI {
                                     showingPaywall = true
                                 }
+                                // Still resolving: do nothing rather than
+                                // paywall someone who may have already paid.
                             },
                             showingAutoFillPopover: $showingAutoFillPopover,
                             onFillThrough: { lastInning in
@@ -508,9 +510,11 @@ struct DefensiveGridView: View {
         Button {
             if store.lineupTemplates.isEmpty || purchaseManager.isPro {
                 showingSaveTemplate = true
-            } else {
+            } else if purchaseManager.showsLockedUI {
                 showingTemplatePaywall = true
             }
+            // Still resolving: do nothing rather than paywall someone who
+            // may have already paid.
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "square.and.arrow.down")
@@ -518,7 +522,7 @@ struct DefensiveGridView: View {
                 Text("Save as Template")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                if !store.lineupTemplates.isEmpty && !purchaseManager.isPro {
+                if !store.lineupTemplates.isEmpty && purchaseManager.showsLockedUI {
                     ProBadge()
                 }
                 Image(systemName: "chevron.right")
@@ -574,14 +578,16 @@ struct DefensiveGridView: View {
             Button {
                 if store.lineupTemplates.isEmpty || purchaseManager.isPro {
                     showingSaveTemplate = true
-                } else {
+                } else if purchaseManager.showsLockedUI {
                     showingTemplatePaywall = true
                 }
+                // Still resolving: do nothing rather than paywall someone
+                // who may have already paid.
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "square.and.arrow.down")
                     Text("Save as Template")
-                    if !store.lineupTemplates.isEmpty && !purchaseManager.isPro {
+                    if !store.lineupTemplates.isEmpty && purchaseManager.showsLockedUI {
                         ProBadge()
                     }
                     Image(systemName: "chevron.right")
@@ -761,9 +767,11 @@ struct DefensiveGridView: View {
         Button {
             if purchaseManager.isPro {
                 showingAutoFillPopover = true
-            } else {
+            } else if purchaseManager.showsLockedUI {
                 showingPaywall = true
             }
+            // Still resolving: do nothing rather than paywall someone who
+            // may have already paid.
         } label: {
             Image(systemName: "bolt.fill")
                 .font(.title3)

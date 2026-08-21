@@ -333,7 +333,10 @@ struct TemplateLockEditorView: View {
     private func attemptSave() {
         let existingCount = store.lineupTemplates.count
         guard existingCount == 0 || purchaseManager.isPro else {
-            showingPaywall = true
+            // Only paywall once StoreKit has confirmed "not Pro". While
+            // undetermined this would gate the coach *and* silently discard
+            // the template they just built.
+            if purchaseManager.showsLockedUI { showingPaywall = true }
             return
         }
 

@@ -68,7 +68,7 @@ Why they were cut: `InningAssignment` is `[UUID: FieldPosition]` — one positio
 
 ## 2. Phase 0 — DONE
 
-Build clean and verified end to end on both device idioms (section 6). Test count at the time of this phase was 135; the suite now stands at **248 passing, 0 failures**.
+Build clean and verified end to end on both device idioms (section 6). Test count at the time of this phase was 135; it was **248 passing** when phase 4 closed, and the suite stands at **336 passing, 0 failures** as of 20 Aug 2026.
 
 ### 2a. `Lineup Builder/TeamStorage.swift` (new)
 

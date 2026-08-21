@@ -1243,10 +1243,13 @@ struct PlayerFormView: View {
                 Group {
                     if purchaseManager.isPro {
                         positionPreferencesSection
-                    } else {
+                    } else if purchaseManager.showsLockedUI {
                         // A routed non-Pro coach lands on the locked section.
                         // That's the intended outcome: Spotlight is a free
                         // discovery surface and this is the natural upsell.
+                        // Gated on `showsLockedUI` so a Pro coach never sees
+                        // the lock during the launch window; neither section
+                        // renders for the moment the entitlement is unknown.
                         lockedPreferencesSection
                     }
                 }

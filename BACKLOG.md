@@ -20,6 +20,8 @@ Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer 
 
 **Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. The two things worth doing *first* in the next cycle, both for the same reason (they are cheap at the start and expensive at the end): **4.5**, the Swift 6 language mode, and **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
 
+> **Three Stage 4 decisions were taken on 20 Aug 2026**, which is what they were waiting on rather than any engineering. **~~4.2~~** — no change, the free-tier upsell tip is rejected and principle 3 stands. **~~4.7~~** — **keep the Worker**; the trade was evaluated on its merits and settled, so do not reopen it after the next bad push day. **~~4.1~~** — a Pro coach must never see a paywall, and acting on that turned a product question into a real fix: eight gates were testing `!isPro`, which is `true` while StoreKit is still `.undetermined`. Read 4.1 before writing any new entitlement check.
+
 > **Standing decision, 12 Aug 2026: device testing happens on TestFlight, not on Xcode builds.** Taken after the 11–12 Aug session, and it retires a recurring source of wasted time rather than a single bug.
 >
 > CloudKit sharing is per-environment — Xcode builds talk to **Development**, TestFlight to **Production** — and a share created in one is invisible in the other. Push cannot work from a Debug build at all, for two independent reasons (see the subsection under 1.7). The KV-store path that 3.6 turns on is `#if !DEBUG`. Three separate mechanisms behave differently, and every one of them fails in a way that reads as an app bug.
@@ -38,7 +40,7 @@ Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer 
 
 State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 routing fix, `fff1c60` the build 41 bump, `68b2407` and `9cb6625` documentation. Earlier in the thread: `9a8e5dc` the 1.11 app-side fix and `6f585fd` the coach-name prompt.
 
-**`feature/app-intents-phase-0` is gone**, deleted 20 Aug 2026 — `git branch --merged` showed it fully contained in `main` with a zero-line diff, so the decision it was waiting on had already made itself. `fix/pitching-window-sunday` and `claude/little-league-pitching-rules-hn7237` went the same way for the same reason. Suite green — **322 of 322**, restored 9 Aug by 3.7. Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
+**`feature/app-intents-phase-0` is gone**, deleted 20 Aug 2026 — `git branch --merged` showed it fully contained in `main` with a zero-line diff, so the decision it was waiting on had already made itself. `fix/pitching-window-sunday` and `claude/little-league-pitching-rules-hn7237` went the same way for the same reason. Suite green — **336 of 336**, measured 20 Aug (it was 322 when 3.7 restored it on 9 Aug; fourteen have been added since). Static analyzer clean. A Release build emits 14 warnings, all pre-existing and none blocking — see the correction under 1.1 and item 4.5. The Worker lives in its own repo now — [`daviesn18/stl-worker`](https://github.com/daviesn18/stl-worker), private — with its own README covering the push architecture.
 
 ---
 
@@ -80,13 +82,13 @@ State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 
 | **Stage 4 — decisions and long poles** ||||
 | ~~3.8~~ | ~~`ProGate` is broken at iPad size~~ | — | ✅ **12 Aug** — peek detent is compact-width only now; verified in the simulator |
 | ~~3.9~~ | ~~Subscription terms truncate mid-word at the paywall's default detent~~ | — | ✅ **17 Aug** — the disclosure is incompressible now; verified at the peek in the simulator |
-| 4.1 | History paywall auto-opens | S | Product decision |
-| 4.2 | Arc 2 gives free coaches 2 tips of 6 | S | Product decision |
+| ~~4.1~~ | ~~History paywall auto-opens~~ | — | ✅ **20 Aug** — decided: a Pro coach never sees a paywall; 8 gates fixed |
+| ~~4.2~~ | ~~Arc 2 gives free coaches 2 tips of 6~~ | — | ✅ **20 Aug** — decided: no change, principle 3 stands |
 | 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
 | 4.4 | Localization / string catalog | **L** | A design decision on assembled strings |
 | 4.5 | Swift 6 language mode — 12 warnings become errors | M | Nothing. Do it early in a cycle, not late |
 | 4.6 | iOS 27 App Intents readiness — `indexingKey`, App Schemas | M | An iOS 27 beta to verify against |
-| 4.7 | Should `CKSubscription` replace the Worker entirely? | M | 3.3 shipping. A question, not a plan |
+| ~~4.7~~ | ~~Should `CKSubscription` replace the Worker entirely?~~ | — | ✅ **20 Aug** — decided: **keep the Worker** |
 
 ---
 
@@ -895,13 +897,29 @@ Suite green, 336/336.
 
 ## Stage 4 — decisions and long poles
 
-### 4.1 The History paywall auto-opens
+### ~~4.1 The History paywall auto-opens~~ — ✅ **decided 20 Aug 2026: a Pro coach must never see a paywall**
 
-`GameLogsView.swift:66` presents `ProGate` unprompted 0.35s after a free coach opens the tab, whether or not they did anything. Tour arc 2 routes around it — but routing around a behavior isn't the same as deciding it's right. (`TIPS-onboarding-spec.md`, Open questions.) **Product decision. Size: S.**
+**The decision, in Nick's words:** *"I don't want my pro users to face any friction. Let's do whatever so they don't accidentally see a paywall."*
 
-### 4.2 Arc 2 gives free coaches 2 tips of 6
+`GameLogsView` presented `ProGate` unprompted 0.35s after a free coach opened the tab. That behavior had already drawn blood once: `isPro` is `false` while StoreKit is still `.undetermined`, so on a slow or offline cold launch a **paying** coach fell into the locked branch and was asked to buy something they already owned. `ProStatus` — three states, with `isResolved` — was built to fix exactly that, and `GameLogsView` was given the guard.
 
-They get a real path to game 2, but four tips are structurally invisible to them. If the season story matters for conversion, the alternative is a free-tier tip pointing at what archiving builds toward. **Product decision. Size: S.**
+**The audit that followed found the guard was applied in one place and the rule broken in eight.** Every other gate still tested `!isPro`, which is the natural thing to write and is wrong: it is true during the launch window. A Pro coach who tapped Auto-Fill, the bolt, Save as Template (either surface), or Export → Coaches Guide, or who opened a player's Position Preferences or Settings, could be shown a paywall, a locked screen, a PRO badge or an upgrade pitch before StoreKit answered.
+
+**Fixed 20 Aug 2026.** `PurchaseManager.showsLockedUI` (`status == .free`) now expresses "may show a lock", and all eight sites use it. The point of the property is that the *correct* test is now also the shortest one to write. Where the gate is a tap handler, an unresolved entitlement does nothing rather than guessing — a dead button for a fraction of a second is recoverable; a paywall shown to a subscriber is not. `TemplateLockEditorView.attemptSave()` was the worst of them: it both gated the coach and silently discarded the template they had just built.
+
+> **Residual, and deliberately still open: the unprompted auto-open itself, for genuinely free coaches.** The decision above is about who must never see the paywall, not about whether entering a tab should present one. Removing it is a conversion trade-off; it is a two-line change whenever it is wanted.
+
+**Size:** S as scoped, M as it turned out. **Closed 20 Aug** on the terms above.
+
+### ~~4.2 Arc 2 gives free coaches 2 tips of 6~~ — ✅ **decided 20 Aug 2026: no change**
+
+**The decision, in Nick's words:** *"I don't want to interrupt more. I want this to be a friction-free experience for all my users."*
+
+Free coaches keep the two tips they get. The alternative on the table was a free-tier tip pointing at what archiving builds toward, and it is **rejected** — it would have cost principle 3 of this app's own Free-vs-Pro rules: *no tour tip opens the paywall*, because this app gets used twenty minutes before first pitch, the worst possible moment to interrupt with an upsell.
+
+Worth keeping in view if this is ever reopened: 2 of 6 is already a **fix**, not an oversight. On 24 Jul arc 2 gave free coaches **zero** — the group stalled behind a paywalled anchor — and Pro-gating `ReuseSaveTemplateTip` unstuck it.
+
+**Closed 20 Aug. No code change.**
 
 ### 4.3 Paywall dark mode + Dynamic Type
 
@@ -950,7 +968,15 @@ The shape of the work isn't silencing warnings — it's deciding what is genuine
 
 **What is *not* worth doing: switching providers.** Reviewed 10 Aug against the day's actual defects. 1.9 and 3.7 were app-side and toolchain, and would have followed any stack. Cloudflare caused essentially nothing — two minor gotchas, the 0%-error-rate trap in 1.2 and `crypto.subtle` needing PKCS#8. Firebase would have prevented 1.9 (its SDK owns token persistence) and made 1.11 unlikely (it hands you an installation ID), but at the price of an account system, a second datastore or a CloudKit→Firebase mapping, privacy disclosures and cost — more moving parts, in an app that is serverless and authless *because* it is CloudKit.
 
-**Size:** M to evaluate, L if adopted. **Blocked on:** 3.3 shipping. **Do not start this inside a release.**
+**Size:** M to evaluate, L if adopted. ~~**Blocked on:** 3.3 shipping.~~
+
+> ## ✅ Decided 20 Aug 2026: **keep the Worker.**
+>
+> Nick's call, and it is the answer this item said was legitimate. The two questions above no longer need answering, because the second one was always the load-bearing half: subscription-driven alerts have constrained content, so *"Nick finalized the lineup vs the Rockhounds"* would need a silent push plus a locally composed notification — and silent pushes are throttled by iOS and **do not arrive at all when the app has been force-quit.** A coach who swipes the app away and misses the lineup is a worse outcome than any bug the migration would retire.
+>
+> The Worker's cost is real and is accepted: a second repo, a deploy step, per-environment server-to-server keys, and the `DeviceToken` mirror. What it buys is rich, immediate, reliable alert text — a genuine benefit, not an accident of how this got built.
+>
+> **Do not reopen this on the strength of another bad push day.** Three faults in one day (1.9, 1.11, 1.2) is what prompted the question, and all three are fixed. The trade was evaluated on its merits and settled.
 
 ### 4.6 iOS 27 App Intents readiness
 
@@ -970,6 +996,12 @@ Two concrete gaps, checked in the code on 7 Aug:
 > ⚠️ **This is read from session titles and secondary coverage, not from observed behavior.** No one has run this app against an iOS 27 beta. The 2 Aug phrase rework was also a well-reasoned theory that the device contradicted — see 1.3. Treat the whole item as a hypothesis until §1 of [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) is re-run on a beta.
 
 **Size: M.** Not for a release cycle. `indexingKey` alone is S and could go any time.
+
+> **The blocker is softer than this item assumes, noticed 20 Aug 2026.** The suite now runs against an **iOS 27.0 simulator** (build `24A5380i`) — one is already installed on this machine, so "an iOS 27 beta to verify against" is not the wall the order table calls it.
+>
+> **It does not unblock everything.** Gap 2 — whether an App Schema fits a youth-sports roster — is a code-and-SDK question a simulator answers perfectly well, and it is the ten-minute check this item asks for before anyone plans around it. Gap 1, `indexingKey`, never needed a beta at all.
+>
+> **What a simulator still cannot settle is 1.3**, which is the reason to care: spoken entity resolution needs speech on real hardware. Re-running §1 of `TESTPLAN-3.3.md` remains a device job.
 
 ---
 

@@ -2,15 +2,20 @@ import SwiftUI
 import TipKit
 
 // MARK: - GameLogsView
-// The History tab. Pro-gated content — free users see LockedHistoryView.
-// Pro users get a three-tab experience:
+// The History tab. A three-tab experience:
 //   Players — per-player season stats cards with position breakdown and gaps
 //   Games   — chronological list of archived game logs
 //   Team    — position coverage grid and bench distribution across the roster
 //
-// Free users can archive games (gate is on viewing, not archiving), so
-// LockedHistoryView receives the real archived count and shows a "Ready to
-// Archive" section for any finalized past games.
+// Pro coaches see all of it. Free coaches see the same tabs in *teaser* mode
+// (`isTeaser`): a real slice of their own season — the first player, the most
+// recent game, the top of the coverage grid — with the rest blurred behind an
+// upgrade CTA (see LockedHistoryView.swift for the shared teaser pieces). The
+// paywall only appears when the coach taps for it; nothing auto-presents.
+//
+// Free coaches can archive games (the gate is on viewing, not archiving), so
+// the Games tab still shows the "Ready to Archive" section. A coach with no
+// history at all gets HistoryEmptyState rather than a blurred nothing.
 
 struct GameLogsView: View {
     @EnvironmentObject var store: LineupStore
@@ -42,7 +47,8 @@ struct GameLogsView: View {
     // Auto-opens the Pro gate the first time a free coach lands on History this
     // session. After they dismiss it, the blurred teaser stays with its own
     // unlock button, so it never re-throws the modal on every tab switch.
-    @State private var hasAutoOpenedHistoryGate = false
+    /// Free coaches see the tabs in teaser mode; Pro coaches see them in full.
+    private var isTeaser: Bool { !purchaseManager.isPro }
 
     // Tip overlay driven by parent iPhoneTabView
 
@@ -67,32 +73,25 @@ struct GameLogsView: View {
     private var historyContent: some View {
         Group {
             if !purchaseManager.isResolved {
-                // StoreKit hasn't answered yet. Deliberately NOT the locked
+                // StoreKit hasn't answered yet. Deliberately NOT the teaser
                 // branch: `isPro` is false while undetermined, so falling
-                // through would render LockedHistoryView for a paying coach and
-                // — worse — arm the 0.35s timer below that auto-presents the
-                // paywall. On a slow or offline cold launch the entitlement
-                // doesn't beat that timer, and the coach gets asked to buy
-                // something they already own.
+                // through would show a paying coach the locked teaser on a slow
+                // or offline cold launch. Wait for the real answer first.
                 entitlementResolvingState
-            } else if !purchaseManager.isPro {
-                LockedHistoryView(
-                    teamColor: store.teamColor,
-                    showingPaywall: $showingPaywall,
-                    archivedCount: store.gameLogs.count
-                )
-                .environmentObject(purchaseManager)
-                .onAppear {
-                    guard !hasAutoOpenedHistoryGate else { return }
-                    hasAutoOpenedHistoryGate = true
-                    // Defer so the tab finishes appearing before we present.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        if !purchaseManager.isPro { showingPaywall = true }
-                    }
-                }
             } else if store.gameLogs.isEmpty && !readyToArchiveLineup {
-                emptyState
+                // No history to show either way. A free coach gets an honest
+                // nudge (nothing real to tease); a Pro coach gets the standard
+                // empty state.
+                if purchaseManager.isPro {
+                    emptyState
+                } else {
+                    HistoryEmptyState(teamColor: store.teamColor) { showingPaywall = true }
+                        .environmentObject(purchaseManager)
+                }
             } else {
+                // Free coaches see the real tabs in teaser mode — a genuine
+                // slice of their season, the rest blurred behind the CTA. The
+                // paywall only appears when they ask for it; no auto-open.
                 tabbedContent
             }
         }
@@ -109,10 +108,10 @@ struct GameLogsView: View {
             PageTipsView(page: .history)
         }
         .fullScreenCover(isPresented: $showingPaywall) {
-            ProGate(source: "game_history", navTitle: "Game History") {
-                HistoryGhostView(teamColor: store.teamColor, archivedCount: store.gameLogs.count)
-            }
-            .environmentObject(purchaseManager)
+            // Neutral branded backdrop — the real teaser is already what the
+            // coach sees on the tab, so the gate no longer needs a preview.
+            ProGate(source: "game_history", navTitle: "Game History")
+                .environmentObject(purchaseManager)
         }
         .sheet(isPresented: $showingArchive) {
             ArchiveGameSheet()
@@ -250,7 +249,9 @@ struct GameLogsView: View {
                     insightsService: insightsService,
                     teamColor: store.teamColor,
                     logs: store.gameLogs,
-                    outfielderCount: store.fairPlayConfig.outfielderCount
+                    outfielderCount: store.fairPlayConfig.outfielderCount,
+                    isTeaser: isTeaser,
+                    onUpgrade: { showingPaywall = true }
                 )
             case .games:
                 GamesTabView(
@@ -258,7 +259,9 @@ struct GameLogsView: View {
                     readyToArchive: readyToArchiveLineup,
                     logToDelete: $logToDelete,
                     showingDeleteConfirmation: $showingDeleteConfirmation,
-                    showingArchive: $showingArchive
+                    showingArchive: $showingArchive,
+                    isTeaser: isTeaser,
+                    onUpgrade: { showingPaywall = true }
                 )
                 .confirmationDialog(
                     "Delete Game Log?",
@@ -280,7 +283,12 @@ struct GameLogsView: View {
                     }
                 }
             case .team:
-                TeamTabView(seasonStats: seasonStats, outfielderCount: store.fairPlayConfig.outfielderCount)
+                TeamTabView(
+                    seasonStats: seasonStats,
+                    outfielderCount: store.fairPlayConfig.outfielderCount,
+                    isTeaser: isTeaser,
+                    onUpgrade: { showingPaywall = true }
+                )
             }
         }
         .background(Color(.systemGroupedBackground))
@@ -295,28 +303,62 @@ private struct PlayersTabView: View {
     let teamColor: Color
     let logs: [GameLog]
     let outfielderCount: Int
+    var isTeaser: Bool = false
+    var onUpgrade: () -> Void = {}
+
+    private let cardInsets = EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16)
 
     var body: some View {
         List {
-            // AI Insights card at the top
-            Section {
-                InsightsCardView(
-                    service: insightsService,
-                    teamColor: teamColor,
-                    logs: logs
-                )
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+            // AI Insights card at the top — Pro only. In teaser mode the
+            // insights service isn't loaded (loadIfNeeded gates on Pro), so it
+            // is omitted rather than shown empty; the CTA advertises it instead.
+            if !isTeaser {
+                Section {
+                    InsightsCardView(
+                        service: insightsService,
+                        teamColor: teamColor,
+                        logs: logs
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
             }
 
-            // One card per player
+            // One card per player. Teaser: the first card crisp, the second
+            // blurred as the hook, then the unlock CTA.
             Section {
-                ForEach(seasonStats.players, id: \.playerID) { stats in
+                let players = seasonStats.players
+                let visible = isTeaser ? Array(players.prefix(1)) : players
+
+                ForEach(visible, id: \.playerID) { stats in
                     PlayerSeasonCard(stats: stats, outfielderCount: outfielderCount)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowInsets(cardInsets)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
+                }
+
+                if isTeaser {
+                    if players.count > 1 {
+                        TeaserBlur(onUpgrade: onUpgrade) {
+                            PlayerSeasonCard(stats: players[1], outfielderCount: outfielderCount)
+                        }
+                        .frame(height: 96)
+                        .listRowInsets(cardInsets)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+
+                    HistoryUpgradeCTA(
+                        subtitle: players.count > 1
+                            ? "See all \(players.count) players + AI insights"
+                            : "Season stats, coverage, and AI insights",
+                        onUpgrade: onUpgrade
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
             } header: {
                 Text("\(seasonStats.players.count) Players · \(seasonStats.gameCount) \(seasonStats.gameCount == 1 ? "Game" : "Games")")
@@ -585,10 +627,13 @@ private struct GamesTabView: View {
     @Binding var logToDelete: GameLog?
     @Binding var showingDeleteConfirmation: Bool
     @Binding var showingArchive: Bool
+    var isTeaser: Bool = false
+    var onUpgrade: () -> Void = {}
 
     var body: some View {
         List {
-            // Ready to Archive section — shown when there's a past finalized game
+            // Ready to Archive section — shown when there's a past finalized
+            // game. Kept for free coaches too: archiving is free.
             if readyToArchive {
                 Section {
                     ReadyToArchiveRow(showingArchive: $showingArchive)
@@ -600,32 +645,76 @@ private struct GamesTabView: View {
 
             // Archived game logs
             if !logs.isEmpty {
-                Section {
-                    ForEach(logs) { log in
-                        NavigationLink(destination: GameLogDetailView(log: log)) {
-                            GameLogRow(log: log)
-                        }
-                    }
-                    .onDelete { offsets in
-                        if let first = offsets.first {
-                            logToDelete = logs[first]
-                            showingDeleteConfirmation = true
-                        }
-                    }
-
-                    if logs.count >= 20 {
-                        Text("Showing your last 20 games. Older games are automatically removed.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                    }
-                } header: {
-                    Text("\(logs.count) \(logs.count == 1 ? "Game" : "Games")")
+                if isTeaser {
+                    teaserSection
+                } else {
+                    fullSection
                 }
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    // Pro: every game, navigable, swipe-to-delete.
+    @ViewBuilder private var fullSection: some View {
+        Section {
+            ForEach(logs) { log in
+                NavigationLink(destination: GameLogDetailView(log: log)) {
+                    GameLogRow(log: log)
+                }
+            }
+            .onDelete { offsets in
+                if let first = offsets.first {
+                    logToDelete = logs[first]
+                    showingDeleteConfirmation = true
+                }
+            }
+
+            if logs.count >= 20 {
+                Text("Showing your last 20 games. Older games are automatically removed.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+        } header: {
+            Text("\(logs.count) \(logs.count == 1 ? "Game" : "Games")")
+        }
+    }
+
+    // Free: the most recent game crisp but non-navigating (its detail is Pro),
+    // the next blurred, then the CTA. No swipe-to-delete.
+    @ViewBuilder private var teaserSection: some View {
+        Section {
+            // The most recent game is readable, but its detail is Pro — a tap
+            // routes to the paywall rather than a dead end. `.contentShape` +
+            // `.onTapGesture` is the reliable way to make a whole List row
+            // tappable; a plain Button here does not fire.
+            GameLogRow(log: logs[0])
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onUpgrade)
+
+            if logs.count > 1 {
+                TeaserBlur(onUpgrade: onUpgrade) {
+                    GameLogRow(log: logs[1])
+                        .padding(.vertical, 4)
+                }
+                .frame(height: 64)
+                .listRowSeparator(.hidden)
+            }
+
+            HistoryUpgradeCTA(
+                subtitle: logs.count > 1
+                    ? "See all \(logs.count) games and their lineups"
+                    : "Open past games and copy their lineups",
+                onUpgrade: onUpgrade
+            )
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        } header: {
+            Text("\(logs.count) \(logs.count == 1 ? "Game" : "Games")")
+        }
     }
 }
 
@@ -684,27 +773,76 @@ private struct TeamTabView: View {
             : [.leftField, .centerField, .rightField]
     }
     private var allField: [FieldPosition] { infieldPositions + outfieldPositions }
+    var isTeaser: Bool = false
+    var onUpgrade: () -> Void = {}
+
+    // How many coverage rows show crisp before the blur, in teaser mode.
+    private let teaserVisibleRows = 2
 
     var body: some View {
         List {
             Section {
-                coverageGrid
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                if isTeaser {
+                    teaserCoverage
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                } else {
+                    coverageGrid
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
             } header: {
                 Text("Position coverage")
             }
 
-            Section {
-                ForEach(seasonStats.players.sorted { $0.benchInnings > $1.benchInnings }, id: \.playerID) { stats in
-                    benchRow(stats: stats)
+            // Bench innings — omitted in teaser mode; the coverage CTA covers it.
+            if !isTeaser {
+                Section {
+                    ForEach(seasonStats.players.sorted { $0.benchInnings > $1.benchInnings }, id: \.playerID) { stats in
+                        benchRow(stats: stats)
+                    }
+                } header: {
+                    Text("Bench innings this season")
                 }
-            } header: {
-                Text("Bench innings this season")
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    // Teaser: legend + column header + the first couple of players crisp, the
+    // rest of the grid blurred, then the unlock CTA.
+    @ViewBuilder private var teaserCoverage: some View {
+        let players = seasonStats.players
+        let visible = Array(players.prefix(teaserVisibleRows))
+        let hidden = Array(players.dropFirst(teaserVisibleRows))
+
+        VStack(alignment: .leading, spacing: 10) {
+            coverageLegend
+            coverageHeaderRow
+
+            ForEach(visible, id: \.playerID) { stats in
+                coverageRow(stats: stats)
+            }
+
+            if !hidden.isEmpty {
+                TeaserBlur(onUpgrade: onUpgrade) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(hidden.prefix(3), id: \.playerID) { stats in
+                            coverageRow(stats: stats)
+                        }
+                    }
+                }
+                .frame(maxHeight: 90)
+            }
+
+            HistoryUpgradeCTA(
+                subtitle: "Full coverage for all \(players.count) players + bench innings",
+                onUpgrade: onUpgrade
+            )
+            .padding(.top, 4)
+        }
     }
 
     private func shortName(from fullName: String) -> String {
@@ -716,24 +854,31 @@ private struct TeamTabView: View {
         return "\(first) \(lastInitial)."
     }
 
+    private var coverageLegend: some View {
+        HStack(spacing: 12) {
+            legendItem(dotStyle: .played,   label: "Played")
+            legendItem(dotStyle: .gap,      label: "Yet to play")
+            legendItem(dotStyle: .never,    label: "N/A")
+        }
+    }
+
+    private var coverageHeaderRow: some View {
+        HStack(spacing: 0) {
+            Text("")
+                .frame(width: 72, alignment: .leading)
+            ForEach(allField, id: \.self) { pos in
+                Text(pos.rawValue)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
     private var coverageGrid: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                legendItem(dotStyle: .played,   label: "Played")
-                legendItem(dotStyle: .gap,      label: "Yet to play")
-                legendItem(dotStyle: .never,    label: "N/A")
-            }
-
-            HStack(spacing: 0) {
-                Text("")
-                    .frame(width: 72, alignment: .leading)
-                ForEach(allField, id: \.self) { pos in
-                    Text(pos.rawValue)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                }
-            }
+            coverageLegend
+            coverageHeaderRow
 
             ForEach(seasonStats.players, id: \.playerID) { stats in
                 coverageRow(stats: stats)

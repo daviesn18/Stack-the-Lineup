@@ -47,7 +47,9 @@ struct SettingsView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                         }
-                    } else {
+                    } else if purchaseManager.showsLockedUI {
+                        // Not `else`: while the entitlement is undetermined a
+                        // paying coach would be shown an upgrade pitch.
                         Button {
                             showingPaywall = true
                         } label: {

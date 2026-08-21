@@ -63,6 +63,16 @@ class PurchaseManager: ObservableObject {
     /// paywalls and locked states on this; see `isPro`.
     var isResolved: Bool { status.isResolved }
 
+    /// True only once StoreKit has answered *and* the answer was "not Pro" —
+    /// the one state in which a paywall, locked screen, upsell or PRO badge may
+    /// be shown.
+    ///
+    /// This exists so the correct test for *locking* is also the shortest one
+    /// to write. `!isPro` is the natural thing to reach for and it is wrong: it
+    /// is also true while `.undetermined`, so every `if !isPro { paywall }` is
+    /// a paywall waiting to be shown to a coach who has already paid.
+    var showsLockedUI: Bool { status == .free }
+
     @Published var subscriptionProduct: Product? = nil
     @Published var purchaseError: String? = nil
     @Published var isLoading: Bool = false

@@ -258,12 +258,14 @@ struct PositionsWarningsTip: Tip {
 // again. The route forks by tier — reuse-from-archive is Pro, but the first
 // template is free for everyone (GameLogDetailView.attemptSaveAsTemplate).
 
-/// Anchored inside `GameLogDetailView`, which sits behind `LockedHistoryView`
-/// for free coaches — so this tip is Pro-gated and lives in the `history` group.
-/// A free coach's arc-2 save-template path is the Positions "Save as Template"
-/// banner, not this History copy; guiding them here would dead-end at a paywall,
-/// and as the lead tip of an ordered group an unreachable anchor stalls the
-/// whole group (see [[tipkit-toolbar-anchor-fails]] for the same failure mode).
+/// Anchored inside `GameLogDetailView`, which a free coach can't reach — game
+/// detail is Pro, and on the History teaser the visible game row taps through
+/// to the paywall instead. So this tip is Pro-gated and lives in the `history`
+/// group. A free coach's arc-2 save-template path is the Positions "Save as
+/// Template" banner, not this History copy; guiding them here would dead-end at
+/// a paywall, and as the lead tip of an ordered group an unreachable anchor
+/// stalls the whole group (see [[tipkit-toolbar-anchor-fails]] for the same
+/// failure mode).
 struct ReuseSaveTemplateTip: Tip {
     var title: Text { tourTitle("Don't build that twice") }
     var message: Text? {
@@ -291,8 +293,8 @@ struct ReuseApplyTemplateTip: Tip {
     }
 }
 
-/// History-anchored. Never fires for free coaches — the anchor sits behind
-/// LockedHistoryView, which already auto-presents its own paywall.
+/// History-anchored. Never fires for free coaches — the `isPro` rule gates it,
+/// and its game-detail anchor sits behind the paywall on the teaser.
 struct HistoryCopyGameTip: Tip {
     var title: Text { tourTitle("Or start from a game you played", pro: true) }
     var message: Text? {

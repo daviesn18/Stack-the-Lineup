@@ -1,141 +1,36 @@
 import SwiftUI
 
-// MARK: - HistoryGhostView
-// The teaser content for the History tab when the coach isn't Pro: a faded
-// Coaching Insights card plus either sample game rows (no data yet) or a real
-// count badge (games waiting). Rendered on its own here — callers add their own
-// blur/scrim. Reused as the ProGate backdrop so the tab teaser and the upsell
-// gate show the same thing.
+// History teaser toolkit — the pieces a free coach sees on the History tab.
+//
+// The tab is no longer a hard wall. A free coach sees a real slice of their own
+// season (the first player, the most recent game, the top of the coverage grid)
+// rendered crisp, with the rest blurred behind an upgrade CTA. These are the
+// shared pieces GameLogsView's three tab views compose; the per-tab slicing
+// lives there.
+//
+// Nothing here invents data. When a coach has no archived games there is
+// nothing to preview, so `HistoryEmptyState` is an honest nudge rather than a
+// blurred sample.
 
-struct HistoryGhostView: View {
-    let teamColor: Color
-    let archivedCount: Int
+// MARK: - Upgrade CTA
 
-    // Sample game data — only shown when archivedCount == 0
-    private let fakeGames: [(date: String, opponent: String, innings: Int)] = [
-        ("Mon, Apr 7",  "Tigers",     6),
-        ("Sat, Apr 12", "Blue Jays",  6),
-        ("Wed, Apr 16", "Cardinals",  5),
-        ("Sat, Apr 19", "Marlins",    6),
-    ]
-
-    var body: some View {
-        List {
-            Section {
-                fakeInsightsCard
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-
-            if archivedCount > 0 {
-                Section(header: Text("\(archivedCount) \(archivedCount == 1 ? "Game" : "Games") Archived")) {
-                    HStack(spacing: 14) {
-                        Image(systemName: "archivebox.fill")
-                            .font(.title2)
-                            .foregroundColor(.teal)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("\(archivedCount) archived \(archivedCount == 1 ? "game" : "games") waiting")
-                                .font(.subheadline.bold())
-                                .foregroundColor(.primary.opacity(0.4))
-                            Text("Upgrade to Pro to view your season history.")
-                                .font(.caption)
-                                .foregroundColor(.secondary.opacity(0.6))
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-            } else {
-                Section(header: Text("4 Games")) {
-                    ForEach(fakeGames, id: \.date) { game in
-                        FakeGameLogRow(date: game.date, opponent: game.opponent, innings: game.innings)
-                    }
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-    }
-
-    private var fakeInsightsCard: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(teamColor.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(teamColor.opacity(0.18), lineWidth: 1)
-                )
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.subheadline.bold())
-                        .foregroundColor(teamColor)
-                    Text("Coaching Insights")
-                        .font(.subheadline.bold())
-                        .foregroundColor(teamColor)
-                    Spacer()
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    FakeTextLine(width: 260)
-                    FakeTextLine(width: 220)
-                    FakeTextLine(width: 240)
-                }
-            }
-            .padding(14)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-// MARK: - LockedHistoryView
-// The inline teaser shown in GameLogsView when the coach isn't Pro: the ghost
-// content blurred, with a compact unlock prompt at the bottom. Tapping the
-// prompt flips `showingPaywall`, which GameLogsView uses to present the full
-// ProGate upsell (same ghost, unblurred, behind the contextual paywall).
-
-struct LockedHistoryView: View {
-    let teamColor: Color
-    @Binding var showingPaywall: Bool
-    let archivedCount: Int
+/// The blue unlock bar. Its label is the live purchase CTA — "Start 7-day free
+/// trial" while the coach is intro-eligible, "Subscribe — $price" otherwise —
+/// so trial copy is never hardcoded here. Tapping flips the caller's paywall.
+struct HistoryUpgradeCTA: View {
+    @EnvironmentObject var purchaseManager: PurchaseManager
+    let subtitle: String
+    let onUpgrade: () -> Void
 
     var body: some View {
-        HistoryGhostView(teamColor: teamColor, archivedCount: archivedCount)
-            .blur(radius: 1)
-            .allowsHitTesting(false)
-            .overlay(alignment: .bottom) {
-                // Fade so the ghost content dissolves into the prompt card
-                LinearGradient(
-                    colors: [.clear, Color(.systemGroupedBackground).opacity(0.6), Color(.systemGroupedBackground)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 340)
-                .allowsHitTesting(false)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                promptCard
-            }
-    }
-
-    // MARK: - Prompt Bar
-    // Compact re-entry to the Pro gate. The full pitch lives in the gate itself
-    // (ProGate + PaywallView), so this stays a single tappable bar — no second
-    // paywall card competing with it.
-
-    private var promptCard: some View {
-        Button {
-            showingPaywall = true
-        } label: {
+        Button(action: onUpgrade) {
             HStack(spacing: 12) {
-                Image(systemName: "clock.arrow.circlepath")
+                Image(systemName: "lock.open.fill")
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("See your season with Pro")
+                    Text(purchaseManager.ctaLabel)
                         .font(.subheadline.weight(.semibold))
-                    Text(archivedCount > 0
-                         ? "\(archivedCount) archived \(archivedCount == 1 ? "game" : "games") waiting"
-                         : "Stats, coverage, and AI insights")
+                    Text(subtitle)
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.85))
                 }
@@ -146,51 +41,82 @@ struct LockedHistoryView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .background(Color.blue, in: RoundedRectangle(cornerRadius: 16))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Fake Game Log Row
+// MARK: - Teaser blur
 
-struct FakeGameLogRow: View {
-    let date: String
-    let opponent: String
-    let innings: Int
+/// Wraps real content that should read as "there's more, unlock it": blurred,
+/// faded into the background, and non-interactive — a blurred `NavigationLink`
+/// must not be followable. The whole area taps through to the paywall instead.
+struct TeaserBlur<Content: View>: View {
+    let onUpgrade: () -> Void
+    @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(date)
-                    .font(.subheadline.bold())
-                    .foregroundColor(.primary.opacity(0.35))
-                Spacer()
-                Text("\(innings) inn.")
-                    .font(.caption.bold())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color(.systemGray5).opacity(0.5))
-                    .foregroundColor(.secondary.opacity(0.5))
-                    .cornerRadius(8)
-            }
-            Text("vs. \(opponent)")
-                .font(.callout)
-                .foregroundColor(.primary.opacity(0.35))
-        }
-        .padding(.vertical, 2)
+        content
+            .blur(radius: 6)
+            .allowsHitTesting(false)
+            .overlay(
+                LinearGradient(
+                    colors: [.clear, Color(.systemGroupedBackground).opacity(0.75)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .overlay(
+                // Tap target sits above the blurred content so the gesture
+                // reaches the paywall rather than the inert rows beneath.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onUpgrade)
+            )
+            .clipped()
+            .accessibilityElement()
+            .accessibilityLabel("Locked preview")
+            .accessibilityHint("Upgrade to Pro to see the rest")
+            .accessibilityAddTraits(.isButton)
     }
 }
 
-// MARK: - Fake Text Line (for insights card placeholder)
+// MARK: - Empty state
 
-struct FakeTextLine: View {
-    let width: CGFloat
+/// Shown to a free coach who has archived nothing yet: no data to tease, so an
+/// honest prompt about what History becomes once games are archived, with the
+/// same unlock CTA. Replaces the old fake-sample ghost.
+struct HistoryEmptyState: View {
+    let teamColor: Color
+    let onUpgrade: () -> Void
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(Color(.systemGray4).opacity(0.6))
-            .frame(width: width, height: 12)
+        VStack(spacing: 20) {
+            Spacer(minLength: 40)
+
+            Image(systemName: "chart.bar.doc.horizontal")
+                .font(.system(size: 46))
+                .foregroundColor(teamColor.opacity(0.7))
+
+            VStack(spacing: 8) {
+                Text("Your season starts here")
+                    .font(.title3.bold())
+                Text("Archive a game and History fills in: per-player stats, roster coverage, and AI coaching insights.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 32)
+
+            Spacer(minLength: 20)
+
+            HistoryUpgradeCTA(subtitle: "Stats, coverage, and AI insights", onUpgrade: onUpgrade)
+                .padding(.horizontal, 16)
+
+            Spacer(minLength: 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
