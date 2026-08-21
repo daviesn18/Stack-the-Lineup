@@ -823,62 +823,38 @@ struct PositionSummaryView: View {
     }
 
     private func pitchingRows(for players: [Player]) -> [PitchingRow] {
-        let cal = Calendar.current
-        let gameDate = cal.startOfDay(for: store.lineup.gameDate)
+        // The window / daily-max / available / status maths is the engine's,
+        // shared with the Coaches Guide (see `pitchingSummaryRows`). This tab
+        // keeps its two deliberate divergences at the call site: it renders even
+        // when rules are off (no `rulesEnabled` guard), and it decorates each
+        // row with the innings the pitcher is assigned in today's lineup —
+        // something the static guide has no notion of. `players` is already
+        // `.never`-filtered by the caller, so no filtering is needed here.
+        let coreRows = PitchEligibilityEngine.pitchingSummaryRows(
+            gameLogs: store.gameLogs,
+            players: players,
+            config: store.pitchingConfig,
+            referenceDate: store.lineup.gameDate
+        )
 
-        let windowStart: Date = {
-            switch store.pitchingConfig.rollingWindowType {
-            case .calendarWeek:
-                return PitchEligibilityEngine.startOfPitchingWeek(for: gameDate, calendar: cal)
-            case .rolling:
-                return cal.date(byAdding: .day,
-                    value: -(store.pitchingConfig.rollingWindowDays - 1), to: gameDate) ?? gameDate
-            }
-        }()
-
-        let rows: [PitchingRow] = players.map { player in
-            let key = player.id.uuidString
-            // Window pitches = all logs before the game date (not including game day itself)
-            let windowPitches = store.gameLogs
-                .filter { cal.startOfDay(for: $0.gameDate) >= windowStart && cal.startOfDay(for: $0.gameDate) < gameDate }
-                .reduce(0) { $0 + ($1.pitchCounts[key] ?? 0) }
-
-            let dailyMax: Int = {
-                guard let age = player.leagueAge,
-                      let bracket = PitchingAgeBracket.bracket(for: age),
-                      let limits = store.pitchingConfig.ageLimits[bracket] else { return 0 }
-                return limits.dailyMax
-            }()
-
-            // Available = min(daily max, weekly cap remaining if enabled)
-            // This matches the engine's .limited calculation — the constraint
-            // is whichever ceiling is lower for today's game, not daily max
-            // minus historical pitches (those were thrown on past days, not today).
-            var available = dailyMax
-            if store.pitchingConfig.weeklyLimitEnabled && store.pitchingConfig.weeklyLimit > 0 {
-                let weeklyRemaining = max(0, store.pitchingConfig.weeklyLimit - windowPitches)
-                available = min(dailyMax, weeklyRemaining)
-            }
-
-            let status = PitchEligibilityEngine.status(
-                for: player, gameLogs: store.gameLogs, config: store.pitchingConfig,
-                referenceDate: store.lineup.gameDate
-            )
-
+        let rows: [PitchingRow] = coreRows.map { core in
             let assignedInnings = store.lineup.innings.indices.filter { i in
-                store.lineup.innings[i].assignments[player.id] == .pitcher
+                store.lineup.innings[i].assignments[core.player.id] == .pitcher
             }
 
             return PitchingRow(
-                player: player,
-                windowPitches: windowPitches,
-                dailyMax: dailyMax,
-                available: available,
-                status: status,
+                player: core.player,
+                windowPitches: core.pitchesInWindow,
+                dailyMax: core.dailyMax,
+                available: core.available,
+                status: core.status,
                 assignedInnings: assignedInnings
             )
         }
 
+        // Deliberately no last-name tiebreak — this tab keeps roster order for
+        // equal availability. The Coaches Guide sorts stably for a fixed page;
+        // see the DIVERGENCE note in PitchingSummaryTests.
         return rows.sorted { a, b in
             if a.status.isRestricted != b.status.isRestricted {
                 return !a.status.isRestricted

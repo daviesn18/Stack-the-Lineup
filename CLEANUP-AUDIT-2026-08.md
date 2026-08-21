@@ -1,6 +1,6 @@
 # Codebase Cleanup Audit — Stack the Lineup (Lineup Builder)
 
-> **Closed.** The two follow-ups that survive — `PositionSummaryView.pitchingRows()` (2.2a) and the debounced CloudKit push (6.2) — are [`BACKLOG.md`](BACKLOG.md) items 3.1 and 3.2, both deferred by decision. The iPad read-only test plan at the end was backlog item 1.4; **it ran on 8 Aug 2026 and all eight steps pass**, so nothing in this document is now waiting on hardware.
+> **Closed.** Of the two follow-ups that survived — `PositionSummaryView.pitchingRows()` (2.2a) and the debounced CloudKit push (6.2), backlog items 3.1 and 3.2 — **3.1 was consolidated on 20 Aug 2026** (the shared maths now lives in `PitchEligibilityEngine.pitchingSummaryRows`); 3.2 remains deferred by decision. The iPad read-only test plan at the end was backlog item 1.4; **it ran on 8 Aug 2026 and all eight steps pass**, so nothing in this document is now waiting on hardware.
 >
 > ⚠️ **8.3a's conclusions were wrong** and are corrected in place — the 2 Aug Worker fixes *were* deployed, the CloudKit record type *was* promoted, and the actual fault was a Production server-to-server key that had never been created. Push was silently failing until 6 Aug. Read the correction there before trusting anything in 8.3a.
 
@@ -124,7 +124,7 @@ Rather than adding a second table, `PDFGenerator` now calls `PitchEligibilityEng
 - `PitchingGuideSummaryRow` gained `available` (the lower of daily max and weekly remaining) — the field the PDF needed — and the engine's alphabetical sort was replaced by the PDF's more useful one: unrestricted first, most available first, last name as tiebreak.
 - The PDF gained a **Rest** column, the one thing the engine version uniquely computed. Shown only while a player is still inside their rest window; once it elapses the number is noise.
 
-**2.2a — a third copy remains, and I left it.** `PositionSummaryView.pitchingRows()` still hand-rolls the same window maths. It differs in ways that matter: it adds `assignedInnings`, doesn't filter `.never` pitcher preferences itself, and has different rules-disabled behaviour. Folding it in would change a Pro-visible surface that has no test coverage, on the strength of assumptions rather than evidence. That is a change worth making on purpose, not as the tail end of a cleanup pass. **Recommend: consolidate `PositionSummaryView.pitchingRows()` onto `coachesGuideSummary` as its own change, with tests for the Pitching tab first.**
+**2.2a — a third copy remained, now folded in (✅ 20 Aug 2026, backlog 3.1).** `PositionSummaryView.pitchingRows()` hand-rolled the same window maths. It differs in ways that matter: it adds `assignedInnings`, doesn't filter `.never` pitcher preferences itself, and has different rules-disabled behaviour. Folding it in would change a Pro-visible surface that has no test coverage, on the strength of assumptions rather than evidence. That is a change worth making on purpose, not as the tail end of a cleanup pass. ~~**Recommend: consolidate `PositionSummaryView.pitchingRows()` onto `coachesGuideSummary` as its own change, with tests for the Pitching tab first.**~~ **Done:** the shared maths was extracted to `PitchEligibilityEngine.pitchingSummaryRows` (policy-free) and both the guide and the tab build on it; the tab keeps `assignedInnings`, its rules-off rendering, and its sort. Four tests pin the divergences.
 
 **2.3 — Singular/plural phrasing: one helper.**
 
@@ -246,7 +246,7 @@ The `STLWidget` exception set the July note expected to go with it doesn't refer
 
 Two things are open, each by a deliberate decision rather than an oversight:
 
-1. **`PositionSummaryView.pitchingRows()`** — the third copy of the pitch-window maths (2.2a). Its own change, with tests first.
+1. ~~**`PositionSummaryView.pitchingRows()`**~~ — the third copy of the pitch-window maths (2.2a). ✅ **Consolidated 20 Aug 2026** onto the shared `PitchEligibilityEngine.pitchingSummaryRows`.
 2. **Debounced CloudKit push** (6.2) — needs a `scenePhase` trailing flush, and it touches the sync path behind the July incident. A deliberate design pass, not a cleanup.
 
 **Closed 6 Aug 2026 — the July audit's Phase 3, finished.** Six of its eight items were already resolved (`DebugDataSeeder` gating, the `DeviceTokenManager` wire-ups, the Coaches Guide section, the `parseAutoFillPromptWithTimeout` duplication — now `AutoFillCoordinator` — `fetchAllTeams` kept by decision, and `roadmap.jsx`, which is gone from the repo). The two open ones are done: the bench/absent chip is one `PlayerChip` (2.4) and back-to-back bench detection runs through one helper (2.5). Consolidating the chip surfaced 2.4a, the iPad read-only gap, which is fixed but **needs the device test plan below run before submission**. Verification: app builds on iPhone and iPad simulators; `Lineup BuilderTests` → **295 passed, 0 failed**, with four new pinning tests.

@@ -336,19 +336,26 @@ extension PitchEligibilityEngine {
     /// hand-rolled copy of this ("exact port of PositionSummaryView") which
     /// sorted that way; this is now the single implementation, so the ordering
     /// came with it. Ties break on last name for a stable page.
-    static func coachesGuideSummary(
+    /// The per-player pitching math — window pitches, daily max, what's
+    /// available today, rest owed, and status — for exactly the players given,
+    /// in the order given. No filtering, no sorting, no rules-enabled guard:
+    /// callers apply their own policy on top.
+    ///
+    /// This is the single copy of arithmetic that was previously triplicated
+    /// across `coachesGuideSummary`, `PositionSummaryView.pitchingRows()` and
+    /// (before it folded in here) `PDFGenerator`. The two remaining callers
+    /// diverge deliberately — the Coaches Guide filters `.never`, drops the
+    /// table when rules are off, and sorts stably; the Pitching tab keeps every
+    /// pitcher, renders with rules off, and decorates each row with the innings
+    /// it's assigned in today's lineup — so those policies stay at the call
+    /// sites and only the maths lives here. See `PitchingSummaryTests` for the
+    /// behaviour each side is pinned to.
+    static func pitchingSummaryRows(
         gameLogs: [GameLog],
         players: [Player],
         config: PitchingConfig,
         referenceDate: Date = Date()
-    ) -> [PitchingGuideSummaryRow]? {
-        guard config.rulesEnabled else { return nil }
-
-        let pitchablePlayers = players.filter {
-            $0.positionPreferences[.pitcher] != .never
-        }
-        guard !pitchablePlayers.isEmpty else { return nil }
-
+    ) -> [PitchingGuideSummaryRow] {
         let statuses = compute(
             gameLogs: gameLogs,
             players: players,
@@ -356,7 +363,7 @@ extension PitchEligibilityEngine {
             referenceDate: referenceDate
         )
 
-        let rows: [PitchingGuideSummaryRow] = pitchablePlayers.map { player in
+        return players.map { player in
             // Resolve limits for this player's age bracket
             let limits: PitchingLimits? = player.leagueAge
                 .flatMap { PitchingAgeBracket.bracket(for: $0) }
@@ -398,6 +405,27 @@ extension PitchEligibilityEngine {
                 status: statuses[player.id] ?? .eligible
             )
         }
+    }
+
+    static func coachesGuideSummary(
+        gameLogs: [GameLog],
+        players: [Player],
+        config: PitchingConfig,
+        referenceDate: Date = Date()
+    ) -> [PitchingGuideSummaryRow]? {
+        guard config.rulesEnabled else { return nil }
+
+        let pitchablePlayers = players.filter {
+            $0.positionPreferences[.pitcher] != .never
+        }
+        guard !pitchablePlayers.isEmpty else { return nil }
+
+        let rows = pitchingSummaryRows(
+            gameLogs: gameLogs,
+            players: pitchablePlayers,
+            config: config,
+            referenceDate: referenceDate
+        )
 
         return rows.sorted { a, b in
             if a.status.isRestricted != b.status.isRestricted { return !a.status.isRestricted }

@@ -72,7 +72,7 @@ State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 
 | ~~2.4~~ | ~~Tip copy at real size / large Dynamic Type~~ | — | ✅ **7 Aug** — all tips walked at large type; nothing truncates |
 | **Stage 3 — deferred engineering (after 3.3 ships)** ||||
 | ~~3.0~~ | ~~Calendar-week window is empty on Sundays~~ | — | ✅ **6 Aug** — found and fixed; 4 copies now share one derivation |
-| 3.1 | `PositionSummaryView.pitchingRows()` — third copy of the pitch maths | M | ~~Tests first~~ — ✅ tests landed 6 Aug; ready to do |
+| ~~3.1~~ | ~~`PositionSummaryView.pitchingRows()` — third copy of the pitch maths~~ | — | ✅ **20 Aug** — folded into `PitchEligibilityEngine.pitchingSummaryRows`; numbers unchanged |
 | 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
 | 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
 | ~~3.10~~ | ~~Tapping a push lands on whatever team was already open~~ | — | ✅ **17 Aug** — app-only fix; warm and cold launch both pass on device (build 41) |
@@ -642,15 +642,15 @@ Guarded by four tests, including one that sweeps `firstWeekday` 1–7 and one th
 
 > The pattern from 6 Aug held for a third time: every surface duplicated the same wrong arithmetic, so they all agreed with each other and nothing looked wrong from inside the app.
 
-### 3.1 `PositionSummaryView.pitchingRows()`
+### ~~3.1 `PositionSummaryView.pitchingRows()`~~ — ✅ **consolidated 20 Aug 2026**
 
 **Source:** `CLEANUP-AUDIT-2026-08.md` §2.2a.
 
-The third copy of the pitch-window arithmetic. It differs in ways that matter — it adds `assignedInnings`, doesn't filter `.never` pitcher preferences itself, and behaves differently with rules disabled.
+The third copy of the pitch-window arithmetic, now folded in. It differed in ways that matter — it adds `assignedInnings`, doesn't filter `.never` itself, and renders with rules disabled — so rather than force those onto the guide, the shared maths was extracted to `PitchEligibilityEngine.pitchingSummaryRows(...)` (policy-free: no rules guard, no `.never` filter, no sort) and both callers build on it. `coachesGuideSummary` adds its filter/guard/stable-sort; the view adds `assignedInnings` and its own sort. The window numbers are provably unchanged — the engine's `windowStartDate`/`pitchesInWindow` compute the identical window the view did inline. Extracting the core also made it testable for the first time (the view method was `private`); four new tests pin the divergences the tab relies on. Build + suite green.
 
 **The blocker is cleared.** `PitchingSummaryTests.swift` landed 6 Aug: 23 tests over `coachesGuideSummary`, covering the window boundaries, the `available` ceiling, rest days, the sort order, and agreement with `PitchEligibilityEngine.status`. The four known divergences each carry a `DIVERGENCE` note in the test that pins this side's behavior, so the fold-in is a choice made with the consequences written down rather than rediscovered.
 
-One thing the tests can't reach: `pitchingRows()` is `private` inside a SwiftUI `View`, so it isn't callable from the test target at all. Extracting it is the first step of the consolidation, not a prerequisite. **Size:** M.
+**Closed 20 Aug.** **Size:** M as estimated.
 
 ### 3.4 The TipKit live advance on the History screens
 
@@ -988,7 +988,7 @@ What's open is *adoption*, and it matters because it's the most plausible fix fo
 
 Two concrete gaps, checked in the code on 7 Aug:
 
-1. **No `indexingKey` anywhere.** `PlayerEntity` and `TeamEntity` already conform to `IndexedEntity` — that part is done — but no properties are marked as searchable. Small, safe, and it pays off on iOS 26 for Spotlight regardless of what iOS 27 turns out to do. **Do this one first; it stands on its own.**
+1. **`indexingKey` on the entities — rolled into gap 2 (part 2), 20 Aug 2026.** This was framed as a standalone S that pays off on iOS 26. On a closer read it's smaller-value than it looked: `PlayerEntity` and `TeamEntity` already carry a rich hand-rolled `attributeSet` (name, first/last, jersey as `12`/`#12`/`number 12`, team, strengths) and are actively published via `indexAppEntities`, so a coach can already find a player in Spotlight by all of those. What `@Property(indexingKey:)` adds is *structured* attribute mapping, whose real payoff is the iOS 26+ semantic layer and the iOS 27 reasoning router — i.e. part 2's territory. It's also not a one-liner: these entities are plain `let` structs with no `@Property` wrappers, so it means reshaping them, and the exact current API should be checked against Apple's docs first. **Do it alongside part 2, on the same iOS-27 pass, not as a standalone.**
 2. **No App Schema conformance.** The iOS 27 guidance is to conform entities to a schema so Siri understands the *category* of content. ⚠️ **Open question: whether a schema exists that fits a youth-sports roster.** The schema list is domain-specific. If nothing fits, this lever may not be available at all, and that's worth ten minutes of checking before anyone plans around it.
 
 **Keep `PlayerSearch` and `TeamSearch`.** 1.3 established they're dead on the voice path — Siri never calls `entities(matching:)`. Do **not** conclude they should be deleted. `EntityStringQuery` is explicitly retained in iOS 27 for live state that can't be pre-indexed, which is exactly a roster that changes weekly. That code is the part a smarter Siri would finally start calling. Leave it alone and don't tune it either — tuning a matcher nothing calls is how you spend a day for nothing.

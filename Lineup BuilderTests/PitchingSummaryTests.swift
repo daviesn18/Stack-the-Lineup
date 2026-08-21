@@ -499,6 +499,71 @@ final class PitchingSummaryTests: XCTestCase {
                            "status drifted for \(summaryRow.player.lastName)")
         }
     }
+
+    // MARK: - The shared core (backlog 3.1, folded in)
+    //
+    // `pitchingSummaryRows` is now the single copy of the per-player maths, and
+    // `PositionSummaryView.pitchingRows()` builds on it instead of a fourth
+    // hand-rolled copy. The view relies on the core being *policy-free* — no
+    // rules guard, no `.never` filter, roster order preserved — because the
+    // Pitching tab applies different policy than the Coaches Guide. These pin
+    // that contract, which the private view method never could.
+
+    func testCoreRendersRowsEvenWhenRulesAreOff() {
+        // DIVERGENCE the tab depends on: the core has no rulesEnabled guard, so
+        // the Pitching tab still shows a table when rules are disabled. Only the
+        // Coaches Guide wrapper returns nil in that case (testRulesDisabled...).
+        let rows = PitchEligibilityEngine.pitchingSummaryRows(
+            gameLogs: [], players: [player("Bobby", "Reyes")],
+            config: config(rulesEnabled: false), referenceDate: wednesday
+        )
+        XCTAssertEqual(rows.count, 1)
+    }
+
+    func testCoreDoesNotFilterNeverPitchers() {
+        // DIVERGENCE: the core returns a row for whatever players it's handed —
+        // it does not drop `.never`. The Coaches Guide filters before calling;
+        // the Pitching tab's caller (`pitchers`) also pre-filters. The core
+        // itself stays neutral so both policies live at the call site.
+        let rows = PitchEligibilityEngine.pitchingSummaryRows(
+            gameLogs: [], players: [player("Bobby", "Reyes", pitcher: .never)],
+            config: config(), referenceDate: wednesday
+        )
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].player.lastName, "Reyes")
+    }
+
+    func testCorePreservesInputOrder() {
+        // The core does not sort — each caller imposes its own order. The tab
+        // keeps roster order for equal availability; the guide sorts stably.
+        let names = ["Reyes", "Ng", "Achterberg"]
+        let rows = PitchEligibilityEngine.pitchingSummaryRows(
+            gameLogs: [],
+            players: names.map { player("X", $0) },
+            config: config(), referenceDate: wednesday
+        )
+        XCTAssertEqual(rows.map(\.player.lastName), names)
+    }
+
+    func testCoreNumbersMatchWhatTheGuidePublishes() throws {
+        // The Coaches Guide now delegates to the core, so the window count and
+        // `available` ceiling a coach sees are the core's. This anchors the
+        // arithmetic directly, independent of the guide's filter/sort wrapper.
+        let bobby = player("Bobby", "Reyes")
+        let subject = config(weeklyLimit: 100)
+        let logs = [log(bobby, pitches: 30, daysAgo: 2, from: wednesday)]
+
+        let core = try XCTUnwrap(PitchEligibilityEngine.pitchingSummaryRows(
+            gameLogs: logs, players: [bobby], config: subject, referenceDate: wednesday
+        ).first)
+        let guideRow = try row(PitchEligibilityEngine.coachesGuideSummary(
+            gameLogs: logs, players: [bobby], config: subject, referenceDate: wednesday
+        ), "Reyes")
+
+        XCTAssertEqual(core.pitchesInWindow, 30)
+        XCTAssertEqual(core.available, guideRow.available)
+        XCTAssertEqual(core.pitchesInWindow, guideRow.pitchesInWindow)
+    }
 }
 
 // MARK: - Note: the Sunday window bug (fixed 6 Aug 2026)
