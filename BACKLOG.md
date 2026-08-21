@@ -18,7 +18,7 @@ Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer 
 
 **~~3.10~~ is fixed and verified on build 41.** A tapped push opened the app without switching to the team it was about. The Worker turned out to need nothing — it has always sent `teamID` — so this was app-only. Fixing it also turned up a second, larger fault the first fix hid: the notification delegate was installed too late to receive a **cold-launch** tap, so the routing worked on a backgrounded app and did nothing on a terminated one, which is the common case. **Both paths pass on device, cold start included.**
 
-**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. **4.5 (Swift 6 language mode) landed 20 Aug** — all four targets are on Swift 6. **4.3 (the paywall's dark mode + Dynamic Type pass) landed 21 Aug** — the footer scrolls with the body at the accessibility sizes instead of truncating, and the dark tints are settled on device. What's left in Stage 4 is the long poles: 4.4 (localization) and 4.6 (iOS-27 App Intents).
+**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. **4.5 (Swift 6 language mode) landed 20 Aug** — all four targets are on Swift 6. **4.3 (the paywall's dark mode + Dynamic Type pass) landed 21 Aug** — the footer scrolls with the body at the accessibility sizes instead of truncating, and the dark tints are settled on device. **4.6 (iOS-27 App Intents readiness) was researched 21 Aug** — the App-Schema gap is closed as unavailable (no schema fits a roster on SDK 26.5), and the one remaining piece, the `@Property(indexingKey:)` reshape, is deferred to the 1.3 device pass so its payoff can be measured rather than assumed. What's genuinely left as a long pole is **4.4 (localization)**.
 
 > **Three Stage 4 decisions were taken on 20 Aug 2026**, which is what they were waiting on rather than any engineering. **~~4.2~~** — no change, the free-tier upsell tip is rejected and principle 3 stands. **~~4.7~~** — **keep the Worker**; the trade was evaluated on its merits and settled, so do not reopen it after the next bad push day. **~~4.1~~** — a Pro coach must never see a paywall, and acting on that turned a product question into a real fix: eight gates were testing `!isPro`, which is `true` while StoreKit is still `.undetermined`. Read 4.1 before writing any new entitlement check.
 
@@ -87,7 +87,7 @@ State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 
 | ~~4.3~~ | ~~Paywall dark mode + Dynamic Type calibration~~ | — | ✅ **21 Aug** — footer scrolls at AX sizes; dark tints settled |
 | 4.4 | Localization / string catalog | **L** | A design decision on assembled strings |
 | ~~4.5~~ | ~~Swift 6 language mode~~ | — | ✅ **20 Aug** — all four targets on Swift 6; pure types marked `nonisolated`; 340/0 |
-| 4.6 | iOS 27 App Intents readiness — `indexingKey`, App Schemas | M | An iOS 27 beta to verify against |
+| 4.6 | iOS 27 App Intents readiness — `indexingKey` (App Schemas closed) | S | An iOS-27 *device* for the 1.3 re-run |
 | ~~4.7~~ | ~~Should `CKSubscription` replace the Worker entirely?~~ | — | ✅ **20 Aug** — decided: **keep the Worker** |
 
 ---
@@ -992,30 +992,32 @@ The shape of the work isn't silencing warnings — it's deciding what is genuine
 >
 > **Do not reopen this on the strength of another bad push day.** Three faults in one day (1.9, 1.11, 1.2) is what prompted the question, and all three are fixed. The trade was evaluated on its merits and settled.
 
-### 4.6 iOS 27 App Intents readiness
+### 4.6 iOS 27 App Intents readiness — **App-Schema gap closed 21 Aug; `indexingKey` deferred to the device pass**
 
-**Source:** WWDC 2026, read on 7 Aug against the 1.3 device results. Not verified against a beta — see the caveat at the end.
+**Source:** WWDC 2026, read on 7 Aug against the 1.3 device results. The two code-and-SDK gaps were checked against the shipping SDK on 21 Aug (see below); the reason to care — 1.3 spoken resolution — still awaits an iOS-27 device.
 
 **The good news first: nothing here is on a deprecation path.** WWDC 2026 deprecated SiriKit outright and made App Intents the only route into Siri, with a two-to-three-year migration window. This app is already all App Intents. There is no migration to do.
 
 What's open is *adoption*, and it matters because it's the most plausible fix for the one thing 1.3 couldn't solve. The iOS 27 Siri is rebuilt on Apple Intelligence and Apple's framing is that it resolves spoken references to real entities — which is precisely the sentence that isn't true today. 1.3 proved Siri never binds a spoken name into a phrase slot at all. That's a template-parser limitation, and a reasoning-based router is the thing that removes it.
 
-Two concrete gaps, checked in the code on 7 Aug:
+Two concrete gaps, checked in the code on 7 Aug and **checked against the SDK on 21 Aug 2026** (SDK 26.5, Xcode 26.6, with the iOS 27.0 simulator `24A5380i` installed):
 
-1. **`indexingKey` on the entities — rolled into gap 2 (part 2), 20 Aug 2026.** This was framed as a standalone S that pays off on iOS 26. On a closer read it's smaller-value than it looked: `PlayerEntity` and `TeamEntity` already carry a rich hand-rolled `attributeSet` (name, first/last, jersey as `12`/`#12`/`number 12`, team, strengths) and are actively published via `indexAppEntities`, so a coach can already find a player in Spotlight by all of those. What `@Property(indexingKey:)` adds is *structured* attribute mapping, whose real payoff is the iOS 26+ semantic layer and the iOS 27 reasoning router — i.e. part 2's territory. It's also not a one-liner: these entities are plain `let` structs with no `@Property` wrappers, so it means reshaping them, and the exact current API should be checked against Apple's docs first. **Do it alongside part 2, on the same iOS-27 pass, not as a standalone.**
-2. **No App Schema conformance.** The iOS 27 guidance is to conform entities to a schema so Siri understands the *category* of content. ⚠️ **Open question: whether a schema exists that fits a youth-sports roster.** The schema list is domain-specific. If nothing fits, this lever may not be available at all, and that's worth ten minutes of checking before anyone plans around it.
+1. **`indexingKey` on the entities — API confirmed, adoption deferred to the device pass, 21 Aug 2026.** The API is real: `@Property(indexingKey: \CSSearchableItemAttributeSet.title)` — an `EntityProperty` initializer taking a `PartialKeyPath<CSSearchableItemAttributeSet>`. But adopting it is neither free nor silent, and it was **decided on 21 Aug to defer it**, not do it now:
+   - `PlayerEntity` and `TeamEntity` are plain `let`-backed structs with computed `name`/`displayNameWithNumber` and two custom inits each (one a test seam). `@Property(indexingKey:)` needs the fields to become `@Property`-wrapped `var`s — an invasive reshape of both entities and every test that builds one directly.
+   - **User-facing side effect:** `@Property` is how an `AppEntity` exposes a field to the *Shortcuts editor* as an extractable property. Wrapping the roster fields changes the Shortcuts surface — a product decision, not a readiness tweak.
+   - The hand-rolled `attributeSet` already delivers the whole Spotlight payoff on iOS 26 (name, first/last, jersey as `12`/`#12`/`number 12`, team, strengths), and is *richer* than a keypath map — it synthesizes the `#12`/`number 12` variants a single keypath can't.
+   - The only *new* payoff is the iOS-27 semantic/reasoning router, which **cannot be verified on this machine** — that's the 1.3 spoken-resolution re-run, a real-device job. Building the reshape now would be a bet whose payoff can't be measured until a device is on hand. **So it rides with the 1.3 device pass, where it can be confirmed rather than assumed.**
+2. **~~No App Schema conformance.~~ ✅ Checked 21 Aug 2026 — no fitting schema exists; lever unavailable, closed.** The App Intents assistant-schema *entity* domains in SDK 26.5 are exactly: Books, Browser, Files, Journal, Mail, Photos, Presentation, Reader, Spreadsheet, Whiteboard, WordProcessor. There is no person, contact, sport, team, player, roster, health, fitness, or media entity schema — a negative grep for all of those returned nothing. A youth-sports roster maps to none of them, so conforming `PlayerEntity`/`TeamEntity` to a schema is **not possible** on the shipping SDK. This was the "ten-minute check" the item asked for; the answer is a hard no. It could only reopen if Apple adds a fitting domain in a future SDK.
 
 **Keep `PlayerSearch` and `TeamSearch`.** 1.3 established they're dead on the voice path — Siri never calls `entities(matching:)`. Do **not** conclude they should be deleted. `EntityStringQuery` is explicitly retained in iOS 27 for live state that can't be pre-indexed, which is exactly a roster that changes weekly. That code is the part a smarter Siri would finally start calling. Leave it alone and don't tune it either — tuning a matcher nothing calls is how you spend a day for nothing.
 
 > ⚠️ **This is read from session titles and secondary coverage, not from observed behavior.** No one has run this app against an iOS 27 beta. The 2 Aug phrase rework was also a well-reasoned theory that the device contradicted — see 1.3. Treat the whole item as a hypothesis until §1 of [`TESTPLAN-3.3.md`](TESTPLAN-3.3.md) is re-run on a beta.
 
-**Size: M.** Not for a release cycle. `indexingKey` alone is S and could go any time.
+**Size: was M; down to S after the 21 Aug SDK check.** Gap 2 is closed as impossible. All that remains is gap 1's `@Property(indexingKey:)` reshape, deferred by decision to the 1.3 device pass so its payoff can be measured rather than assumed. **Blocked on:** an iOS-27 *device* for the 1.3 re-run — not an SDK, and not a simulator.
 
-> **The blocker is softer than this item assumes, noticed 20 Aug 2026.** The suite now runs against an **iOS 27.0 simulator** (build `24A5380i`) — one is already installed on this machine, so "an iOS 27 beta to verify against" is not the wall the order table calls it.
+> **The SDK questions are all settled now (21 Aug 2026).** The two code-and-SDK gaps were both answerable on this machine without a beta, and they were answered: gap 2 has no fitting schema (checked against SDK 26.5), and gap 1's API is confirmed present but its adoption was deferred for the reasons above. The iOS 27.0 simulator (`24A5380i`) did its job here.
 >
-> **It does not unblock everything.** Gap 2 — whether an App Schema fits a youth-sports roster — is a code-and-SDK question a simulator answers perfectly well, and it is the ten-minute check this item asks for before anyone plans around it. Gap 1, `indexingKey`, never needed a beta at all.
->
-> **What a simulator still cannot settle is 1.3**, which is the reason to care: spoken entity resolution needs speech on real hardware. Re-running §1 of `TESTPLAN-3.3.md` remains a device job.
+> **What a simulator still cannot settle is 1.3** — the reason any of this matters. Spoken entity resolution needs speech on real hardware, so re-running §1 of `TESTPLAN-3.3.md` remains a device job, and gap 1's reshape rides with it.
 
 ---
 
