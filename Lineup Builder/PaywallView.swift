@@ -24,10 +24,7 @@ struct PaywallView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                scrollingContent
-                footer
-            }
+            layout
             .background(Color(.systemGroupedBackground))
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -61,37 +58,68 @@ struct PaywallView: View {
         }
     }
 
+    // MARK: - Layout
+    //
+    // Two shapes, chosen by type size. At normal sizes the footer is pinned
+    // beside a scrolling body, so the price and purchase button are reachable
+    // without scrolling — the point of the whole screen. At the accessibility
+    // sizes a pinned footer physically can't fit: the plan summary, CTA, Restore
+    // and legal disclosure together want more height than the sheet has, and
+    // holding them rigid truncates every one of them (backlog 4.3). So there the
+    // body and footer scroll together as one column — nothing is height-clamped,
+    // so nothing truncates, and everything is reachable by scrolling instead.
+    //
+    // The earlier attempt at a bounded, internally scrolling footer (a measured
+    // height budget in a GeometryReader) is deliberately not used: it works, but
+    // pins the content to the safe-area height and leaves the sheet's colour
+    // banding through below the home indicator (backlog 3.9). This split has no
+    // GeometryReader and never fights the safe area.
+    @ViewBuilder
+    private var layout: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView {
+                VStack(spacing: 0) {
+                    contentBody
+                    footer
+                }
+            }
+        } else {
+            VStack(spacing: 0) {
+                ScrollView { contentBody }
+                footer
+            }
+        }
+    }
+
     // MARK: - Scrolling Content
 
-    private var scrollingContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                heroCard
+    private var contentBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            heroCard
 
-                if hero != nil {
-                    sectionHeader("Also included in Pro")
-                }
+            if hero != nil {
+                sectionHeader("Also included in Pro")
+            }
 
-                ForEach(visibleGroups) { group in
-                    sectionHeader(group.title)
-                    VStack(spacing: 0) {
-                        ForEach(Array(group.features.enumerated()), id: \.element.id) { index, feature in
-                            ProFeatureRow(feature: feature)
-                            if index < group.features.count - 1 {
-                                Divider().padding(.leading, 61)
-                            }
+            ForEach(visibleGroups) { group in
+                sectionHeader(group.title)
+                VStack(spacing: 0) {
+                    ForEach(Array(group.features.enumerated()), id: \.element.id) { index, feature in
+                        ProFeatureRow(feature: feature)
+                        if index < group.features.count - 1 {
+                            Divider().padding(.leading, 61)
                         }
                     }
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 6)
                 }
-
-                freeTierCard
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 6)
             }
-            .padding(.top, 8)
-            .padding(.bottom, 12)
+
+            freeTierCard
         }
+        .padding(.top, 8)
+        .padding(.bottom, 12)
     }
 
     // MARK: - Hero
@@ -201,7 +229,7 @@ struct PaywallView: View {
                         .foregroundStyle(Color.red)
                         .multilineTextAlignment(.center)
                         // Same compressible-Text trap as the disclosure below.
-                        .fixedSize(horizontal: false, vertical: !dynamicTypeSize.isAccessibilitySize)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
                 }
@@ -268,10 +296,17 @@ struct PaywallView: View {
                 } else {
                     Text(purchaseManager.ctaLabel)
                         .font(.headline)
+                        .multilineTextAlignment(.center)
                 }
             }
+            // Grows with the label rather than clipping it. A rigid `height: 52`
+            // truncated the CTA mid-word at the accessibility type sizes, where
+            // "Start 7-day free trial" wraps to two lines; `minHeight` keeps the
+            // shipped 52pt tap target at normal sizes and lets the button expand
+            // to fit a wrapped label (backlog 4.3).
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
+            .padding(.vertical, 15)
+            .frame(minHeight: 52)
             .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14))
             .foregroundStyle(.white)
         }
@@ -290,22 +325,22 @@ struct PaywallView: View {
             .tint(Color.accentColor)
             // Incompressible, like every other wrapping Text in this view.
             //
-            // This footer is pinned beside a ScrollView, which takes all the
-            // height it is offered. A plain Text is vertically compressible —
-            // it answers a too-small proposal by truncating — so the scroll
-            // content won the space and this disclosure ellipsised to a single
-            // line at the peek detent, the state iPhone opens at. That left
-            // "…is charged to your Apple Accou…" directly above a fully visible
-            // purchase button. fixedSize makes the wrapped height a minimum the
-            // stack must grant, and the scroll content absorbs the difference —
-            // it has somewhere to put the loss, and this does not. Backlog 3.9.
+            // When the footer is pinned (normal sizes) it sits beside a
+            // ScrollView, which takes all the height it is offered. A plain Text
+            // is vertically compressible — it answers a too-small proposal by
+            // truncating — so the scroll content won the space and this
+            // disclosure ellipsised to a single line at the peek detent, the
+            // state iPhone opens at, leaving "…is charged to your Apple Accou…"
+            // above a fully visible purchase button. fixedSize makes the wrapped
+            // height a minimum the stack must grant; the scroll content absorbs
+            // the difference. Backlog 3.9.
             //
-            // Released again at the accessibility sizes, where the footer wants
-            // more height than the whole sheet: held rigid there it pushes the
-            // price and the purchase button off the bottom, which is worse than
-            // the truncation it replaced. Those sizes truncate exactly as they
-            // did before, and the paywall's Dynamic Type pass is 4.3.
-            .fixedSize(horizontal: false, vertical: !dynamicTypeSize.isAccessibilitySize)
+            // At the accessibility sizes the whole footer scrolls with the body
+            // (see `layout`), so there is no fixed height to fight and this can
+            // stay incompressible without pushing the button off-screen — which
+            // is why the size-conditional release this used to carry is gone.
+            // Backlog 4.3.
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var legalAttributed: AttributedString {
