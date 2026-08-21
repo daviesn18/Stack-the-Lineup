@@ -18,7 +18,7 @@ Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer 
 
 **~~3.10~~ is fixed and verified on build 41.** A tapped push opened the app without switching to the team it was about. The Worker turned out to need nothing — it has always sent `teamID` — so this was app-only. Fixing it also turned up a second, larger fault the first fix hid: the notification delegate was installed too late to receive a **cold-launch** tap, so the routing worked on a backgrounded app and did nothing on a terminated one, which is the common case. **Both paths pass on device, cold start included.**
 
-**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. **4.5 (Swift 6 language mode) landed 20 Aug** — all four targets are on Swift 6. The next cheap-early item is **4.3**, the paywall's Dynamic Type pass, which the 3.9 work showed is larger than a colour calibration.
+**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. **4.5 (Swift 6 language mode) landed 20 Aug** — all four targets are on Swift 6. **4.3 (the paywall's dark mode + Dynamic Type pass) landed 21 Aug** — the footer scrolls with the body at the accessibility sizes instead of truncating, and the dark tints are settled on device. What's left in Stage 4 is the long poles: 4.4 (localization) and 4.6 (iOS-27 App Intents).
 
 > **Three Stage 4 decisions were taken on 20 Aug 2026**, which is what they were waiting on rather than any engineering. **~~4.2~~** — no change, the free-tier upsell tip is rejected and principle 3 stands. **~~4.7~~** — **keep the Worker**; the trade was evaluated on its merits and settled, so do not reopen it after the next bad push day. **~~4.1~~** — a Pro coach must never see a paywall, and acting on that turned a product question into a real fix: eight gates were testing `!isPro`, which is `true` while StoreKit is still `.undetermined`. Read 4.1 before writing any new entitlement check.
 
@@ -84,7 +84,7 @@ State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 
 | ~~3.9~~ | ~~Subscription terms truncate mid-word at the paywall's default detent~~ | — | ✅ **17 Aug** — the disclosure is incompressible now; verified at the peek in the simulator |
 | ~~4.1~~ | ~~History paywall auto-opens~~ | — | ✅ **20 Aug** — decided: a Pro coach never sees a paywall; 8 gates fixed |
 | ~~4.2~~ | ~~Arc 2 gives free coaches 2 tips of 6~~ | — | ✅ **20 Aug** — decided: no change, principle 3 stands |
-| 4.3 | Paywall dark mode + Dynamic Type calibration | S | Design |
+| ~~4.3~~ | ~~Paywall dark mode + Dynamic Type calibration~~ | — | ✅ **21 Aug** — footer scrolls at AX sizes; dark tints settled |
 | 4.4 | Localization / string catalog | **L** | A design decision on assembled strings |
 | ~~4.5~~ | ~~Swift 6 language mode~~ | — | ✅ **20 Aug** — all four targets on Swift 6; pure types marked `nonisolated`; 340/0 |
 | 4.6 | iOS 27 App Intents readiness — `indexingKey`, App Schemas | M | An iOS 27 beta to verify against |
@@ -921,11 +921,19 @@ Worth keeping in view if this is ever reopened: 2 of 6 is already a **fix**, not
 
 **Closed 20 Aug. No code change.**
 
-### 4.3 Paywall dark mode + Dynamic Type
+### ~~4.3 Paywall dark mode + Dynamic Type~~ — ✅ **fixed 21 Aug 2026**
 
-Implemented with semantic colors and a large-type-tolerant footer, but the *visual* calibration was never done on device. The build ships 8 feature rows; 9 is the ceiling. (`PAYWALL-design-handoff.md`, "Still on Design.") **Size: S.**
+**"Large-type-tolerant" overstated it, measured 17 Aug** while closing 3.9. At the accessibility sizes the whole footer degraded, not just one line: the plan headline, the subtitle, the CTA label and Restore Purchase all truncated mid-word — the CTA because `buyButton` was pinned to `.frame(height: 52)` regardless of type size. More than a colour pass, which is why this outlived 3.9.
 
-**"Large-type-tolerant" overstates it, measured 17 Aug** in the simulator while closing 3.9. At the accessibility sizes the whole footer degrades, not just one line: the plan headline, the subtitle, the CTA label and Restore Purchase all truncate mid-word, the CTA because `buyButton` is pinned to `.frame(height: 52)` regardless of type size. None of that is new and none of it regressed — but it is more than a colour pass, and the note under 3.9 records the layout approach already tried and where it snagged.
+**The fix is two footer shapes, chosen by type size.** At normal sizes the footer stays pinned beside the scrolling body, so the price and purchase button are reachable without scrolling — unchanged, and the point of the screen. At the accessibility sizes a pinned footer can't fit: the plan summary, CTA, Restore and disclosure together want more height than the sheet has. There the body and footer now scroll together as one column, so nothing is height-clamped and nothing truncates — everything is reachable by scrolling instead. The buy button grows with its label (`minHeight: 52` + vertical padding) rather than clipping it, and the two Texts that used to release `fixedSize` at AX sizes stay incompressible now that the footer scrolls.
+
+**Deliberately not the bounded internally-scrolling footer tried under 3.9** — the `GeometryReader` height-budget approach that banded the sheet colour through below the home indicator. This split has no `GeometryReader` and never fights the safe area, so that seam never arises.
+
+**Verified on iPhone 17 Pro sim (iOS 27), free coach.** Normal size: unchanged, footer pinned and complete. AX5, light: hero, feature rows, plan summary, CTA (wraps to two lines inside a grown button), Restore, and the full auto-renew disclosure with tappable Terms/Privacy links — all complete and scrollable, nothing truncated. Dark mode: all eight feature icon tints (blue/green/purple/orange/red), the plan box, CTA and links read cleanly; the "exact dark tints" concern from the design handoff is settled. Unit suite green.
+
+> **Note for whoever runs the full suite next:** `xcodebuild … test` (all targets) hung for ~25 min in the UI-test target on a repeating `IDELaunchParametersSnapshot … no debugger version` LLDB flake, cloning simulators and never progressing. The unit tests passed before it hit that wall. `-only-testing:"Lineup BuilderTests"` runs clean in a couple of minutes; the hang is environmental, not a test failure.
+
+The build still ships 8 feature rows; 9 remains the ceiling if a feature is ever added. **Size: S. Closed 21 Aug.**
 
 ### 4.4 Localization
 
@@ -1033,7 +1041,7 @@ Things one of the docs still half-implies are open, that aren't:
 | `HANDOFF-app-intents.md` | **Live.** The 3.3 reference; §9 is the open part (1.3, 4.4). |
 | `CLEANUP-AUDIT-2026-08.md` | **Closed**, except 3.1 / 3.2 and the iPad test plan for 1.4. ⚠️ **§8.3a is factually wrong** — see 1.2. |
 | `TIPS-onboarding-spec.md` | **Mostly closed.** 2.3, 2.4, 4.1, 4.2 come from here. |
-| `PAYWALL-design-handoff.md` | **Closed** except 4.3. Reference for the paywall's content rules. |
+| `PAYWALL-design-handoff.md` | **Closed** (4.3 landed 21 Aug). Reference for the paywall's content rules. |
 | `AppStore-Screenshots*/SCREENSHOT-NOTES.md` | Reference for the store listing. Nothing open. |
 | [`stl-worker/README.md`](https://github.com/daviesn18/stl-worker) | **Live**, separate repo. The record for push: architecture, the environment trap, deploy and debugging. |
 

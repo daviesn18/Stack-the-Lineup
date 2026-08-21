@@ -1,6 +1,6 @@
 # Paywall Redesign — Handoff to Design
 
-> **Shipped.** The one thing still outstanding is the on-device dark mode and Dynamic Type calibration under "Still on Design" — tracked as [`BACKLOG.md`](BACKLOG.md) item 4.3. Otherwise this stands as the reference for the paywall's content rules and source → hero mapping.
+> **Shipped and fully closed.** The last outstanding piece — the on-device dark mode and Dynamic Type calibration, [`BACKLOG.md`](BACKLOG.md) item 4.3 — landed 21 Aug 2026. This now stands purely as the reference for the paywall's content rules and source → hero mapping; nothing here is open.
 
 **Owner split:** Content, copy, and code are handled outside this doc (see "Content decisions already made"). This handoff covers what Design owns: layout, hierarchy, density, and motion.
 
@@ -143,5 +143,5 @@ Pro is per-account, never per-team, and stays that way. Three decisions on top o
 
 ## Still on Design
 
-- **Dark mode + Dynamic Type** were implemented with semantic colors and a footer that tolerates large type, but the *visual* calibration (exact dark tints, AX-size footer behavior) is worth a design pass on device.
+- ~~**Dark mode + Dynamic Type** visual calibration on device.~~ ✅ **Done 21 Aug 2026 (BACKLOG 4.3).** Dark tints verified on device across all eight feature rows. The AX-size footer no longer truncates: at the accessibility sizes the footer scrolls with the body as one column instead of staying pinned, and the CTA button grows with its label rather than clipping. See BACKLOG 4.3 for the full account.
 - The build ships **8 feature rows**. Nine remains the ceiling if a feature is ever added.
