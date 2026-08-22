@@ -24,6 +24,14 @@ struct GameLogDetailView: View {
     /// never gets a chance to present. Same fix as GameLogsView's lead tip.
     @State private var currentHistoryTip: (any Tip)?
 
+    /// Re-reads the ordered group's current tip after one runloop turn, so
+    /// dismissing HistoryCopyGameTip advances to ReuseSaveTemplateTip in place
+    /// rather than only on re-entry. `currentTipUpdates` doesn't deliver an
+    /// `.actionPerformed` advance; the hop lets TipKit recompute first. Backlog 3.4.
+    private func advanceHistoryTip() {
+        Task { @MainActor in currentHistoryTip = Tour.history.currentTip }
+    }
+
     private static let archivedAtFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -272,12 +280,14 @@ struct GameLogDetailView: View {
                             copyToCurrentGame()
                         }
                     }
-                    .tourTip(currentHistoryTip as? HistoryCopyGameTip, arrowEdge: .top)
+                    .tourTip(currentHistoryTip as? HistoryCopyGameTip, arrowEdge: .top,
+                             onAdvance: advanceHistoryTip)
                     Divider().padding(.vertical, 4)
                     reuseRow(title: "Save as template", systemImage: "bookmark") {
                         attemptSaveAsTemplate()
                     }
-                    .tourTip(currentHistoryTip as? ReuseSaveTemplateTip, arrowEdge: .top)
+                    .tourTip(currentHistoryTip as? ReuseSaveTemplateTip, arrowEdge: .top,
+                             onAdvance: advanceHistoryTip)
                 }
             }
             .padding(.horizontal)

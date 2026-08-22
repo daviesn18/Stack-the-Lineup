@@ -18,7 +18,7 @@ Also in 40: **~~3.9~~**, fixed 17 Aug — the subscription disclosure no longer 
 
 **~~3.10~~ is fixed and verified on build 41.** A tapped push opened the app without switching to the team it was about. The Worker turned out to need nothing — it has always sent `teamID` — so this was app-only. Fixing it also turned up a second, larger fault the first fix hid: the notification delegate was installed too late to receive a **cold-launch** tap, so the routing worked on a backgrounded app and did nothing on a terminated one, which is the common case. **Both paths pass on device, cold start included.**
 
-**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. **4.5 (Swift 6 language mode) landed 20 Aug** — all four targets are on Swift 6. **4.3 (the paywall's dark mode + Dynamic Type pass) landed 21 Aug** — the footer scrolls with the body at the accessibility sizes instead of truncating, and the dark tints are settled on device. **4.6 (iOS-27 App Intents readiness) was researched 21 Aug** — the App-Schema gap is closed as unavailable (no schema fits a roster on SDK 26.5), and the one remaining piece, the `@Property(indexingKey:)` reshape, is deferred to the 1.3 device pass so its payoff can be measured rather than assumed. What's genuinely left as a long pole is **4.4 (localization)**.
+**Build 41 went to TestFlight on 17 Aug and its device check passed**, warm and cold. That was the last thing standing between this file and the App Store: **nothing here blocks the submission.** Everything remaining is Stage 3 and Stage 4, deferred by choice until 3.3 is out. **4.5 (Swift 6 language mode) landed 20 Aug** — all four targets are on Swift 6. **4.3 (the paywall's dark mode + Dynamic Type pass) landed 21 Aug** — the footer scrolls with the body at the accessibility sizes instead of truncating, and the dark tints are settled on device. **4.6 (iOS-27 App Intents readiness) was researched 21 Aug** — the App-Schema gap is closed as unavailable (no schema fits a roster on SDK 26.5), and the one remaining piece, the `@Property(indexingKey:)` reshape, is deferred to the 1.3 device pass so its payoff can be measured rather than assumed. **3.2 (debounced CloudKit push) landed 21 Aug** — the push is coalesced behind a per-team trailing debounce while the local write stays immediate, so the July-incident path is untouched. **3.4 (TipKit live advance) landed 21 Aug** — an `onAdvance` re-read advances the History tour in place; device-verified, so it's closed. What's genuinely left as a long pole is **4.4 (localization)**.
 
 > **Three Stage 4 decisions were taken on 20 Aug 2026**, which is what they were waiting on rather than any engineering. **~~4.2~~** — no change, the free-tier upsell tip is rejected and principle 3 stands. **~~4.7~~** — **keep the Worker**; the trade was evaluated on its merits and settled, so do not reopen it after the next bad push day. **~~4.1~~** — a Pro coach must never see a paywall, and acting on that turned a product question into a real fix: eight gates were testing `!isPro`, which is `true` while StoreKit is still `.undetermined`. Read 4.1 before writing any new entitlement check.
 
@@ -73,8 +73,8 @@ State of the repo: `main` is at `9cb6625` and **pushed** — `0a34cd3` the 3.10 
 | **Stage 3 — deferred engineering (after 3.3 ships)** ||||
 | ~~3.0~~ | ~~Calendar-week window is empty on Sundays~~ | — | ✅ **6 Aug** — found and fixed; 4 copies now share one derivation |
 | ~~3.1~~ | ~~`PositionSummaryView.pitchingRows()` — third copy of the pitch maths~~ | — | ✅ **20 Aug** — folded into `PitchEligibilityEngine.pitchingSummaryRows`; numbers unchanged |
-| 3.2 | Debounced CloudKit push | M | A design pass, not a cleanup |
-| 3.4 | TipKit live advance on the History screens (from 2.3) | M | A device round-trip to verify any fix |
+| ~~3.2~~ | ~~Debounced CloudKit push~~ | — | ✅ **21 Aug** — debounced the push (not the save); dirty-set keyed by team, +6 tests |
+| ~~3.4~~ | ~~TipKit live advance on the History screens (from 2.3)~~ | — | ✅ **21 Aug** — onAdvance re-reads currentTip; device-verified |
 | ~~3.10~~ | ~~Tapping a push lands on whatever team was already open~~ | — | ✅ **17 Aug** — app-only fix; warm and cold launch both pass on device (build 41) |
 | ~~3.5~~ | ~~iPad has no PDF export at all~~ | — | ✅ **8 Aug** — built and pulled into 3.3; locked path unverified at iPad size |
 | ~~3.6~~ | ~~A seed produced no team; cause unknown~~ | — | ✅ **12 Aug** — several clean seeds on TestFlight; closed unreproduced, tripwire left armed |
@@ -652,32 +652,31 @@ The third copy of the pitch-window arithmetic, now folded in. It differed in way
 
 **Closed 20 Aug.** **Size:** M as estimated.
 
-### 3.4 The TipKit live advance on the History screens
+### ~~3.4 The TipKit live advance on the History screens~~ — ✅ **fixed 21 Aug 2026, device-verified**
 
 **Source:** 2.3, failed on device 7 Aug 2026. Full diagnosis is there; this item is just the fix.
 
 *(Numbered 3.4 rather than 3.3 so no item number collides with the release version.)*
 
-Dismissing a tip on `GameLogsView` or `GameLogDetailView` doesn't advance the group in place. The next tip only appears on re-entry, when `.task` re-seeds the mirror from `Tour.history.currentTip`.
+Dismissing a tip on `GameLogsView` or `GameLogDetailView` didn't advance the group in place. The next tip only appeared on re-entry, when `.task` re-seeds the mirror from `Tour.history.currentTip`.
 
-**Two candidate fixes, neither obviously right:**
+**The "ten-minute" question answered first.** The old `.task` comment already *assumed* `currentTipUpdates` yields on a group advance — if that were true the tip would advance in place and this item wouldn't exist. So the finding is: `currentTipUpdates` yields on eligibility (rule `@Parameter`) changes, **not** on `.actionPerformed` invalidation. That kills option 2 (the synchronous read reintroduces the worse first-render bug) and makes **option 1 the only real candidate**.
 
-1. **Re-read `currentTip` after the action fires.** `TourTipModifier` invalidates but doesn't know its group, so this needs a hook — an optional `onAdvance` closure on `tourTip(_:)` that lets the call site refresh its own mirror. The catch: `currentTip` lags a cycle after a status change, so a naive re-read returns the tip that was just dismissed. Probably needs a delay, and a delay tuned by trial is the kind of fix that works on one device and not another.
-2. **Move both screens to the synchronous read** that every working screen uses. Simpler and consistent — but it reintroduces the first-render bug the mirror was added to fix, where the tip is missing on landing until an unrelated re-render. That bug was worse than this one.
+**Implemented (option 1, without a tuned delay).** `tourTip(_:)` gained an optional `onAdvance` closure; `TourTipModifier` fires it right after `tip.invalidate(.actionPerformed)`. Both History screens pass a closure that re-reads `Tour.history.currentTip` into their mirror — but on a **single runloop hop** (`Task { @MainActor in … }`), not a trial-tuned millisecond delay. The hop lets TipKit recompute the ordered group's `currentTip` before the read, which sidesteps the "works on one device, not another" fragility the item warned about: if `currentTip` has advanced by then the next tip presents in place; if it somehow hasn't, behaviour is exactly today's (next tip on re-entry) — no regression is possible either way. Builds clean; it only *adds* a re-read on dismissal, touching no data path.
 
-A third option worth ten minutes first: find out whether `currentTipUpdates` yields on invalidation at all, or only on eligibility changes. If it genuinely never yields on invalidation, option 1 is the only real candidate and option 2 is a regression waiting to happen.
+> **Device-verified 21 Aug 2026.** As a Pro coach with archived games, dismissing `HistoryCopyGameTip` in a game's detail advanced `ReuseSaveTemplateTip` in place, without leaving and re-entering the screen — the exact behaviour 2.3 failed on device. The single runloop hop was enough; the bounded-retry fallback was not needed. The item's own rule (verify on a device, not the simulator) is satisfied, so this is a real close rather than a simulator-only one.
 
-**Verify on a device, not the simulator** — 2.3 was called "confirmation, not investigation" on the strength of a simulator-verified pattern, and the device disagreed.
+**Size:** M — small diff, device proof done. **Closed 21 Aug.**
 
-**Size:** M. Small diff, most of the cost in figuring out which fix is real and proving it.
+### ~~3.2 Debounce the CloudKit push~~ — ✅ **fixed 21 Aug 2026**
 
-### 3.2 Debounce the CloudKit push
+**Source:** `CLEANUP-AUDIT-2026-08.md` §6.2. ~70 `save()` call sites, no debounce; every position drag was a CloudKit round-trip. Findings 6.1/6.1a had already removed the worst bursts, so this was about the steady drag traffic.
 
-**Source:** `CLEANUP-AUDIT-2026-08.md` §6.2.
+**The risk this item flagged turned out to be avoidable, because the debounce is on the *push*, not the *save*.** `save()` still calls `saveLocalOnly()` synchronously and unconditionally on every call — UserDefaults and the `#if !DEBUG` iCloud-KV write are byte-for-byte unchanged. That local write is the durability anchor, so nothing here widens the crash window on the July-incident path. What's now debounced is the `CloudKitManager.saveTeam` round-trip, which was *already* fire-and-forget (`Task { … }`) — no caller ever awaited it, so coalescing and delaying it changes no caller's contract.
 
-~70 `save()` call sites, no debounce; every position drag is a CloudKit round-trip. Finding 6.1 removed the worst burst (Quick Set) and 6.1a removed the double-save on team edits, so the pressure is off.
+**Design (`CloudPushDebouncer`, in `Models.swift`):** a trailing-edge debounce, 2s window, **keyed by team id**. Keying by team rather than a single slot is the safety property that matters: a coach who edits team A, switches to B, then edits B does not lose A's pending push — every dirty team is remembered and flushed together, and `perform` re-reads each team's *live* state at fire time so the upload always carries the latest edit, never a stale snapshot. `LineupStore.flushCloudPushes()` is wired to `scenePhase` leaving `.active` (`ContentView`), so an edit made just before backgrounding isn't stranded behind the timer. A crash or force-quit before the timer fires loses only the *cloud* copy of the last ~2s; the local blob already has it and the next `save()` (or next launch's save) re-pushes — no local data loss is possible.
 
-A real debounce needs a trailing-edge flush on `scenePhase` and opens a window where a crash loses the last write — on the sync path behind the July incident. **A design pass, not a cleanup.** **Size:** M, and higher risk than its size suggests.
+**Tested:** six `CloudPushDebouncerTests` (in `LineupStoreTests.swift`) cover coalescing, multi-team drain, the empty-flush no-op, dirty-set reset, and the trailing timer firing on its own / restarting inside the window. Unit suite green (346, +6). **Size:** was M; landed without the risk the M implied. **Closed 21 Aug.**
 
 ### ~~3.6 A seed produced no team, and the cause is still unknown~~ — ✅ **closed unreproduced, 12 Aug 2026**
 

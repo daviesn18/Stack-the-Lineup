@@ -75,7 +75,7 @@ private nonisolated var doneAction: [Tip.Action] {
 struct PlayersAddTip: Tip {
     var title: Text { tourTitle("Start with your roster") }
     var message: Text? {
-        Text("Add players one at a time, or use Bulk Add to type the whole roster in one pass.")
+        Text("Add players one at a time, or use Bulk Add to type the whole roster.")
     }
     var image: Image? { Image(systemName: "person.badge.plus") }
     var actions: [Action] { nextAction }
@@ -111,7 +111,7 @@ struct PlayersTeamSetupTip: Tip {
 struct PlayersPreferencesTip: Tip {
     var title: Text { tourTitle("Tag what each player can handle", pro: true) }
     var message: Text? {
-        Text("Strength, Capable, Emergency, Never. Auto-Fill works down that list — Never is never assigned.")
+        Text("Strength, Capable, Emergency, Never. Auto-Fill honors preferences — Never is never assigned.")
     }
     var image: Image? { Image(systemName: "star.circle.fill") }
     var actions: [Action] { doneAction }
@@ -161,7 +161,7 @@ struct LineupBattingOrderTip: Tip {
 struct LineupAbsentTip: Tip {
     var title: Text { tourTitle("Someone out today?") }
     var message: Text? {
-        Text("The toggle marks a player out for the whole game and pulls them from every inning.")
+        Text("Toggle players off that won't be at the game.")
     }
     var image: Image? { Image(systemName: "person.slash") }
     var actions: [Action] { nextAction }
@@ -194,7 +194,7 @@ struct LineupExportTip: Tip {
 struct PositionsViewModeTip: Tip {
     var title: Text { tourTitle("Two ways to look at it") }
     var message: Text? {
-        Text("By Inning walks one inning at a time. Summary shows the whole game in one grid.")
+        Text("By Inning shows one inning at a time. Summary shows the whole game in one grid.")
     }
     var image: Image? { Image(systemName: "tablecells") }
     var actions: [Action] { nextAction }
@@ -224,7 +224,7 @@ struct PositionsAssignTip: Tip {
 struct PositionsAutoFillTip: Tip {
     var title: Text { tourTitle("Fill it in one tap", pro: true) }
     var message: Text? {
-        Text("Auto-Fill covers one inning or the whole game, fair play rules included.")
+        Text("Auto-Fill fills one inning or the whole game, fair play rules honored.")
     }
     var image: Image? { Image(systemName: "bolt.fill") }
     var actions: [Action] { nextAction }
@@ -240,7 +240,7 @@ struct PositionsAutoFillTip: Tip {
 struct PositionsWarningsTip: Tip {
     var title: Text { tourTitle("Check before you go") }
     var message: Text? {
-        Text("The warnings icon lists everything open, doubled up, or against your rules. Then finalize.")
+        Text("The warnings icon checks your lineup against your fair play rules and pitch limits for compliance")
     }
     var image: Image? { Image(systemName: "exclamationmark.triangle.fill") }
     var actions: [Action] { doneAction }
@@ -269,7 +269,7 @@ struct PositionsWarningsTip: Tip {
 struct ReuseSaveTemplateTip: Tip {
     var title: Text { tourTitle("Don't build that twice") }
     var message: Text? {
-        Text("Save this game as a template and rebuild it next week in one tap.")
+        Text("Save this game as a template and re-use it next week in one tap.")
     }
     var image: Image? { Image(systemName: "square.stack.3d.up") }
     var actions: [Action] { nextAction }
@@ -284,7 +284,7 @@ struct ReuseSaveTemplateTip: Tip {
 struct ReuseApplyTemplateTip: Tip {
     var title: Text { tourTitle("Game two in one tap") }
     var message: Text? {
-        Text("Pick your template when you set the next game — batting order and locked positions come back with it.")
+        Text("Pick your template when you set the next game — batting order and locked positions are automatically applied.")
     }
     var image: Image? { Image(systemName: "square.stack.3d.up.fill") }
     var actions: [Action] { doneAction }
@@ -328,7 +328,7 @@ struct HistorySeasonViewsTip: Tip {
 struct AutoFillConstraintsTip: Tip {
     var title: Text { tourTitle("Tell Auto-Fill what you want", pro: true) }
     var message: Text? {
-        Text("\"Jack pitches 3 and 4, keep Maya off catcher.\" It works around your instructions and says so if it can't.")
+        Text("\"Jack pitches 3 and 4, don't have Maya catch.\" It works around your instructions and says so if it can't.")
     }
     var image: Image? { Image(systemName: "text.bubble") }
     var actions: [Action] { doneAction }
@@ -363,7 +363,7 @@ struct AskSiriTip: Tip {
 struct ShareTeamTip: Tip {
     var title: Text { tourTitle("Bring in an assistant", pro: true) }
     var message: Text? {
-        Text("Invite another coach to build positions with you. You still finalize.")
+        Text("Invite another coach to build lineups with you.")
     }
     var image: Image? { Image(systemName: "person.2.wave.2") }
     var actions: [Action] { doneAction }
@@ -478,8 +478,14 @@ extension View {
     ///   is always on screen and carries its own anchor for the same tip, so the
     ///   embedded copy would double-fire whenever that detail tab is selected.
     ///   ANDed with the environment's `tourActive` welcome gate.
-    func tourTip<T: Tip>(_ tip: T?, arrowEdge: Edge = .top, enabled: Bool = true) -> some View {
-        modifier(TourTipModifier(tip: tip, arrowEdge: arrowEdge, enabled: enabled))
+    /// - Parameter onAdvance: fired right after a tip here is dismissed and
+    ///   invalidated. History's ordered group (`GameLogsView` / `GameLogDetailView`)
+    ///   passes a closure that re-reads `currentTip` into its mirror, so the next
+    ///   tip presents in place instead of only on re-entry — see backlog 3.4.
+    ///   Every other caller leaves it nil and behaves exactly as before.
+    func tourTip<T: Tip>(_ tip: T?, arrowEdge: Edge = .top, enabled: Bool = true,
+                         onAdvance: (() -> Void)? = nil) -> some View {
+        modifier(TourTipModifier(tip: tip, arrowEdge: arrowEdge, enabled: enabled, onAdvance: onAdvance))
     }
 }
 
@@ -487,6 +493,7 @@ private struct TourTipModifier<T: Tip>: ViewModifier {
     let tip: T?
     let arrowEdge: Edge
     let enabled: Bool
+    var onAdvance: (() -> Void)? = nil
     @Environment(\.tourActive) private var tourActive
 
     func body(content: Content) -> some View {
@@ -496,6 +503,12 @@ private struct TourTipModifier<T: Tip>: ViewModifier {
                 "action": action.id,
             ])
             tip?.invalidate(reason: .actionPerformed)
+            // `currentTipUpdates` does not yield on `.actionPerformed`
+            // invalidation — only on eligibility (rule @Parameter) changes — so
+            // the ordered group's mirror would otherwise stay on the dismissed
+            // tip until the screen is re-entered and `.task` re-seeds it. Nudging
+            // the call site to re-read `currentTip` advances it in place. Backlog 3.4.
+            onAdvance?()
         }
     }
 }

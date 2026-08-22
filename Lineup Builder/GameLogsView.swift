@@ -50,6 +50,14 @@ struct GameLogsView: View {
     /// Free coaches see the tabs in teaser mode; Pro coaches see them in full.
     private var isTeaser: Bool { !purchaseManager.isPro }
 
+    /// Re-reads the ordered group's current tip after one runloop turn, so a tip
+    /// dismissed here advances the mirror in place rather than only on re-entry.
+    /// `currentTipUpdates` doesn't deliver an `.actionPerformed` advance; the hop
+    /// (not a tuned delay) lets TipKit recompute `currentTip` first. Backlog 3.4.
+    private func advanceHistoryTip() {
+        Task { @MainActor in currentHistoryTip = Tour.history.currentTip }
+    }
+
     // Tip overlay driven by parent iPhoneTabView
 
     enum HistoryTab { case players, games, team }
@@ -226,7 +234,8 @@ struct GameLogsView: View {
             .padding(.vertical, 8)
             .background(Color(.systemGroupedBackground))
             .tourTip(currentHistoryTip as? HistorySeasonViewsTip, arrowEdge: .top,
-                     enabled: isTourTabActive)
+                     enabled: isTourTabActive,
+                     onAdvance: advanceHistoryTip)
             .task {
                 // Seed with whatever's already resolved, then track every change.
                 // currentTipUpdates only yields non-nil tips, so a later group
