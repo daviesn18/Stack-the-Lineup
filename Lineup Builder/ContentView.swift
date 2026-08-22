@@ -383,9 +383,12 @@ struct ContentView: View {
     // MARK: - Tour State
 
     /// Every piece of state a tour tip gates on, in one comparable value.
+    /// Includes the team count so creating a second team re-triggers the sync
+    /// even when the new (empty) team's other counts happen to match the old
+    /// active team's — that is what lets the multi-team suppression fire.
     private var tourSignature: String {
         let assignments = store.lineup.innings.reduce(0) { $0 + $1.assignments.count }
-        return "\(store.players.count)-\(store.lineup.battingOrder.count)-\(assignments)-\(store.gameLogs.count)-\(purchaseManager.isPro)"
+        return "\(store.teams.count)-\(store.players.count)-\(store.lineup.battingOrder.count)-\(assignments)-\(store.gameLogs.count)-\(purchaseManager.isPro)"
     }
 
     /// Mirrors store/entitlement state into the TipKit parameters that gate
@@ -398,6 +401,10 @@ struct ContentView: View {
             archivedGames: store.gameLogs.count,
             isPro: purchaseManager.isPro
         )
+        // A coach with more than one team has already been through the app; retire
+        // the whole tour so a new roster doesn't replay it. Idempotent — does the
+        // work once, then no-ops. See TipsConfigurator.
+        TipsConfigurator.suppressTourForMultiTeamCoach(teamCount: store.teams.count)
     }
 
     // MARK: - Share-Sheet Roster Import

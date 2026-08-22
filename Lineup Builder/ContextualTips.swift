@@ -590,6 +590,53 @@ enum TipsConfigurator {
         PositionsWarningsTip().invalidate(reason: .actionPerformed)
     }
 
+    /// Arc 2 and the advanced/anchored tips — everything that isn't arc 1.
+    private static func suppressArcTwo() {
+        ReuseSaveTemplateTip().invalidate(reason: .actionPerformed)
+        ReuseApplyTemplateTip().invalidate(reason: .actionPerformed)
+        HistoryCopyGameTip().invalidate(reason: .actionPerformed)
+        HistorySeasonViewsTip().invalidate(reason: .actionPerformed)
+        AutoFillConstraintsTip().invalidate(reason: .actionPerformed)
+        AskSiriTip().invalidate(reason: .actionPerformed)
+        ShareTeamTip().invalidate(reason: .actionPerformed)
+        TourInSettingsTip().invalidate(reason: .actionPerformed)
+    }
+
+    // MARK: - Multi-team suppression
+    //
+    // The contextual tour is a *first-team* experience. Its eligibility rules
+    // read `TourState` @Parameters that mirror the **active** team, so setting up
+    // a second team resets `hasArchivedGame` to false and re-arms all of arc 1 —
+    // walking a coach who already knows the app through roster/lineup/positions
+    // again. A coach with more than one team is, by definition, past that. Retire
+    // the whole tour for them; invalidation lives in TipKit's datastore, which is
+    // account-level, so "seen once" then holds across every team.
+
+    private static let autoSuppressTourKey = "didAutoSuppressTourForMultiTeam"
+
+    /// Latched once the tour has been auto-retired for an experienced coach.
+    /// Deliberately **not** cleared by `restartTour()`: a coach who explicitly
+    /// restarts still has >1 team, and re-suppressing them the next time
+    /// `syncTourState` runs would make "Take the Tour" silently do nothing. The
+    /// latch is what lets an explicit restart win over the automatic suppression.
+    private static var didAutoSuppressTour: Bool {
+        UserDefaults.standard.bool(forKey: autoSuppressTourKey)
+    }
+
+    /// Retire the tour for a coach who has more than one team. Runs at most once
+    /// per account (guarded by the latch), and is a no-op for a single-team coach
+    /// so a genuine first-time user still gets the full walkthrough. Also sets the
+    /// existing `didSkipArcOne` flag so the initial-tab logic treats them as the
+    /// experienced coach they are rather than forcing the Players tab.
+    static func suppressTourForMultiTeamCoach(teamCount: Int) {
+        guard teamCount > 1, !didAutoSuppressTour else { return }
+        UserDefaults.standard.set(true, forKey: autoSuppressTourKey)
+        UserDefaults.standard.set(true, forKey: "didSkipArcOne")
+        suppressArcOne()
+        suppressArcTwo()
+        Analytics.signal("tour.suppressed.multiTeam")
+    }
+
     /// A coach who was already using the app shouldn't be walked through it
     /// again. If they'd seen the old onboarding — or simply have real data —
     /// arc 1 is suppressed wholesale. This replaces the five hand-written
