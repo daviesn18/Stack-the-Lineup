@@ -304,6 +304,12 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     checkArchiveNudge()
                 }
+            } else {
+                // Leaving the foreground (.inactive / .background): flush any
+                // debounced CloudKit push so an edit made just before backgrounding
+                // isn't stranded behind the trailing timer. The local write already
+                // happened in save(); this only forces the cloud round-trip early.
+                store.flushCloudPushes()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .apnsTokenReceived)) { _ in

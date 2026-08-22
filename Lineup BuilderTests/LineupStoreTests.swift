@@ -324,3 +324,99 @@ final class LineupStoreTests: XCTestCase {
             cloudData: blob, cloudSavedAt: 0, localData: blob, localSavedAt: 100))
     }
 }
+
+// MARK: - CloudPushDebouncer Tests
+//
+// The debounce policy behind the CloudKit push (backlog 3.2), tested in
+// isolation from CloudKit. The flush-driven cases are deterministic; the two
+// timer cases use a short interval with wide margins to avoid flake.
+
+@MainActor
+final class CloudPushDebouncerTests: XCTestCase {
+
+    /// Escaping, non-Sendable sink for the fired id sets — the debouncer calls
+    /// `perform` on the main actor and the test reads it on the main actor.
+    private final class Sink { var calls: [Set<UUID>] = [] }
+
+    // MARK: - Flush (deterministic)
+
+    func testRepeatedSchedulesCoalesceToOneFlush() {
+        let sink = Sink()
+        let debouncer = CloudPushDebouncer(interval: .seconds(60)) { sink.calls.append($0) }
+        let a = UUID()
+
+        debouncer.schedule(a)
+        debouncer.schedule(a)
+        debouncer.schedule(a)
+        XCTAssertTrue(debouncer.hasPendingWork)
+
+        debouncer.flush()
+
+        XCTAssertEqual(sink.calls, [[a]], "Three schedules of one team must flush as a single push")
+        XCTAssertFalse(debouncer.hasPendingWork)
+    }
+
+    func testFlushDrainsEveryDirtyTeam() {
+        let sink = Sink()
+        let debouncer = CloudPushDebouncer(interval: .seconds(60)) { sink.calls.append($0) }
+        let a = UUID(), b = UUID()
+
+        // A team switch between edits must not drop the first team's push.
+        debouncer.schedule(a)
+        debouncer.schedule(b)
+        debouncer.flush()
+
+        XCTAssertEqual(sink.calls.count, 1)
+        XCTAssertEqual(sink.calls.first, [a, b], "Both dirty teams must be pushed together")
+    }
+
+    func testFlushWithNothingPendingIsANoOp() {
+        let sink = Sink()
+        let debouncer = CloudPushDebouncer(interval: .seconds(60)) { sink.calls.append($0) }
+
+        debouncer.flush()
+
+        XCTAssertTrue(sink.calls.isEmpty, "Flushing with no dirty teams must not fire perform")
+        XCTAssertFalse(debouncer.hasPendingWork)
+    }
+
+    func testDirtySetResetsAfterFlush() {
+        let sink = Sink()
+        let debouncer = CloudPushDebouncer(interval: .seconds(60)) { sink.calls.append($0) }
+        let a = UUID(), b = UUID()
+
+        debouncer.schedule(a)
+        debouncer.flush()
+        debouncer.schedule(b)
+        debouncer.flush()
+
+        XCTAssertEqual(sink.calls, [[a], [b]], "A team pushed once must not re-appear in the next flush")
+    }
+
+    // MARK: - Trailing timer (short interval, wide margins)
+
+    func testTrailingTimerFiresWithoutAFlush() async throws {
+        let sink = Sink()
+        let debouncer = CloudPushDebouncer(interval: .milliseconds(40)) { sink.calls.append($0) }
+        let a = UUID()
+
+        debouncer.schedule(a)
+        try await Task.sleep(for: .milliseconds(220))
+
+        XCTAssertEqual(sink.calls, [[a]], "The trailing timer must fire the push on its own")
+        XCTAssertFalse(debouncer.hasPendingWork)
+    }
+
+    func testScheduleWithinIntervalRestartsTheTimer() async throws {
+        let sink = Sink()
+        let debouncer = CloudPushDebouncer(interval: .milliseconds(60)) { sink.calls.append($0) }
+        let a = UUID()
+
+        debouncer.schedule(a)
+        try await Task.sleep(for: .milliseconds(30))   // before the first timer would fire
+        debouncer.schedule(a)                          // restarts the clock
+        try await Task.sleep(for: .milliseconds(240))
+
+        XCTAssertEqual(sink.calls, [[a]], "A reschedule inside the window must still produce one push")
+    }
+}

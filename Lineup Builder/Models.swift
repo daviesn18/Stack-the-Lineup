@@ -1212,6 +1212,72 @@ enum PendingRosterImport {
     }
 }
 
+// MARK: - CloudPushDebouncer
+//
+// Coalesces the CloudKit push behind a trailing-edge debounce. It does NOT
+// touch the local write: `save()` still persists to UserDefaults and the iCloud
+// KV store synchronously on every call, so nothing here widens the crash window
+// on the July-incident path. What it delays is the already fire-and-forget
+// `CloudKitManager.saveTeam` round-trip, which used to run once per position
+// drag — ~70 `save()` sites, each its own upload.
+//
+// Keyed by team id rather than a single slot on purpose: a coach who edits team
+// A, switches to B, then edits B must not have A's pending push dropped. Every
+// dirty team is remembered and flushed together, and `perform` re-reads each
+// team's *current* state at fire time, so the push always carries the latest
+// edit rather than a snapshot from when the timer started.
+//
+// A crash or force-quit before the timer fires loses only the cloud copy of the
+// last couple of seconds; the local blob already has it and the next `save()`
+// (or the next launch's save) re-pushes. `flush()` on scenePhase background
+// closes that window for the ordinary case.
+@MainActor
+final class CloudPushDebouncer {
+
+    private var dirty: Set<UUID> = []
+    private var timer: Task<Void, Never>?
+    private let interval: Duration
+    private let perform: (Set<UUID>) -> Void
+
+    /// - Parameter perform: run with the set of team ids that went dirty since
+    ///   the last fire. Called on the main actor. Kicks off the actual uploads.
+    init(interval: Duration = .seconds(2), perform: @escaping (Set<UUID>) -> Void) {
+        self.interval = interval
+        self.perform = perform
+    }
+
+    /// Mark a team dirty and (re)start the trailing timer. Repeated calls within
+    /// `interval` coalesce into one fire; the clock restarts on each call.
+    func schedule(_ id: UUID) {
+        dirty.insert(id)
+        timer?.cancel()
+        timer = Task { [weak self] in
+            guard let self else { return }
+            do { try await Task.sleep(for: self.interval) } catch { return }  // cancelled
+            self.fire()
+        }
+    }
+
+    /// Push everything dirty right now, cancelling the pending timer. Safe to
+    /// call when nothing is pending — it simply does nothing.
+    func flush() {
+        timer?.cancel()
+        timer = nil
+        fire()
+    }
+
+    /// For tests and diagnostics: are there un-flushed dirty teams?
+    var hasPendingWork: Bool { !dirty.isEmpty }
+
+    private func fire() {
+        timer = nil
+        guard !dirty.isEmpty else { return }
+        let ids = dirty
+        dirty.removeAll()
+        perform(ids)
+    }
+}
+
 class LineupStore: ObservableObject {
 
     // MARK: - Published State
@@ -1311,38 +1377,73 @@ class LineupStore: ObservableObject {
     private let maxGameLogs   = 20
 
     // MARK: - Init
+    /// Trailing-edge debounce for the CloudKit push. See `CloudPushDebouncer`.
+    /// `lazy` so its `perform` closure can capture `self`; the debounce interval
+    /// is the window a burst of drags coalesces into a single upload.
+    private lazy var cloudPushDebouncer = CloudPushDebouncer { [weak self] ids in
+        self?.pushDirtyTeamsToCloud(ids)
+    }
+
     init() { load() }
 
     // MARK: - Persistence
 
     func save() {
+        // Local write is immediate and unconditional — it is the durability
+        // guarantee. Only the CloudKit push is coalesced (see below), so a burst
+        // of position drags produces one upload instead of ~70 without ever
+        // delaying the on-disk write.
         saveLocalOnly()
 
-        // CloudKit push — fire and forget, fully isolated from the local write path.
-        // Only the active team is pushed; it is always the one that was just mutated.
-        // If CloudKit returns a new ckRecordName (first-ever save for this team),
-        // stamp it back onto the in-memory team and persist locally.
+        // Debounce the CloudKit push. Only the active team is ever mutated, so
+        // it is the only one that needs pushing here; the debouncer remembers it
+        // across a team switch and re-reads its live state at fire time. The
+        // read-only guard is re-checked in `pushDirtyTeamsToCloud` — a
+        // permission change between scheduling and firing is honored there.
         guard let activeTeamID else { return }
-        let teamCopy = teams.first(where: { $0.id == activeTeamID })
-        // Read-only participants cannot write back to CloudKit.
-        // Read-write participants (isSharedParticipant && !isReadOnly) can and should.
-        guard let teamCopy, !teamCopy.isReadOnly else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let recordName = try await CloudKitManager.shared.saveTeam(teamCopy, useSharedDB: teamCopy.isSharedParticipant)
-                if teamCopy.ckRecordName == nil {
-                    await MainActor.run {
-                        if let idx = self.teams.firstIndex(where: { $0.id == teamCopy.id }) {
-                            self.teams[idx].ckRecordName = recordName
-                            self.saveLocalOnly()
+        cloudPushDebouncer.schedule(activeTeamID)
+    }
+
+    /// Uploads the current state of each dirty team to CloudKit. Runs on the
+    /// main actor from the debouncer's trailing edge (or an explicit flush).
+    ///
+    /// Fire-and-forget, exactly as the pre-debounce push was — no caller ever
+    /// awaited it. If CloudKit returns a new ckRecordName (first-ever save for a
+    /// team), it is stamped back onto the in-memory team and persisted locally.
+    private func pushDirtyTeamsToCloud(_ ids: Set<UUID>) {
+        for id in ids {
+            // Re-read live state at fire time so the upload carries the latest
+            // edit, not a snapshot from when the timer started.
+            guard let team = teams.first(where: { $0.id == id }) else { continue }
+            // Read-only participants cannot write back to CloudKit.
+            // Read-write participants (isSharedParticipant && !isReadOnly) can and should.
+            guard !team.isReadOnly else { continue }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let recordName = try await CloudKitManager.shared.saveTeam(team, useSharedDB: team.isSharedParticipant)
+                    if team.ckRecordName == nil {
+                        await MainActor.run {
+                            if let idx = self.teams.firstIndex(where: { $0.id == team.id }) {
+                                self.teams[idx].ckRecordName = recordName
+                                self.saveLocalOnly()
+                            }
                         }
                     }
+                } catch {
+                    Log.sync.error("CloudKit save failed: \(error.localizedDescription, privacy: .public)")
                 }
-            } catch {
-                Log.sync.error("CloudKit save failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    /// Pushes any pending CloudKit writes immediately, cancelling the debounce
+    /// timer. Call when the app is leaving the foreground (scenePhase background)
+    /// so a coach who edits and immediately backgrounds doesn't strand the last
+    /// upload. The local write already happened in `save()`, so a push missed
+    /// here is recovered by the next `save()` rather than lost.
+    func flushCloudPushes() {
+        cloudPushDebouncer.flush()
     }
 
     /// Stamps a ckRecordName onto a team after a CloudKit save that happened
