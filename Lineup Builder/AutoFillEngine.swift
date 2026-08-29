@@ -198,12 +198,21 @@ nonisolated struct AutoFillResult {
 // always treated as locked.
 //
 // FIELD SLOT ORDERING (who gets field positions first):
-//   1. Players who were benched last inning (they need out most)
-//      — within that group, fair play need honoured: missing infield first,
-//        then missing outfield, then no constraint
-//   2. Players still missing an infield inning
-//   3. Players still missing an outfield inning
-//   4. Everyone else
+//   When config.noConsecutiveBench is ON (the default):
+//     1. Players who were benched last inning (they need out most)
+//     2. Players still missing an infield inning
+//     3. Players still missing an outfield inning
+//     4. Everyone else
+//   Front-loading the benched-last group is THE mechanism that avoids
+//   back-to-back bench. When the coach turns the rule OFF, tier 1 is dropped
+//   and benched-last players are ordered by zone need like everyone else, so
+//   a player can sit two innings in a row again.
+//
+//   When config.equalBenchTime is ON, bench innings-so-far is applied as an
+//   OUTER sort on top of the above: players who've already sat the most field
+//   first, so the leftover benchers are always those who've sat the fewest —
+//   i.e. nobody sits twice before everyone has sat once. The ordering above
+//   breaks ties within an equal bench count.
 //
 // BENCH SLOT ORDERING (who sits when roster > 9 field slots):
 //   Sorted ascending by bench innings so far (fewest bench innings sits next).
@@ -211,6 +220,11 @@ nonisolated struct AutoFillResult {
 //   innings played (longer streak → more eligible for a rest).
 //   Back-to-back bench is avoided where possible but assigned anyway if
 //   unavoidable — the Fair Play warning system surfaces it.
+//   EXCEPTION: when constraints.patternRules.benchInConsecutivePairs is set
+//   (a per-fill natural-language rule, never a default), the engine does the
+//   opposite for a mid-pair player — it holds them on the bench a second
+//   straight inning to complete a two-inning sit. Soft: only when other
+//   players can still cover every open field position.
 //
 // POSITION PREFERENCES:
 //   When a preferences dict is supplied, position selection within each fair-play
@@ -436,6 +450,23 @@ enum AutoFillEngine {
         func benchedLastInning(_ player: Player) -> Bool {
             guard inningIndex > 0 else { return false }
             return lineup.innings[inningIndex - 1].position(for: player) == .bench
+        }
+
+        /// True when the bench-pairing pattern rule obligates this player to
+        /// sit the current inning: they sat the previous inning but NOT the
+        /// one before it, so they're mid-pair and owe one more sit. A player
+        /// who already sat two in a row is deliberately excluded — the pair is
+        /// complete and forcing a third consecutive sit would snowball on a
+        /// short roster.
+        func mustCompleteBenchPair(_ player: Player) -> Bool {
+            guard constraints.patternRules.benchInConsecutivePairs else { return false }
+            guard inningIndex >= 1 else { return false }
+            guard lineup.innings[inningIndex - 1].position(for: player) == .bench else { return false }
+            if inningIndex >= 2,
+               lineup.innings[inningIndex - 2].position(for: player) == .bench {
+                return false
+            }
+            return true
         }
 
         func consecutiveFieldInnings(_ player: Player) -> Int {
@@ -744,10 +775,41 @@ enum AutoFillEngine {
             }
         }
 
+        // MARK: - Bench-Pairing Pass (pattern rule)
+        //
+        // When the coach activated the bench-pairing rule for this fill, any
+        // player who is mid-pair (sat last inning, didn't sit the inning
+        // before) is held on the bench again now to complete their two-inning
+        // sit — the deliberate inverse of the field queue's usual habit of
+        // pulling a benched-last player straight back onto the field.
+        //
+        // Soft, not hard: only hold a player back while there are still enough
+        // other field-eligible players to cover every open position. This keeps
+        // the rule from manufacturing an empty field slot (and a misleading
+        // "roster too small" notice) on a tight bench. Pairing-forced benches
+        // are tracked separately so they aren't reported as benched-out-of-turn
+        // — sitting the pair is exactly what the coach asked for, not a
+        // fair-play override.
+        var pairingBenchPlayerIDs: Set<UUID> = []
+        if constraints.patternRules.benchInConsecutivePairs {
+            let fieldEligible = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) }
+            // Everyone beyond what's needed to field every open position is
+            // surplus that can be held back; that surplus is the pairing budget.
+            var benchBudget = max(0, fieldEligible.count - openPositions.count)
+            for player in fieldEligible where mustCompleteBenchPair(player) {
+                guard benchBudget > 0 else { break }
+                forcedBenchPlayerIDs.insert(player.id)
+                pairingBenchPlayerIDs.insert(player.id)
+                benchBudget -= 1
+            }
+        }
+
         // Forced-bench players: flag when it puts them ahead of their normal
         // rotation turn (some other still-active, non-forced player has
         // fewer bench innings so far and is about to play the field).
-        for playerID in forcedBenchPlayerIDs {
+        // Pairing-forced sits are excluded — they're the rule working as asked,
+        // not an out-of-turn override.
+        for playerID in forcedBenchPlayerIDs.subtracting(pairingBenchPlayerIDs) {
             guard let player = active.first(where: { $0.id == playerID }) else { continue }
             let thisBenchCount = benchInningsSoFar(player)
             let othersWithFewerBench = active.contains { other in
@@ -764,13 +826,55 @@ enum AutoFillEngine {
         }
 
         // MARK: - Field Assignment Queue
+        //
+        // Order determines who plays the field vs. who's left for the bench:
+        // positions fill from the front, and whoever the open slots run out
+        // before is benched.
+        //
+        // The no-back-to-back-bench rule lives HERE, and only here. When
+        // config.noConsecutiveBench is on (the default), players who sat last
+        // inning are pulled to the very front so they get first claim on a
+        // field slot — that's what stops a player sitting two innings running.
+        // When the coach turns the rule off, that front-loading is dropped and
+        // a benched-last player is ordered by fair-play zone need like anyone
+        // else, so back-to-back bench becomes possible again. (Bench pairing,
+        // a separate per-fill pattern rule, has already force-benched its
+        // mid-pair players above, so they're excluded here regardless.)
+        let fieldEligible = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) }
 
-        let benchedLast = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && benchedLastInning($0) }.shuffled()
-        let needsIF = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && !benchedLastInning($0) && needsInfield($0) }.shuffled()
-        let needsOF = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && !benchedLastInning($0) && !needsInfield($0) && needsOutfield($0) }.shuffled()
-        let rest    = unassigned.filter { !forcedBenchPlayerIDs.contains($0.id) && !benchedLastInning($0) && !needsInfield($0) && !needsOutfield($0) }.shuffled()
+        // Standard fair-play ordering for a pool of players: with the
+        // no-back-to-back rule on, the just-benched go first (so they don't sit
+        // twice running); then players still missing an infield inning, then a
+        // missing outfield inning, then everyone else. Shuffled within each tier
+        // so equal claims rotate fairly rather than following roster order.
+        func standardFieldOrder(_ pool: [Player]) -> [Player] {
+            if config.noConsecutiveBench {
+                let benchedLast = pool.filter { benchedLastInning($0) }.shuffled()
+                let needsIF = pool.filter { !benchedLastInning($0) && needsInfield($0) }.shuffled()
+                let needsOF = pool.filter { !benchedLastInning($0) && !needsInfield($0) && needsOutfield($0) }.shuffled()
+                let rest    = pool.filter { !benchedLastInning($0) && !needsInfield($0) && !needsOutfield($0) }.shuffled()
+                return benchedLast + needsIF + needsOF + rest
+            } else {
+                let needsIF = pool.filter { needsInfield($0) }.shuffled()
+                let needsOF = pool.filter { !needsInfield($0) && needsOutfield($0) }.shuffled()
+                let rest    = pool.filter { !needsInfield($0) && !needsOutfield($0) }.shuffled()
+                return needsIF + needsOF + rest
+            }
+        }
 
-        let fieldQueue: [Player] = benchedLast + needsIF + needsOF + rest
+        let fieldQueue: [Player]
+        if config.equalBenchTime {
+            // Equal bench time: nobody sits twice before everyone has sat once.
+            // Bench count is the OUTER sort — players who've already sat the most
+            // get first claim on the field, so whoever is left over for the bench
+            // is always drawn from those who've sat the fewest. Within a single
+            // bench count, fall back to the standard fair-play order, so the zone
+            // and back-to-back rules still decide ties.
+            let byBenchCount = Dictionary(grouping: fieldEligible) { benchInningsSoFar($0) }
+            fieldQueue = byBenchCount.keys.sorted(by: >).flatMap { standardFieldOrder(byBenchCount[$0] ?? []) }
+        } else {
+            fieldQueue = standardFieldOrder(fieldEligible)
+        }
 
         for player in fieldQueue {
             guard !openPositions.isEmpty else { break }

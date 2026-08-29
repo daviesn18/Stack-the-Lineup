@@ -287,4 +287,226 @@ final class AutoFillEngineTests: XCTestCase {
         XCTAssertTrue(message?.contains("Inning") == true,
                       "Multi-inning message should reference specific inning numbers")
     }
+
+    // MARK: - Bench Pairing (patternRules.benchInConsecutivePairs)
+    //
+    // The rule a coach asked for that nothing in the app could express: once a
+    // player sits, they sit the next inning too. It's the deliberate inverse of
+    // the engine's usual back-to-back-bench avoidance, activated per fill via a
+    // pattern rule (in production, set by the natural-language parser).
+
+    private func benched(_ player: Player, inning: Int, in lineup: Lineup) -> Bool {
+        position(for: player, inning: inning, in: lineup) == .bench
+    }
+
+    private var pairingConstraints: AutoFillConstraintSet {
+        AutoFillConstraintSet(
+            playerConstraints: [],
+            patternRules: AutoFillPatternRules(benchInConsecutivePairs: true)
+        )
+    }
+
+    /// With 10 players and 9 field slots, exactly one player sits each inning.
+    /// Under bench pairing, whoever sat inning 1 must also sit inning 2.
+    func testBenchPairingHoldsSitterForASecondInning() {
+        let players = (1...10).map { makePlayer("P\($0)") }
+        let fill = AutoFillEngine.fillInnings(
+            through: 1, in: makeLineup(innings: 2), players: players,
+            constraints: pairingConstraints
+        )
+
+        let sittersInning0 = players.filter { benched($0, inning: 0, in: fill.lineup) }
+        XCTAssertEqual(sittersInning0.count, 1, "Exactly one of 10 players should sit with 9 field slots")
+        for sitter in sittersInning0 {
+            XCTAssertTrue(benched(sitter, inning: 1, in: fill.lineup),
+                          "\(sitter.firstName) sat inning 1 and must sit inning 2 under bench pairing")
+        }
+    }
+
+    /// The contrast case: default (no pattern rule) actively AVOIDS back-to-back
+    /// bench, so the inning-1 sitter is pulled straight back onto the field in
+    /// inning 2. This is exactly the behavior bench pairing inverts.
+    func testDefaultAvoidsBackToBackBench() {
+        let players = (1...10).map { makePlayer("P\($0)") }
+        let fill = AutoFillEngine.fillInnings(
+            through: 1, in: makeLineup(innings: 2), players: players
+        )
+
+        let sittersInning0 = players.filter { benched($0, inning: 0, in: fill.lineup) }
+        XCTAssertEqual(sittersInning0.count, 1)
+        for sitter in sittersInning0 {
+            XCTAssertFalse(benched(sitter, inning: 1, in: fill.lineup),
+                           "Default fill should not bench \(sitter.firstName) two innings in a row")
+        }
+    }
+
+    /// The obligation is exactly one extra inning: a player who has already sat
+    /// two in a row is released rather than held for a third. Over a full game
+    /// every bench run should therefore be a clean pair (except one that starts
+    /// on the final inning, which can't be completed).
+    func testBenchPairingReleasesAfterTwoInnings() {
+        let players = (1...10).map { makePlayer("P\($0)") }
+        let innings = 6
+        let fill = AutoFillEngine.fillGame(
+            in: makeLineup(innings: innings), players: players,
+            constraints: pairingConstraints
+        )
+
+        for player in players {
+            var i = 0
+            while i < innings {
+                guard benched(player, inning: i, in: fill.lineup) else { i += 1; continue }
+                // Measure the length of this consecutive bench run.
+                var runEnd = i
+                while runEnd + 1 < innings && benched(player, inning: runEnd + 1, in: fill.lineup) {
+                    runEnd += 1
+                }
+                let runLength = runEnd - i + 1
+                // A run that starts before the last inning must be a pair (or a
+                // completed pair; never an isolated single). A run beginning on
+                // the final inning can't be paired and is allowed to be length 1.
+                if i < innings - 1 {
+                    XCTAssertEqual(runLength, 2,
+                        "\(player.firstName)'s bench run starting at inning \(i + 1) should be a clean pair, was \(runLength)")
+                }
+                i = runEnd + 1
+            }
+        }
+    }
+
+    /// Soft, not hard: pairing never manufactures an empty field slot. Two
+    /// players are forced onto the bench in inning 1 via explicit constraints,
+    /// so both are mid-pair in inning 2 — but with only one surplus player, the
+    /// engine may complete only one pair and must still field all nine spots.
+    func testBenchPairingIsSoftAndKeepsAFullField() {
+        let players = (1...10).map { makePlayer("P\($0)") }
+        let benchTwo = [players[0], players[1]].map {
+            AutoFillPlayerConstraint(
+                playerID: $0.id, target: .bench, inningRange: 0...0, intent: .assign
+            )
+        }
+        let constraints = AutoFillConstraintSet(
+            playerConstraints: benchTwo,
+            patternRules: AutoFillPatternRules(benchInConsecutivePairs: true)
+        )
+
+        let fill = AutoFillEngine.fillInnings(
+            through: 1, in: makeLineup(innings: 2), players: players,
+            constraints: constraints
+        )
+
+        // Inning 2 (index 1): both players[0] and players[1] are mid-pair, but
+        // holding both would leave a field slot open. The guard caps the held
+        // count so all nine field positions stay filled.
+        let inning1Unfilled = fill.unfilledSlots.filter { $0.inningIndex == 1 }
+        XCTAssertTrue(inning1Unfilled.isEmpty,
+                      "Bench pairing must not leave a field slot unfilled: \(inning1Unfilled.map { $0.position.rawValue })")
+        let sittersInning1 = players.filter { benched($0, inning: 1, in: fill.lineup) }
+        XCTAssertEqual(sittersInning1.count, 1,
+                       "With one surplus player only one pair can be completed in inning 2")
+    }
+
+    // MARK: - No-Back-to-Back-Bench Toggle (config.noConsecutiveBench)
+    //
+    // Previously this Fair Play toggle only drove the warning badge — the
+    // engine avoided back-to-back bench regardless of it. It now actually
+    // gates the field-queue front-loading that does the avoiding, so turning
+    // the rule off lets a player sit two innings running.
+
+    /// Counts how many times any player is benched in two consecutive innings
+    /// across the whole lineup.
+    private func backToBackBenchCount(_ lineup: Lineup, players: [Player]) -> Int {
+        var count = 0
+        for player in players {
+            for inning in 1..<lineup.innings.count
+            where benched(player, inning: inning - 1, in: lineup)
+                && benched(player, inning: inning, in: lineup) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    /// One comparison proves both halves of the fix: with the rule ON the
+    /// engine never benches a player two innings running (it's always
+    /// avoidable at 12 players / 9 slots), and with the rule OFF back-to-back
+    /// bench is permitted and does occur. Run many times because field/bench
+    /// selection is shuffled — the ON invariant must hold on every trial, and
+    /// the OFF case need only surface across the batch.
+    func testNoConsecutiveBenchToggleGatesBackToBack() {
+        let players = (1...12).map { makePlayer("P\($0)") }
+        let innings = 6
+
+        var onConfig = FairPlayConfig()
+        onConfig.noConsecutiveBench = true
+        var offConfig = FairPlayConfig()
+        offConfig.noConsecutiveBench = false
+
+        var onTotal = 0
+        var offTotal = 0
+        for _ in 0..<60 {
+            let on = AutoFillEngine.fillGame(
+                in: makeLineup(innings: innings), players: players, config: onConfig
+            )
+            onTotal += backToBackBenchCount(on.lineup, players: players)
+
+            let off = AutoFillEngine.fillGame(
+                in: makeLineup(innings: innings), players: players, config: offConfig
+            )
+            offTotal += backToBackBenchCount(off.lineup, players: players)
+        }
+
+        XCTAssertEqual(onTotal, 0,
+            "With No Back-to-Back Bench on, the engine should never sit a player two innings running when it's avoidable")
+        XCTAssertGreaterThan(offTotal, 0,
+            "With the rule off, back-to-back bench should be permitted and occur at least sometimes")
+    }
+
+    // MARK: - Equal Bench Time Toggle (config.equalBenchTime)
+    //
+    // Another Fair Play toggle that used to be warning-only. It now gates an
+    // outer sort on the field queue: whoever's left for the bench is always
+    // drawn from the players who've sat the fewest, so nobody sits twice before
+    // everyone has sat once.
+
+    private func benchCount(_ player: Player, in lineup: Lineup) -> Int {
+        (0..<lineup.innings.count).filter { benched(player, inning: $0, in: lineup) }.count
+    }
+
+    /// Widest gap between any two players' total bench innings. Equal bench time
+    /// keeps this to at most 1.
+    private func benchSpread(_ lineup: Lineup, players: [Player]) -> Int {
+        let counts = players.map { benchCount($0, in: lineup) }
+        return (counts.max() ?? 0) - (counts.min() ?? 0)
+    }
+
+    /// With the rule on, bench counts stay within 1 of each other on every
+    /// trial (nobody sits twice before all have sat once). With it off, an
+    /// uneven spread of 2+ is permitted and shows up across the batch. Run
+    /// repeatedly because selection is shuffled.
+    func testEqualBenchTimeToggleGatesBenchBalance() {
+        let players = (1...10).map { makePlayer("P\($0)") }
+        let innings = 8
+
+        var onConfig = FairPlayConfig()
+        onConfig.equalBenchTime = true
+        let offConfig = FairPlayConfig() // equalBenchTime defaults false
+
+        var offSawImbalance = false
+        for _ in 0..<80 {
+            let on = AutoFillEngine.fillGame(
+                in: makeLineup(innings: innings), players: players, config: onConfig
+            )
+            XCTAssertLessThanOrEqual(benchSpread(on.lineup, players: players), 1,
+                "Equal bench time must not let anyone sit twice before everyone has sat once")
+
+            let off = AutoFillEngine.fillGame(
+                in: makeLineup(innings: innings), players: players, config: offConfig
+            )
+            if benchSpread(off.lineup, players: players) >= 2 { offSawImbalance = true }
+        }
+
+        XCTAssertTrue(offSawImbalance,
+            "With equal bench time off, an uneven bench spread (2+) should be possible")
+    }
 }

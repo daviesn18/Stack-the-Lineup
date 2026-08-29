@@ -89,6 +89,9 @@ struct NLPlayerConstraintFallback {
 @Generable
 struct NLAutoFillConstraintsFallback {
     var constraints: [NLPlayerConstraintFallback]
+
+    @Guide(description: "True only if the coach asks that bench time come in consecutive pairs — e.g. \"players sit two innings in a row\", \"if someone sits an inning they sit the next too\", \"double up the bench\". This is a game-wide pattern that names no specific player. False otherwise.")
+    var benchInConsecutivePairs: Bool
 }
 
 // MARK: - Parse output
@@ -108,6 +111,12 @@ struct AutoFillNLDiagnostic {
         /// exactly how "Jake starts on the bench then plays OF" silently
         /// became "Jake plays OF" with no bench assignment and no warning.
         case possibleDroppedClause(parsed: Int, expected: Int)
+        /// A game-wide pattern rule was understood and applied. Not a miss —
+        /// a positive confirmation. Surfaced through the same channel because
+        /// a niche rule that names no player and produces no visible per-player
+        /// assignment otherwise leaves the coach unable to tell it registered
+        /// at all, which is the exact failure that made the feature look broken.
+        case patternRuleApplied(String)
     }
     let kind: Kind
 
@@ -120,6 +129,8 @@ struct AutoFillNLDiagnostic {
         case .possibleDroppedClause(let parsed, let expected):
             let picked = parsed == 1 ? "1 instruction" : "\(parsed) instructions"
             return "Your notes looked like they had about \(expected) instructions but only \(picked) came through. Check the lineup, and try putting each instruction on its own line."
+        case .patternRuleApplied(let description):
+            return description
         }
     }
 }
@@ -392,7 +403,17 @@ final class AutoFillNLConstraintService {
         Relative ranges are counted from where the previous clause left off. \
         "The next 2" after an inning-1 clause means innings 2 and 3.
 
-        Ignore general strategy notes that name no specific player.
+        Ignore general strategy notes that name no specific player, with ONE \
+        exception: the bench-pairing pattern below.
+
+        BENCH PAIRING. Set benchInConsecutivePairs to true when the coach wants \
+        players to sit consecutively — "have players sit two innings in a row", \
+        "if a player sits one inning, have them sit the next too", "double up \
+        the bench so nobody sits just once". This names no specific player and \
+        produces NO per-player entry; it only sets that one flag. Leave it false \
+        for everything else, including ordinary bench placements for a named \
+        player ("Jake starts on the bench"), which are per-player entries, not \
+        this pattern.
 
         Intent: use "assign" to place a player somewhere, "avoid" to keep them \
         out of it, "prioritize" to prefer it without forcing it.
@@ -458,6 +479,11 @@ final class AutoFillNLConstraintService {
                     name: "constraints",
                     description: "One entry per player-specific instruction. Empty if the prompt names no players.",
                     schema: DynamicGenerationSchema(arrayOf: constraintSchema)
+                ),
+                DynamicGenerationSchema.Property(
+                    name: "benchInConsecutivePairs",
+                    description: "True only if the coach asks that bench time come in consecutive pairs — e.g. \"players sit two innings in a row\", \"if someone sits an inning they sit the next too\", \"double up the bench\". This is a game-wide pattern that names no specific player. False otherwise.",
+                    schema: DynamicGenerationSchema(type: Bool.self)
                 )
             ]
         )
@@ -485,11 +511,22 @@ final class AutoFillNLConstraintService {
     private func resolveDynamic(_ content: GeneratedContent) -> AutoFillNLParseResult {
         guard inningCount > 0 else { return .empty }
 
+        // Game-wide pattern rules are read independently of the per-player
+        // entries — a prompt can be nothing but a pattern rule ("have players
+        // sit two in a row"), which yields an empty constraints array but a
+        // live rule the engine still needs to act on.
+        let patternRules = AutoFillPatternRules(
+            benchInConsecutivePairs: (try? content.value(Bool.self, forProperty: "benchInConsecutivePairs")) ?? false
+        )
+
         guard let entries = try? content.value(
             [GeneratedContent].self,
             forProperty: "constraints"
         ) else {
-            return .empty
+            return AutoFillNLParseResult(
+                constraints: AutoFillConstraintSet(playerConstraints: [], patternRules: patternRules),
+                diagnostics: patternConfirmations(for: patternRules)
+            )
         }
 
         var resolved: [AutoFillPlayerConstraint] = []
@@ -526,9 +563,10 @@ final class AutoFillNLConstraintService {
 
         return AutoFillNLParseResult(
             constraints: AutoFillConstraintSet(
-                playerConstraints: withImplicitPitcherAvoids(resolved)
+                playerConstraints: withImplicitPitcherAvoids(resolved),
+                patternRules: patternRules
             ),
-            diagnostics: diagnostics
+            diagnostics: diagnostics + patternConfirmations(for: patternRules)
         )
     }
 
@@ -561,11 +599,15 @@ final class AutoFillNLConstraintService {
             ))
         }
 
+        let patternRules = AutoFillPatternRules(
+            benchInConsecutivePairs: raw.benchInConsecutivePairs
+        )
         return AutoFillNLParseResult(
             constraints: AutoFillConstraintSet(
-                playerConstraints: withImplicitPitcherAvoids(resolved)
+                playerConstraints: withImplicitPitcherAvoids(resolved),
+                patternRules: patternRules
             ),
-            diagnostics: diagnostics
+            diagnostics: diagnostics + patternConfirmations(for: patternRules)
         )
     }
 
@@ -622,6 +664,21 @@ final class AutoFillNLConstraintService {
         }
         if range.upperBound < totalInnings - 1 {
             result.append((range.upperBound + 1)...(totalInnings - 1))
+        }
+        return result
+    }
+
+    // MARK: - Pattern-rule confirmations
+
+    /// Positive, coach-readable confirmations for any active game-wide pattern
+    /// rule, so an applied rule that produces no visible per-player assignment
+    /// still tells the coach it was understood.
+    private func patternConfirmations(for rules: AutoFillPatternRules) -> [AutoFillNLDiagnostic] {
+        var result: [AutoFillNLDiagnostic] = []
+        if rules.benchInConsecutivePairs {
+            result.append(AutoFillNLDiagnostic(
+                kind: .patternRuleApplied("Bench pairing is on: once a player sits, they'll sit the next inning too, as long as enough others are available to field every spot.")
+            ))
         }
         return result
     }
