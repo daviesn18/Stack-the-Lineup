@@ -90,7 +90,7 @@ struct NLPlayerConstraintFallback {
 struct NLAutoFillConstraintsFallback {
     var constraints: [NLPlayerConstraintFallback]
 
-    @Guide(description: "True only if the coach asks that bench time come in consecutive pairs — e.g. \"players sit two innings in a row\", \"if someone sits an inning they sit the next too\", \"double up the bench\". This is a game-wide pattern that names no specific player. False otherwise.")
+    @Guide(description: "True if the coach wants any player who sits to sit two innings in a row — e.g. \"players sit two innings in a row\", \"any player who sits must sit 2 consecutive innings\", \"if someone sits an inning they sit the next too\", \"double up the bench\". \"2 consecutive innings\" or \"two in a row\" tied to sitting is this flag, not a per-player inning range. Names no specific player. False otherwise, including the opposite request (\"don't sit anyone twice in a row\").")
     var benchInConsecutivePairs: Bool
 }
 
@@ -220,7 +220,28 @@ final class AutoFillNLConstraintService {
     func parse(prompt: String) async throws -> AutoFillNLParseResult {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .empty }
-        guard isAvailable else { throw AutoFillNLParseError.unsupported }
+
+        // Deterministic pattern-rule detection runs FIRST and regardless of
+        // model availability. Game-wide pattern rules like bench pairing are a
+        // single boolean flipped from niche phrasing ("any player who sits must
+        // sit two consecutive innings"), and asking an on-device model to set
+        // one reliably from arbitrary wording is exactly the kind of thing it
+        // quietly gets wrong. A keyword scan is dull but dependable, in the same
+        // spirit as the name-matching fallbacks below.
+        let promptPatternRules = detectedPatternRules(in: trimmed)
+
+        guard isAvailable else {
+            // No model on this device. We can't parse per-player instructions,
+            // but a recognized pattern-rule prompt shouldn't need the model at
+            // all — honor it rather than throwing the whole prompt away.
+            guard !promptPatternRules.isEmpty else {
+                throw AutoFillNLParseError.unsupported
+            }
+            return AutoFillNLParseResult(
+                constraints: AutoFillConstraintSet(playerConstraints: [], patternRules: promptPatternRules),
+                diagnostics: patternConfirmations(for: promptPatternRules)
+            )
+        }
 
         // Normally already built by prewarm(). This is the safety net for a
         // Fill tapped before .onAppear's prewarm could run.
@@ -249,7 +270,96 @@ final class AutoFillNLConstraintService {
             result = resolveFallback(response.content)
         }
 
-        return withClauseCountCheck(result, prompt: trimmed)
+        // OR the deterministic detection over whatever the model produced, so a
+        // pattern rule the model missed is still applied.
+        let merged = mergingPatternRules(promptPatternRules, into: result)
+        return withClauseCountCheck(merged, prompt: trimmed)
+    }
+
+    // MARK: - Deterministic pattern-rule detection
+    //
+    // A keyword safety net for the game-wide pattern rules the model is asked to
+    // set as flags. These name no player and hinge on one boolean, so a missed
+    // one is invisible until the coach notices the lineup is wrong — the exact
+    // failure this whole service was built to avoid.
+
+    /// Pattern rules recognizable from the prompt text alone. Internal (not
+    /// private) so the deterministic detection can be unit-tested without an
+    /// on-device model, which the simulator doesn't provide.
+    func detectedPatternRules(in prompt: String) -> AutoFillPatternRules {
+        AutoFillPatternRules(
+            benchInConsecutivePairs: promptRequestsBenchPairing(prompt)
+        )
+    }
+
+    /// True when the prompt asks for consecutive bench innings, in the natural
+    /// ways a coach actually says it: "sit two in a row", "any player who sits
+    /// must sit 2 consecutive innings", "double up the bench", "if a player
+    /// sits, have them sit the next one too", "bench them again."
+    ///
+    /// In baseball "sit" IS "bench," so both vocabularies count. This leans
+    /// toward RECALL on purpose: the flag surfaces a visible "Bench pairing is
+    /// on" confirmation to the coach, so an over-trigger is cheap and instantly
+    /// correctable, whereas a silent miss is the exact failure that made the
+    /// feature look broken. A bench word is still required (so "two consecutive
+    /// innings at shortstop" doesn't trip it), and negations bail out ("no
+    /// back-to-back bench" is the opposite request, already the default).
+    private func promptRequestsBenchPairing(_ prompt: String) -> Bool {
+        let p = prompt.lowercased()
+
+        // Negation = the opposite request (avoid back-to-back / don't repeat a
+        // sit), which is already the default fair-play behavior.
+        let negations = [
+            "no back", "not back", "no consecutive", "not consecutive",
+            "no two in a row", "not two in a row", "no 2 in a row",
+            "don't sit", "do not sit", "dont sit", "never sit", "avoid sitting",
+            "don't have", "do not have", "dont have", "no double", "without sitting"
+        ]
+        if negations.contains(where: { p.contains($0) }) { return false }
+
+        // "sit" and "bench" are the same concept in sports lingo.
+        let benchTerms = ["sit", "sits", "sitting", "sat", "bench", "benched"]
+        guard benchTerms.contains(where: { p.contains($0) }) else { return false }
+
+        // Unambiguous pairing vocabulary.
+        let pairingTerms = [
+            "consecutive", "in a row", "back to back", "back-to-back",
+            "two in a row", "2 in a row", "twice in a row", "double up"
+        ]
+        if pairingTerms.contains(where: { p.contains($0) }) { return true }
+
+        // Conversational repetition forms: "sit them again", "sit the next one
+        // too / as well." A bench word is already present per the guard above.
+        if p.contains("again") { return true }
+        if p.contains("next") && (p.contains("too") || p.contains("also") || p.contains("as well")) {
+            return true
+        }
+
+        return false
+    }
+
+    /// Folds deterministically-detected pattern rules into a model parse result,
+    /// setting any flag the model left off and adding its coach-facing
+    /// confirmation exactly once.
+    private func mergingPatternRules(
+        _ detected: AutoFillPatternRules,
+        into result: AutoFillNLParseResult
+    ) -> AutoFillNLParseResult {
+        // Only bench pairing exists today; the guard keeps this a no-op unless
+        // the detector adds something the model result didn't already carry.
+        guard detected.benchInConsecutivePairs,
+              !result.constraints.patternRules.benchInConsecutivePairs else {
+            return result
+        }
+        var rules = result.constraints.patternRules
+        rules.benchInConsecutivePairs = true
+        return AutoFillNLParseResult(
+            constraints: AutoFillConstraintSet(
+                playerConstraints: result.constraints.playerConstraints,
+                patternRules: rules
+            ),
+            diagnostics: result.diagnostics + patternConfirmations(for: detected)
+        )
     }
 
     // MARK: - Dropped-clause heuristic
@@ -406,14 +516,18 @@ final class AutoFillNLConstraintService {
         Ignore general strategy notes that name no specific player, with ONE \
         exception: the bench-pairing pattern below.
 
-        BENCH PAIRING. Set benchInConsecutivePairs to true when the coach wants \
-        players to sit consecutively — "have players sit two innings in a row", \
-        "if a player sits one inning, have them sit the next too", "double up \
-        the bench so nobody sits just once". This names no specific player and \
+        BENCH PAIRING. Set benchInConsecutivePairs to true whenever the coach \
+        wants any player who sits to sit two innings in a row — "have players sit \
+        two innings in a row", "any player who sits must sit 2 consecutive \
+        innings", "if a player sits one inning, have them sit the next too", \
+        "nobody sits just once", "double up the bench". A phrase like "2 \
+        consecutive innings" or "two in a row" tied to sitting/benching is this \
+        rule, NOT a per-player inning range. It names no specific player and \
         produces NO per-player entry; it only sets that one flag. Leave it false \
         for everything else, including ordinary bench placements for a named \
         player ("Jake starts on the bench"), which are per-player entries, not \
-        this pattern.
+        this pattern, and the opposite request ("don't sit anyone twice in a \
+        row"), which is not this rule.
 
         Intent: use "assign" to place a player somewhere, "avoid" to keep them \
         out of it, "prioritize" to prefer it without forcing it.
@@ -482,7 +596,7 @@ final class AutoFillNLConstraintService {
                 ),
                 DynamicGenerationSchema.Property(
                     name: "benchInConsecutivePairs",
-                    description: "True only if the coach asks that bench time come in consecutive pairs — e.g. \"players sit two innings in a row\", \"if someone sits an inning they sit the next too\", \"double up the bench\". This is a game-wide pattern that names no specific player. False otherwise.",
+                    description: "True if the coach wants any player who sits to sit two innings in a row — e.g. \"players sit two innings in a row\", \"any player who sits must sit 2 consecutive innings\", \"if someone sits an inning they sit the next too\", \"double up the bench\". \"2 consecutive innings\" or \"two in a row\" tied to sitting is this flag, not a per-player inning range. Names no specific player. False otherwise, including the opposite request (\"don't sit anyone twice in a row\").",
                     schema: DynamicGenerationSchema(type: Bool.self)
                 )
             ]
