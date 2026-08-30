@@ -509,4 +509,37 @@ final class AutoFillEngineTests: XCTestCase {
         XCTAssertTrue(offSawImbalance,
             "With equal bench time off, an uneven bench spread (2+) should be possible")
     }
+
+    // MARK: - Forced bench vs. pitcher force-fill
+    //
+    // A forced-bench player (a coach's explicit "bench X", or a bench-pairing
+    // mid-pair sit) reads as position==nil until the bench queue runs, so the
+    // pitcher force-fill pass — which fills an otherwise-empty mound — must not
+    // quietly pull them onto it and override the instruction.
+
+    func testExplicitBenchIsNotOverriddenByPitcherForceFill() {
+        // Eight players who can play anywhere EXCEPT pitcher, plus one pitcher-
+        // eligible player (X). With X the only one who could pitch, the
+        // force-fill pass is the only thing that could fill the mound. Note the
+        // engine reads eligibility from the `preferences` argument, not from
+        // Player.positionPreferences, so the Never tags must be passed there.
+        let others = (1...8).map { makePlayer("O\($0)") }
+        let x = makePlayer("X") // untagged for pitcher → pitcher-eligible
+        let players = others + [x]
+        let preferences = Dictionary(uniqueKeysWithValues:
+            others.map { ($0.id, [FieldPosition.pitcher: PositionPreferenceTier.never]) })
+
+        let constraints = AutoFillConstraintSet(playerConstraints: [
+            AutoFillPlayerConstraint(playerID: x.id, target: .bench, inningRange: 0...0, intent: .assign)
+        ])
+
+        let fill = AutoFillEngine.fillInning(
+            0, in: makeLineup(), players: players, preferences: preferences, constraints: constraints
+        )
+
+        XCTAssertEqual(position(for: x, inning: 0, in: fill.lineup), .bench,
+            "An explicitly benched, pitcher-eligible player must stay benched, not be pulled to the mound by force-fill")
+        XCTAssertTrue(fill.unfilledSlots.contains { $0.position == .pitcher },
+            "Pitcher should be left unfilled rather than overriding the bench instruction")
+    }
 }

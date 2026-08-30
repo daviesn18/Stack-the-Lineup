@@ -968,7 +968,14 @@ enum AutoFillEngine {
             let pitcherFallback = active.filter {
                 lineup.innings[inningIndex].position(for: $0) == nil &&
                 isPitcherEligible($0) &&
-                !avoidPitcherPlayerIDs.contains($0.id)
+                !avoidPitcherPlayerIDs.contains($0.id) &&
+                // Don't un-bench a player who was deliberately held out this
+                // inning. Forced-bench players (a coach's explicit "bench X",
+                // or a bench-pairing mid-pair sit) still read as position==nil
+                // here because .bench isn't assigned until the bench queue
+                // below — without this guard the fallback would quietly pull a
+                // pitcher-eligible one onto the mound, breaking the instruction.
+                !forcedBenchPlayerIDs.contains($0.id)
             }
             // Prefer players who haven't pitched yet, then by fewest innings.
             let sorted = pitcherFallback.sorted { a, b in
