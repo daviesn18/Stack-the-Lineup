@@ -25,16 +25,10 @@ extension WhatsNewContent {
             version: "3.3.1",
             features: [
                 WhatsNewFeature(
-                    icon: "bolt.fill",
-                    iconColor: .blue,
-                    title: "Auto-Fill Understands You",
-                    description: "Write instructions the way you'd say them — \"Caleb pitches the first two innings,\" \"keep Sam off pitcher,\" \"Marcus and Drew play infield,\" or \"have players sit two innings in a row.\" Auto-Fill reads the common ones instantly, on any device."
-                ),
-                WhatsNewFeature(
-                    icon: "checklist",
+                    icon: "baseball.fill",
                     iconColor: .green,
-                    title: "Bench Rules That Stick",
-                    description: "\"No Back-to-Back Bench\" and \"Equal Bench Time\" now shape the lineup Auto-Fill builds, not just the warnings afterward. Flip them on under Fair Play Rules and the fill follows them."
+                    title: "Cleaning Up Our Errors",
+                    description: "We booted a few balls in our last release. Spent time with the pancake glove and tightened up our fielding — so Auto-Fill and your bench rules play a little cleaner this inning."
                 )
             ]
         ),
