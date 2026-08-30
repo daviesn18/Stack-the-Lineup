@@ -793,6 +793,306 @@ final class AutoFillNLConstraintService {
         return result
     }
 
+    // MARK: - Deterministic parsing
+    //
+    // A model-free parser for the common, templated ways coaches actually write
+    // Auto-Fill instructions ("Caleb pitches the first 2 innings", "keep Sam off
+    // pitcher", "Marcus, Drew and Eli play infield", "Jake starts on the bench").
+    // It runs BEFORE the on-device model (see parse()), so the frequent cases are
+    // instant, reliable, offline, and work on every device — the model is only
+    // needed for freeform phrasing this can't map.
+    //
+    // Precision over recall on purpose: an ambiguous clause is reported
+    // `hasUnresolvedInstruction`, and the caller falls back to the model (or
+    // surfaces a diagnostic when there is none). A wrong constraint is worse than
+    // a deferred one.
+
+    struct DeterministicParse {
+        var constraints: [AutoFillPlayerConstraint]
+        /// True when the text clearly holds a player-specific instruction the
+        /// parser could not confidently map — the signal to try the model.
+        var hasUnresolvedInstruction: Bool
+    }
+
+    /// Position / zone / bench vocabulary, longest phrases first so "first base"
+    /// wins over a later "base", and "left center field" is consumed before
+    /// "center field". Case-insensitive, word-bounded.
+    private static let targetPhrases: [(String, AutoFillConstraintTarget)] = [
+        ("left center field", .position(.leftCenterField)),
+        ("right center field", .position(.rightCenterField)),
+        ("center field", .position(.centerField)),
+        ("left field", .position(.leftField)),
+        ("right field", .position(.rightField)),
+        ("first base", .position(.firstBase)),
+        ("second base", .position(.secondBase)),
+        ("third base", .position(.thirdBase)),
+        ("shortstop", .position(.shortstop)),
+        ("short stop", .position(.shortstop)),
+        ("catcher", .position(.catcher)),
+        ("pitcher", .position(.pitcher)),
+        ("infield", .infield),
+        ("outfield", .outfield),
+        ("bench", .bench),
+        ("1b", .position(.firstBase)),
+        ("2b", .position(.secondBase)),
+        ("3b", .position(.thirdBase)),
+        ("ss", .position(.shortstop)),
+        ("lcf", .position(.leftCenterField)),
+        ("rcf", .position(.rightCenterField)),
+        ("lf", .position(.leftField)),
+        ("cf", .position(.centerField)),
+        ("rf", .position(.rightField)),
+        ("short", .position(.shortstop)),
+    ]
+
+    /// Verb anchors that imply a position without naming it. Checked after the
+    /// explicit phrases above.
+    private static let verbTargets: [(String, AutoFillConstraintTarget)] = [
+        ("pitches", .position(.pitcher)), ("pitching", .position(.pitcher)),
+        ("pitch", .position(.pitcher)), ("on the mound", .position(.pitcher)),
+        ("catches", .position(.catcher)), ("catching", .position(.catcher)),
+        ("catch", .position(.catcher)), ("behind the plate", .position(.catcher)),
+    ]
+
+    func parseDeterministically(_ prompt: String) -> DeterministicParse {
+        // Ambiguity guard: if two active players share a first name, a bare
+        // first-name mention can't be resolved deterministically — defer the
+        // whole thing to the model rather than assign to the wrong kid.
+        let firstNames = activePlayers.map { $0.firstName.lowercased() }
+        let hasDuplicateFirstNames = Set(firstNames).count != firstNames.count
+
+        var constraints: [AutoFillPlayerConstraint] = []
+        var unresolved = false
+
+        for clause in splitClauses(prompt) {
+            let lower = clause.lowercased()
+            guard let target = firstTarget(in: lower) else {
+                // No position/zone/bench here. If it named a player, it's an
+                // instruction we didn't understand.
+                if !playersMentioned(in: lower).isEmpty { unresolved = true }
+                continue
+            }
+            if hasDuplicateFirstNames, !playersMentioned(in: lower).isEmpty {
+                unresolved = true
+                continue
+            }
+            let players = clausePlayers(in: lower)
+            guard !players.isEmpty else {
+                // A target with no player we can name — e.g. the "then plays
+                // outfield" half of a same-subject compound, or a relative
+                // range ("the next 2"). Guessing the subject/inning here would
+                // place a wrong assignment; defer the whole prompt to the model.
+                unresolved = true
+                continue
+            }
+            let intent = clauseIntent(in: lower)
+            // Default range when none is stated: a bare assign means inning 1
+            // only (matching the model's documented rule), but a bare avoid or
+            // prioritize means the whole game — "keep Sam off pitcher" is not an
+            // inning-1-only request.
+            let defaultRange = intent == .assign ? (0...0) : (0...(inningCount - 1))
+            let range = parseRange(in: lower) ?? defaultRange
+            for player in players {
+                constraints.append(AutoFillPlayerConstraint(
+                    playerID: player.id, target: target, inningRange: range, intent: intent))
+            }
+        }
+
+        // Coverage: a named player who ended up with no constraint means we
+        // missed their instruction.
+        if !hasDuplicateFirstNames {
+            let covered = Set(constraints.map { $0.playerID })
+            if playersMentioned(in: prompt.lowercased()).contains(where: { !covered.contains($0.id) }) {
+                unresolved = true
+            }
+        } else if !playersMentioned(in: prompt.lowercased()).isEmpty {
+            unresolved = true
+        }
+
+        return DeterministicParse(
+            constraints: withImplicitPitcherAvoids(constraints),
+            hasUnresolvedInstruction: unresolved
+        )
+    }
+
+    // MARK: Clause splitting
+
+    /// Splits a prompt into instruction clauses. Strong separators (newlines,
+    /// ";", "then", "after that") always split. Commas and "and" split ONLY when
+    /// both sides carry a target anchor — so "Caleb pitches, Owen catches" splits
+    /// into two, but the name list "Marcus, Drew and Eli play infield" stays one.
+    private func splitClauses(_ prompt: String) -> [String] {
+        let strong = prompt
+            .replacingOccurrences(of: " and then ", with: "\n")
+            .replacingOccurrences(of: " then ", with: "\n")
+            .replacingOccurrences(of: " after that ", with: "\n")
+            .replacingOccurrences(of: ";", with: "\n")
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return strong.flatMap { conditionallySplit($0) }
+    }
+
+    private func conditionallySplit(_ clause: String) -> [String] {
+        for sep in [", ", " and "] {
+            var from = clause.startIndex
+            while let r = clause.range(of: sep, range: from..<clause.endIndex) {
+                let left = String(clause[..<r.lowerBound])
+                let right = String(clause[r.upperBound...])
+                if firstTarget(in: left.lowercased()) != nil,
+                   firstTarget(in: right.lowercased()) != nil {
+                    return conditionallySplit(left) + conditionallySplit(right)
+                }
+                from = r.upperBound
+            }
+        }
+        return [clause]
+    }
+
+    // MARK: Clause fields
+
+    /// The position/zone/bench a clause refers to, or nil if none is present.
+    private func firstTarget(in lower: String) -> AutoFillConstraintTarget? {
+        var best: (index: String.Index, target: AutoFillConstraintTarget)?
+        func consider(_ phrase: String, _ target: AutoFillConstraintTarget) {
+            guard let idx = wordRange(of: phrase, in: lower)?.lowerBound else { return }
+            if best == nil || idx < best!.index { best = (idx, target) }
+        }
+        for (phrase, target) in Self.targetPhrases { consider(phrase, target) }
+        if best != nil { return best!.target }
+        for (phrase, target) in Self.verbTargets { consider(phrase, target) }
+        return best?.target
+    }
+
+    private func clausePlayers(in lower: String) -> [Player] {
+        if lower.contains("everyone") || lower.contains("everybody")
+            || lower.contains("all players") || lower.contains("whole team")
+            || lower.contains("the team") {
+            return activePlayers
+        }
+        return playersMentioned(in: lower)
+    }
+
+    private func playersMentioned(in lower: String) -> [Player] {
+        var seen = Set<UUID>()
+        var result: [Player] = []
+        for p in activePlayers {
+            let name = p.firstName.lowercased()
+            guard !name.isEmpty, !seen.contains(p.id) else { continue }
+            if wordRange(of: name, in: lower) != nil {
+                seen.insert(p.id); result.append(p)
+            }
+        }
+        return result
+    }
+
+    private func clauseIntent(in lower: String) -> AutoFillConstraintIntent {
+        let prioritize = ["prefer", "if possible", "when possible", "ideally", "try to"]
+        if prioritize.contains(where: { lower.contains($0) }) { return .prioritize }
+        // "keep X off Y", "don't let X pitch", "no pitching for X", etc. Note
+        // "keep" alone is NOT avoid — "keep X at short" is an assign; the avoid
+        // signal is off/never/avoid/don't/not/can't.
+        let avoid = [" off ", "off the", "don't", "do not", "dont", "never",
+                     "avoid", "not at", "not in", "can't", "cannot", "stay off", "away from"]
+        if avoid.contains(where: { lower.contains($0) }) { return .avoid }
+        return .assign
+    }
+
+    // MARK: Inning ranges
+
+    private static let numberWords: [String: Int] = [
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9,
+        "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+        "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9
+    ]
+
+    /// Zero-based, inclusive, clamped inning range from a clause, or nil when no
+    /// inning is stated (caller defaults to inning 1 only, matching the model).
+    private func parseRange(in lower: String) -> ClosedRange<Int>? {
+        guard inningCount > 0 else { return nil }
+        let last = inningCount - 1
+        func clamp(_ oneBased: Int) -> Int { max(0, min(oneBased - 1, last)) }
+
+        if lower.contains("all game") || lower.contains("whole game")
+            || lower.contains("entire game") || lower.contains("every inning") {
+            return 0...last
+        }
+        // Explicit "innings X-Y" / "X to Y" / "X through Y".
+        if let m = firstMatch(#"innings?\s+(\d+)\s*(?:-|to|through|thru|and)\s*(\d+)"#, in: lower),
+           let a = Int(m[1]), let b = Int(m[2]) {
+            let lo = clamp(min(a, b)), hi = clamp(max(a, b))
+            return lo...hi
+        }
+        // "first N innings" / "first inning".
+        if let n = countAfter(anyOf: ["first", "the first"], in: lower) {
+            return 0...clamp(n)
+        }
+        // "last N innings" / "last inning".
+        if let n = countAfter(anyOf: ["last", "the last"], in: lower) {
+            let lo = max(0, inningCount - n)
+            return lo...last
+        }
+        // "start" / "starts" / "to start" / "begins" — inning 1 only.
+        if wordRange(of: "start", in: lower) != nil || wordRange(of: "starts", in: lower) != nil
+            || wordRange(of: "starting", in: lower) != nil || wordRange(of: "begins", in: lower) != nil
+            || wordRange(of: "begin", in: lower) != nil {
+            return 0...0
+        }
+        // "inning X" / "the Xth inning" / "in the Xth".
+        if let m = firstMatch(#"inning\s+(\d+)"#, in: lower), let a = Int(m[1]) {
+            return clamp(a)...clamp(a)
+        }
+        if let m = firstMatch(#"(\d+)(?:st|nd|rd|th)\s+inning"#, in: lower), let a = Int(m[1]) {
+            return clamp(a)...clamp(a)
+        }
+        for (word, n) in Self.numberWords {
+            if wordRange(of: "\(word) inning", in: lower) != nil {
+                return clamp(n)...clamp(n)
+            }
+        }
+        return nil
+    }
+
+    /// For "first N innings": returns N (digit or number word), or 1 for a bare
+    /// "first inning". nil when the anchor isn't present.
+    private func countAfter(anyOf anchors: [String], in lower: String) -> Int? {
+        for anchor in anchors {
+            // "<anchor> <number> inning(s)"
+            if let m = firstMatch(#"\#(anchor)\s+(\d+)\s+innings?"#, in: lower), let n = Int(m[1]) {
+                return n
+            }
+            for (word, n) in Self.numberWords {
+                if lower.contains("\(anchor) \(word) innings") { return n }
+            }
+            // Bare "<anchor> inning" → 1.
+            if lower.contains("\(anchor) inning") && !lower.contains("\(anchor) innings") {
+                return 1
+            }
+        }
+        return nil
+    }
+
+    // MARK: Regex helpers
+
+    private func wordRange(of phrase: String, in text: String) -> Range<String.Index>? {
+        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: phrase))\\b"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let ns = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: ns) else { return nil }
+        return Range(match.range, in: text)
+    }
+
+    /// Returns capture groups [full, g1, g2, ...] of the first match, or nil.
+    private func firstMatch(_ pattern: String, in text: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let ns = NSRange(text.startIndex..., in: text)
+        guard let m = regex.firstMatch(in: text, range: ns) else { return nil }
+        return (0..<m.numberOfRanges).map {
+            Range(m.range(at: $0), in: text).map { String(text[$0]) } ?? ""
+        }
+    }
+
     // MARK: - Pattern-rule confirmations
 
     /// Positive, coach-readable confirmations for any active game-wide pattern

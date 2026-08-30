@@ -155,31 +155,48 @@ final class AutoFillCoordinator: ObservableObject {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedPrompt.isEmpty {
             isParsingPrompt = true
-            let parseResult = await parseWithTimeout(prompt: prompt, team: team)
-            constraints = parseResult.constraints
-            parseDiagnosticMessage = parseResult.diagnosticMessage
-            Analytics.signal("autofill.nl_prompt_used", parameters: [
-                "constraintCount": "\(constraints.playerConstraints.count)",
-                "diagnosticCount": "\(parseResult.diagnostics.count)"
-            ])
+
+            // Deterministic-first. A model-free parser handles the common,
+            // templated instructions instantly, offline, and on every device.
+            // The on-device model is only consulted for freeform phrasing the
+            // deterministic parser can't confidently map — so the model is no
+            // longer a single point of failure for the frequent cases.
+            let service = nlService ?? makeService(for: team)
+            let deterministic = service.parseDeterministically(trimmedPrompt)
+            let patternDetected = AutoFillNLConstraintService
+                .detectedPatternRules(in: trimmedPrompt).benchInConsecutivePairs
+
+            var source = "deterministic"
+            if Self.shouldTrustDeterministic(deterministic, patternDetected: patternDetected) {
+                constraints = AutoFillConstraintSet(playerConstraints: deterministic.constraints)
+            } else {
+                // Freeform / ambiguous — ask the model, racing a timeout.
+                let modelResult = await parseWithTimeout(prompt: prompt, team: team)
+                if !modelResult.constraints.playerConstraints.isEmpty || !modelResult.diagnostics.isEmpty {
+                    constraints = modelResult.constraints
+                    parseDiagnosticMessage = modelResult.diagnosticMessage
+                    source = "model"
+                } else {
+                    // Model timed out, failed, or found nothing — use the
+                    // deterministic best-effort rather than dropping everything.
+                    constraints = AutoFillConstraintSet(playerConstraints: deterministic.constraints)
+                    source = "deterministic_fallback"
+                }
+            }
             isParsingPrompt = false
 
-            // Safety net for game-wide pattern rules. The on-device model parse
-            // can time out (8s cap) or throw — on hardware far more than in the
-            // model-less simulator — and both cases return `.empty`, silently
-            // dropping a rule the coach plainly typed. Pattern detection is pure,
-            // instant text matching that never needed the model, so re-apply it
-            // here over whatever the parse produced. Idempotent: a no-op when the
-            // parse already set the flag.
-            let before = constraints.patternRules
+            // Game-wide pattern rules are applied in ONE place for every path:
+            // pure text detection that never needs the model. Idempotent if a
+            // path already set the flag.
             (constraints, parseDiagnosticMessage) = Self.applyingPatternRuleSafetyNet(
                 to: constraints, prompt: trimmedPrompt, diagnostic: parseDiagnosticMessage
             )
-            if constraints.patternRules != before {
-                Analytics.signal("autofill.pattern_rule_safety_net", parameters: [
-                    "rule": "benchInConsecutivePairs"
-                ])
-            }
+
+            Analytics.signal("autofill.nl_prompt_used", parameters: [
+                "source": source,
+                "constraintCount": "\(constraints.playerConstraints.count)",
+                "patternRule": "\(constraints.patternRules.benchInConsecutivePairs)"
+            ])
         }
 
         let preferences = Dictionary(
@@ -252,6 +269,22 @@ final class AutoFillCoordinator: ObservableObject {
             incompleteMessage: result.incompleteMessage(multiInning: scope.isMultiInning),
             noticeMessage: combinedNotice.isEmpty ? nil : combinedNotice
         )
+    }
+
+    // MARK: - Deterministic-first decision
+
+    /// Whether the model-free parse is trustworthy enough to skip the on-device
+    /// model. Yes when it either produced real player constraints with nothing
+    /// left unresolved, or the prompt is purely a game-wide pattern rule (which
+    /// needs no model at all). No when a clause was ambiguous, or when it found
+    /// nothing and there's no pattern rule to lean on — those go to the model.
+    nonisolated static func shouldTrustDeterministic(
+        _ parse: AutoFillNLConstraintService.DeterministicParse,
+        patternDetected: Bool
+    ) -> Bool {
+        if parse.hasUnresolvedInstruction { return false }
+        if !parse.constraints.isEmpty { return true }
+        return patternDetected // pure pattern-rule prompt
     }
 
     // MARK: - Pattern-Rule Safety Net

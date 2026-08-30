@@ -280,4 +280,39 @@ final class AutoFillCoordinatorTests: XCTestCase {
         XCTAssertFalse(constraints.patternRules.benchInConsecutivePairs)
         XCTAssertNil(diagnostic)
     }
+
+    // MARK: - Deterministic-first decision
+
+    private func parse(_ constraints: [AutoFillPlayerConstraint], unresolved: Bool)
+        -> AutoFillNLConstraintService.DeterministicParse {
+        .init(constraints: constraints, hasUnresolvedInstruction: unresolved)
+    }
+
+    func testTrustsDeterministicWhenItProducedConstraints() {
+        let one = [AutoFillPlayerConstraint(
+            playerID: UUID(), target: .position(.pitcher), inningRange: 0...1, intent: .assign)]
+        XCTAssertTrue(AutoFillCoordinator.shouldTrustDeterministic(
+            parse(one, unresolved: false), patternDetected: false))
+    }
+
+    func testTrustsDeterministicForPurePatternPrompt() {
+        // No player constraints, but a bench-pairing rule was detected — no
+        // model needed.
+        XCTAssertTrue(AutoFillCoordinator.shouldTrustDeterministic(
+            parse([], unresolved: false), patternDetected: true))
+    }
+
+    func testDefersToModelWhenUnresolved() {
+        let one = [AutoFillPlayerConstraint(
+            playerID: UUID(), target: .bench, inningRange: 0...0, intent: .assign)]
+        XCTAssertFalse(AutoFillCoordinator.shouldTrustDeterministic(
+            parse(one, unresolved: true), patternDetected: false))
+    }
+
+    func testDefersToModelForFreeformWithNothingParsed() {
+        // Nothing parsed, no pattern rule — a freeform prompt only the model
+        // could interpret.
+        XCTAssertFalse(AutoFillCoordinator.shouldTrustDeterministic(
+            parse([], unresolved: false), patternDetected: false))
+    }
 }
