@@ -324,18 +324,31 @@ final class AutoFillNLConstraintService {
             "no back", "not back", "no consecutive", "not consecutive",
             "no two in a row", "not two in a row", "no 2 in a row",
             "don't sit", "do not sit", "dont sit", "never sit", "avoid sitting",
-            "don't have", "do not have", "dont have", "no double", "without sitting"
+            "don't have", "do not have", "dont have", "no double", "without sitting",
+            "turn off", "turned off", "disable", "no pairing", "without pairing"
         ]
         if negations.contains(where: { p.contains($0) }) { return false }
+
+        // The literal feature name, however the coach phrases turning it on
+        // ("turn on bench pairing", "enable bench pairing", "use pairing").
+        // Checked before the bench-word guard so "pair the bench" counts even
+        // though the coach didn't say "sit."
+        let featureNameTerms = [
+            "bench pairing", "bench pair", "pair the bench", "pair up the bench",
+            "pair benches", "pairing the bench"
+        ]
+        if featureNameTerms.contains(where: { p.contains($0) }) { return true }
 
         // "sit" and "bench" are the same concept in sports lingo.
         let benchTerms = ["sit", "sits", "sitting", "sat", "bench", "benched"]
         guard benchTerms.contains(where: { p.contains($0) }) else { return false }
 
-        // Unambiguous pairing vocabulary.
+        // Unambiguous pairing vocabulary. A bench word is guaranteed present by
+        // the guard above, so "pairing"/"pair" here already means the bench.
         let pairingTerms = [
             "consecutive", "in a row", "back to back", "back-to-back",
-            "two in a row", "2 in a row", "twice in a row", "double up"
+            "two in a row", "2 in a row", "twice in a row", "double up",
+            "pairing", "paired", "in pairs", "pair up"
         ]
         if pairingTerms.contains(where: { p.contains($0) }) { return true }
 

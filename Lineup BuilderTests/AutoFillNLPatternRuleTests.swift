@@ -54,6 +54,22 @@ final class AutoFillNLPatternRuleTests: XCTestCase {
         }
     }
 
+    /// The coach may just name the feature — "turn on bench pairing" — rather
+    /// than describe the behavior. The literal feature name activates it too.
+    func testDetectsTheFeatureNameDirectly() {
+        let prompts = [
+            "turn on bench pairing",
+            "enable bench pairing",
+            "bench pairing",
+            "use bench pairing",
+            "pair the bench",
+            "sit players in pairs"
+        ]
+        for prompt in prompts {
+            XCTAssertTrue(detectsPairing(prompt), "Should detect bench pairing by name: \(prompt)")
+        }
+    }
+
     // MARK: Negative cases — should NOT activate
 
     func testDoesNotFireOnTheOppositeRequest() {
@@ -62,7 +78,9 @@ final class AutoFillNLPatternRuleTests: XCTestCase {
             "don't sit anyone two innings in a row",
             "no back-to-back bench",
             "never sit a player consecutive innings",
-            "avoid sitting players back to back"
+            "avoid sitting players back to back",
+            "turn off bench pairing",
+            "disable bench pairing"
         ]
         for prompt in prompts {
             XCTAssertFalse(detectsPairing(prompt), "Should NOT treat an avoidance request as pairing: \(prompt)")
