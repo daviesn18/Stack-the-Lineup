@@ -22,6 +22,23 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "3.3.1",
+            features: [
+                WhatsNewFeature(
+                    icon: "bolt.fill",
+                    iconColor: .blue,
+                    title: "Auto-Fill Understands You",
+                    description: "Write instructions the way you'd say them — \"Caleb pitches the first two innings,\" \"keep Sam off pitcher,\" \"Marcus and Drew play infield,\" or \"have players sit two innings in a row.\" Auto-Fill reads the common ones instantly, on any device."
+                ),
+                WhatsNewFeature(
+                    icon: "checklist",
+                    iconColor: .green,
+                    title: "Bench Rules That Stick",
+                    description: "\"No Back-to-Back Bench\" and \"Equal Bench Time\" now shape the lineup Auto-Fill builds, not just the warnings afterward. Flip them on under Fair Play Rules and the fill follows them."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "3.3",
             features: [
                 WhatsNewFeature(
