@@ -152,7 +152,8 @@ final class AutoFillCoordinator: ObservableObject {
         var constraints = AutoFillConstraintSet.empty
         var parseDiagnosticMessage: String? = nil
 
-        if !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPrompt.isEmpty {
             isParsingPrompt = true
             let parseResult = await parseWithTimeout(prompt: prompt, team: team)
             constraints = parseResult.constraints
@@ -162,6 +163,23 @@ final class AutoFillCoordinator: ObservableObject {
                 "diagnosticCount": "\(parseResult.diagnostics.count)"
             ])
             isParsingPrompt = false
+
+            // Safety net for game-wide pattern rules. The on-device model parse
+            // can time out (8s cap) or throw — on hardware far more than in the
+            // model-less simulator — and both cases return `.empty`, silently
+            // dropping a rule the coach plainly typed. Pattern detection is pure,
+            // instant text matching that never needed the model, so re-apply it
+            // here over whatever the parse produced. Idempotent: a no-op when the
+            // parse already set the flag.
+            let before = constraints.patternRules
+            (constraints, parseDiagnosticMessage) = Self.applyingPatternRuleSafetyNet(
+                to: constraints, prompt: trimmedPrompt, diagnostic: parseDiagnosticMessage
+            )
+            if constraints.patternRules != before {
+                Analytics.signal("autofill.pattern_rule_safety_net", parameters: [
+                    "rule": "benchInConsecutivePairs"
+                ])
+            }
         }
 
         let preferences = Dictionary(
@@ -234,6 +252,33 @@ final class AutoFillCoordinator: ObservableObject {
             incompleteMessage: result.incompleteMessage(multiInning: scope.isMultiInning),
             noticeMessage: combinedNotice.isEmpty ? nil : combinedNotice
         )
+    }
+
+    // MARK: - Pattern-Rule Safety Net
+    //
+    // Re-applies deterministic, model-free pattern detection over whatever the
+    // parse produced. Pure and standalone so it can be unit-tested without an
+    // on-device model — which is exactly the situation it exists to cover (the
+    // model timed out or threw, so the parse came back empty). Idempotent: when
+    // the parse already carried the rule, nothing changes.
+    nonisolated static func applyingPatternRuleSafetyNet(
+        to constraints: AutoFillConstraintSet,
+        prompt: String,
+        diagnostic: String?
+    ) -> (AutoFillConstraintSet, String?) {
+        let detected = AutoFillNLConstraintService.detectedPatternRules(in: prompt)
+        guard detected.benchInConsecutivePairs,
+              !constraints.patternRules.benchInConsecutivePairs else {
+            return (constraints, diagnostic)
+        }
+        let merged = AutoFillConstraintSet(
+            playerConstraints: constraints.playerConstraints,
+            patternRules: AutoFillPatternRules(benchInConsecutivePairs: true)
+        )
+        let message = [diagnostic, AutoFillNLConstraintService.benchPairingConfirmationMessage]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+        return (merged, message)
     }
 
     // MARK: - Parse Timeout

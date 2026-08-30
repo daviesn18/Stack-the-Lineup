@@ -242,4 +242,42 @@ final class AutoFillCoordinatorTests: XCTestCase {
         XCTAssertEqual(FillLineupIntent.lastInningIndex(for: team, requested: 0), 0)
         XCTAssertEqual(FillLineupIntent.lastInningIndex(for: team, requested: -3), 0)
     }
+
+    // MARK: - Pattern-rule safety net
+    //
+    // The on-device model parse can time out or throw (returning .empty),
+    // which is exactly what happened on hardware where the simulator's
+    // model-less path had worked. The safety net must recover a bench-pairing
+    // prompt from an empty parse result, deterministically.
+
+    func testSafetyNetRecoversPairingFromAnEmptyParse() {
+        // Simulates a parse that produced nothing (model timed out / threw).
+        let (constraints, diagnostic) = AutoFillCoordinator.applyingPatternRuleSafetyNet(
+            to: .empty,
+            prompt: "Any player who sits, must sit 2 consecutive innings",
+            diagnostic: nil
+        )
+        XCTAssertTrue(constraints.patternRules.benchInConsecutivePairs,
+            "A pairing prompt must still activate the rule when the model parse came back empty")
+        XCTAssertEqual(diagnostic, AutoFillNLConstraintService.benchPairingConfirmationMessage,
+            "The coach should still see the confirmation the model path would have shown")
+    }
+
+    func testSafetyNetIsIdempotentWhenParseAlreadySetTheFlag() {
+        let already = AutoFillConstraintSet(
+            playerConstraints: [],
+            patternRules: AutoFillPatternRules(benchInConsecutivePairs: true))
+        let (constraints, diagnostic) = AutoFillCoordinator.applyingPatternRuleSafetyNet(
+            to: already, prompt: "have players sit two in a row", diagnostic: "existing note")
+        XCTAssertTrue(constraints.patternRules.benchInConsecutivePairs)
+        // No double-confirmation: the parse path already added its own.
+        XCTAssertEqual(diagnostic, "existing note")
+    }
+
+    func testSafetyNetLeavesUnrelatedPromptsAlone() {
+        let (constraints, diagnostic) = AutoFillCoordinator.applyingPatternRuleSafetyNet(
+            to: .empty, prompt: "Caleb pitches the first two innings", diagnostic: nil)
+        XCTAssertFalse(constraints.patternRules.benchInConsecutivePairs)
+        XCTAssertNil(diagnostic)
+    }
 }

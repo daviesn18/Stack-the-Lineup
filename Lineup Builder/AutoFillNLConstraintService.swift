@@ -228,7 +228,7 @@ final class AutoFillNLConstraintService {
         // one reliably from arbitrary wording is exactly the kind of thing it
         // quietly gets wrong. A keyword scan is dull but dependable, in the same
         // spirit as the name-matching fallbacks below.
-        let promptPatternRules = detectedPatternRules(in: trimmed)
+        let promptPatternRules = Self.detectedPatternRules(in: trimmed)
 
         guard isAvailable else {
             // No model on this device. We can't parse per-player instructions,
@@ -286,11 +286,22 @@ final class AutoFillNLConstraintService {
     /// Pattern rules recognizable from the prompt text alone. Internal (not
     /// private) so the deterministic detection can be unit-tested without an
     /// on-device model, which the simulator doesn't provide.
-    func detectedPatternRules(in prompt: String) -> AutoFillPatternRules {
+    /// Pure text detection — deliberately `nonisolated static` so it needs
+    /// neither a model session nor a roster. This is what lets the coordinator
+    /// apply pattern rules as a safety net even when the model parse times out
+    /// or throws (both of which otherwise discard the whole result), and it's
+    /// why bench pairing works on hardware where the on-device model is slower
+    /// or flakier than the simulator's absent one.
+    nonisolated static func detectedPatternRules(in prompt: String) -> AutoFillPatternRules {
         AutoFillPatternRules(
             benchInConsecutivePairs: promptRequestsBenchPairing(prompt)
         )
     }
+
+    /// Coach-facing confirmation for the bench-pairing rule. A single source so
+    /// the parse path and the coordinator's safety-net path show identical copy.
+    nonisolated static let benchPairingConfirmationMessage =
+        "Bench pairing is on: once a player sits, they'll sit the next inning too, as long as enough others are available to field every spot."
 
     /// True when the prompt asks for consecutive bench innings, in the natural
     /// ways a coach actually says it: "sit two in a row", "any player who sits
@@ -304,7 +315,7 @@ final class AutoFillNLConstraintService {
     /// feature look broken. A bench word is still required (so "two consecutive
     /// innings at shortstop" doesn't trip it), and negations bail out ("no
     /// back-to-back bench" is the opposite request, already the default).
-    private func promptRequestsBenchPairing(_ prompt: String) -> Bool {
+    nonisolated static func promptRequestsBenchPairing(_ prompt: String) -> Bool {
         let p = prompt.lowercased()
 
         // Negation = the opposite request (avoid back-to-back / don't repeat a
@@ -791,7 +802,7 @@ final class AutoFillNLConstraintService {
         var result: [AutoFillNLDiagnostic] = []
         if rules.benchInConsecutivePairs {
             result.append(AutoFillNLDiagnostic(
-                kind: .patternRuleApplied("Bench pairing is on: once a player sits, they'll sit the next inning too, as long as enough others are available to field every spot.")
+                kind: .patternRuleApplied(Self.benchPairingConfirmationMessage)
             ))
         }
         return result

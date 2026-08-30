@@ -15,13 +15,9 @@ import XCTest
 @MainActor
 final class AutoFillNLPatternRuleTests: XCTestCase {
 
-    private func makeService() -> AutoFillNLConstraintService {
-        // Roster and inning count are irrelevant to text-only pattern detection.
-        AutoFillNLConstraintService(activePlayers: [], inningCount: 6)
-    }
-
     private func detectsPairing(_ prompt: String) -> Bool {
-        makeService().detectedPatternRules(in: prompt).benchInConsecutivePairs
+        // Pure static detection — needs neither a model session nor a roster.
+        AutoFillNLConstraintService.detectedPatternRules(in: prompt).benchInConsecutivePairs
     }
 
     // MARK: Positive cases — should activate bench pairing
