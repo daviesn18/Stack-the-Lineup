@@ -1649,6 +1649,24 @@ class LineupStore: ObservableObject {
             teams = decoded
         }
 
+        // Restore the received-team flag from the durable ledger.
+        //
+        // `Team.init(from:)` forces isSharedParticipant to false on every decode,
+        // and only a successful fetchSharedTeams re-stamps it. That leaves a
+        // window on every launch where a genuine participant team looks like an
+        // un-synced owned team: the sharing screen titles itself "Assistant
+        // Coaches" and shareInfo(for:) reads the owner's record out of *this*
+        // coach's private zone, gets unknownItem, and renders "This team isn't
+        // in iCloud yet". The ledger is exactly the durable signal that survives
+        // the relaunch — apply it here so the flag is right before any screen or
+        // sync path reads it, not minutes later.
+        for i in teams.indices {
+            if let recordName = teams[i].ckRecordName,
+               receivedShareRecordNames.contains(recordName) {
+                teams[i].isSharedParticipant = true
+            }
+        }
+
         if let uuid = savedActiveID {
             activeTeamID = uuid
         }
@@ -2853,6 +2871,19 @@ class LineupStore: ObservableObject {
     func rememberReceivedShare(_ recordName: String?) {
         guard let recordName, !recordName.isEmpty else { return }
         receivedShareRecordNames.insert(recordName)
+    }
+
+    /// Whether this team was received through the shared database, judged by the
+    /// durable ledger rather than the transient `isSharedParticipant` flag.
+    ///
+    /// The flag is rebuilt from each fetch and is false in the window before the
+    /// first shared fetch of a session; the ledger is what survives a relaunch.
+    /// Callers about to do something a participant's copy must never suffer —
+    /// clearing its record name, deleting its owner-owned record — should ask
+    /// this, not the flag.
+    func isReceivedShare(_ team: Team) -> Bool {
+        guard let recordName = team.ckRecordName, !recordName.isEmpty else { return false }
+        return receivedShareRecordNames.contains(recordName)
     }
 
     /// Clears a revocation notice once the coach has read it.

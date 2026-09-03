@@ -437,7 +437,13 @@ struct TeamSharingView: View {
             // Never for a received team: its record name points into the owner's
             // zone, is how the shared-database merge matches the local copy, and
             // is not this device's to invalidate.
-            if case .notSynced(let stale) = fetched.state, stale, !team.isSharedParticipant {
+            //
+            // Judge "received" by the durable ledger, not `isSharedParticipant`:
+            // that flag is false in the window before the first shared fetch of a
+            // session, and trusting it here is what let a participant's record
+            // name — its only link back to the owner's zone — get cleared.
+            if case .notSynced(let stale) = fetched.state, stale,
+               !team.isSharedParticipant, !store.isReceivedShare(team) {
                 store.clearStaleRecordName(teamID: teamID)
             }
             apply(fetched)
