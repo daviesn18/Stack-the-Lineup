@@ -282,7 +282,25 @@ actor CloudKitManager {
     func isAccountAvailable() async -> Bool {
         (try? await ckContainer.accountStatus()) == .available
     }
-    
+
+    /// A human-readable iCloud account status, for the diagnostics export.
+    /// No account detail — just which of CloudKit's five states we're in, which
+    /// is exactly what tells a sync-that-never-arrives apart from a healthy one.
+    func accountStatusDescription() async -> String {
+        do {
+            switch try await ckContainer.accountStatus() {
+            case .available:              return "available"
+            case .noAccount:              return "noAccount (not signed in)"
+            case .restricted:             return "restricted"
+            case .couldNotDetermine:      return "couldNotDetermine"
+            case .temporarilyUnavailable: return "temporarilyUnavailable"
+            @unknown default:             return "unknown"
+            }
+        } catch {
+            return "error (\(error.localizedDescription))"
+        }
+    }
+
     // MARK: - Zone Setup
     
     /// Creates the STLTeams zone if it does not already exist.

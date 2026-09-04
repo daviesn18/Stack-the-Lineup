@@ -1,5 +1,6 @@
 import SwiftUI
 import TipKit
+import MessageUI
 
 // MARK: - Settings View
 
@@ -24,6 +25,12 @@ struct SettingsView: View {
     // Version-row tap counter for the debug data seeder. See the Version row below.
     @State private var versionTapCount = 0
     @State private var lastVersionTapAt: Date?
+
+    // Diagnostics export — see the Email Diagnostics row and generateDiagnostics().
+    @State private var diagnosticsText: String?
+    @State private var isGeneratingDiagnostics = false
+    @State private var showingMailComposer = false
+    @State private var showingDiagnosticsFallback = false
 
     var body: some View {
         NavigationStack {
@@ -197,6 +204,23 @@ struct SettingsView: View {
                                 .font(.callout)
                         }
                     }
+
+                    // Emails a PII-safe state snapshot to support. No player,
+                    // coach, or team names — see DiagnosticsReport. Given to
+                    // coaches to send when a sharing or sync issue is otherwise
+                    // invisible from our side.
+                    Button {
+                        generateDiagnostics()
+                    } label: {
+                        HStack {
+                            Label("Email Diagnostics", systemImage: "stethoscope")
+                            Spacer()
+                            if isGeneratingDiagnostics {
+                                ProgressView().scaleEffect(0.8)
+                            }
+                        }
+                    }
+                    .disabled(isGeneratingDiagnostics)
                 }
 
                 // MARK: - Data
@@ -270,6 +294,43 @@ struct SettingsView: View {
                 Button("OK") { dismiss() }
             } message: {
                 Text("Close and reopen the app, then tips will appear again as you move through the tabs.")
+            }
+            .sheet(isPresented: $showingMailComposer) {
+                if let diagnosticsText {
+                    MailComposeView(
+                        recipient: "support@stackthelineup.com",
+                        subject: "Stack the Lineup diagnostics",
+                        body: "Tell us what happened here — the diagnostics are attached and repeated below.\n\n\(diagnosticsText)",
+                        attachmentText: diagnosticsText,
+                        attachmentFilename: "stl-diagnostics.txt",
+                        onFinish: { showingMailComposer = false }
+                    )
+                    .ignoresSafeArea()
+                }
+            }
+            .sheet(isPresented: $showingDiagnosticsFallback) {
+                if let diagnosticsText, let data = diagnosticsText.data(using: .utf8) {
+                    ShareSheet(items: [data], filename: "stl-diagnostics.txt")
+                }
+            }
+        }
+    }
+
+    /// Builds the diagnostics snapshot, then presents Mail pre-addressed to
+    /// support — or the share sheet when the device has no Mail account, so the
+    /// coach can still send it however they like. Async only for the iCloud
+    /// account-status round-trip inside the report.
+    private func generateDiagnostics() {
+        guard !isGeneratingDiagnostics else { return }
+        isGeneratingDiagnostics = true
+        Task {
+            let text = await DiagnosticsReport.generate(store: store, purchaseManager: purchaseManager)
+            diagnosticsText = text
+            isGeneratingDiagnostics = false
+            if MFMailComposeViewController.canSendMail() {
+                showingMailComposer = true
+            } else {
+                showingDiagnosticsFallback = true
             }
         }
     }
