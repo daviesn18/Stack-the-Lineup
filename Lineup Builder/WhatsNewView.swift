@@ -28,7 +28,7 @@ extension WhatsNewContent {
                     icon: "rectangle.stack.fill",
                     iconColor: .blue,
                     title: "A Lineup for Each Game",
-                    description: "Doubleheader? Build a separate lineup for every game on your schedule. Pick a game, build it, then switch to the next — each keeps its own batting order, positions, and Finalized status, so game 2 never overwrites game 1."
+                    description: "Build a separate lineup for every game on your schedule. Pick a game, build it, then switch to the next. Each keeps its own batting order, positions, and Finalized status."
                 )
             ]
         ),
