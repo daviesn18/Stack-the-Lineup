@@ -22,7 +22,7 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
-            version: "3.3.2",
+            version: "3.4",
             features: [
                 WhatsNewFeature(
                     icon: "rectangle.stack.fill",
