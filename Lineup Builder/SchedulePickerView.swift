@@ -28,16 +28,16 @@ struct SchedulePickerView: View {
     /// label (Add vs. Update).
     private var hasSchedule: Bool { !store.scheduledGames.isEmpty }
 
-    /// Returns the active lineup status if the lineup's game date matches
-    /// this scheduled game's date (day-level comparison).
+    /// Returns the saved status for this specific game's lineup, if it has one
+    /// with content. Keyed per game (not by date) so the two games of a
+    /// doubleheader show their own independent status rather than sharing one.
     private func lineupStatus(for game: ScheduledGame) -> LineupStatus? {
-        let cal = Calendar.current
-        guard cal.isDate(store.lineup.gameDate, inSameDayAs: game.date) else { return nil }
+        guard let lineup = store.savedLineup(for: game) else { return nil }
         // Only show status if there's actually something in the lineup
-        let hasContent = !store.lineup.battingOrder.isEmpty
-            || store.lineup.innings.contains(where: { !$0.assignments.isEmpty })
+        let hasContent = !lineup.battingOrder.isEmpty
+            || lineup.innings.contains(where: { !$0.assignments.isEmpty })
         guard hasContent else { return nil }
-        return store.lineup.status
+        return lineup.status
     }
 
     // Group games by month for section headers
@@ -181,18 +181,26 @@ struct SchedulePickerView: View {
                     }
                 }
 
-                // Lineup status badge — only shown when this game's date
-                // matches the active lineup and the lineup has content
-                if let status = lineupStatus(for: game) {
-                    HStack(spacing: 4) {
-                        Image(systemName: status == .finalized ? "checkmark.circle.fill" : "pencil.circle.fill")
-                            .font(.caption)
-                        Text(status == .finalized ? "Finalized" : "Draft")
-                            .font(.caption.bold())
+                // Lineup status badge — shown when this specific game already
+                // has a lineup with content, plus a marker for the game that's
+                // currently open in the editor.
+                HStack(spacing: 8) {
+                    if let status = lineupStatus(for: game) {
+                        HStack(spacing: 4) {
+                            Image(systemName: status == .finalized ? "checkmark.circle.fill" : "pencil.circle.fill")
+                                .font(.caption)
+                            Text(status == .finalized ? "Finalized" : "Draft")
+                                .font(.caption.bold())
+                        }
+                        .foregroundColor(status == .finalized ? .green : .orange)
                     }
-                    .foregroundColor(status == .finalized ? .green : .orange)
-                    .padding(.top, 2)
+                    if game.id == store.currentGame?.id {
+                        Text("Currently open")
+                            .font(.caption.bold())
+                            .foregroundColor(.blue)
+                    }
                 }
+                .padding(.top, 2)
             }
 
             Spacer()

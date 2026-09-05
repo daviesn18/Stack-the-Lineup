@@ -103,6 +103,18 @@ struct LineupView: View {
                 }
             }
 
+            // MARK: - Current Game Banner
+            // When the working lineup belongs to a scheduled game, name that
+            // game so a doubleheader's two same-day games aren't confused.
+            if let game = store.currentGame {
+                Section {
+                    CurrentGameBanner(game: game) { showingSchedulePicker = true }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
             // MARK: - Compact Game Card
             // Summary row (tap to edit date / opponent / status) plus a
             // Schedule / Template split-button row beneath a hairline.
@@ -304,6 +316,52 @@ struct CopiedFromGameBanner: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.green.opacity(0.12))
         )
+    }
+}
+
+// MARK: - Current Game Banner
+
+/// Names the scheduled game the coach is currently building a lineup for, so a
+/// doubleheader's two same-day games are never confused. Tap to switch games via
+/// the schedule picker. Only shown when the working lineup is tied to a game.
+struct CurrentGameBanner: View {
+    let game: ScheduledGame
+    let onTap: () -> Void
+
+    private var subtitle: String {
+        var parts = [game.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())]
+        parts.append(game.date.formatted(.dateTime.hour().minute()))
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                Image(systemName: "calendar.circle.fill")
+                    .foregroundColor(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(game.opponent.map { "Building lineup for vs \($0)" } ?? "Building lineup for this game")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer(minLength: 0)
+                Text("Switch")
+                    .font(.caption.bold())
+                    .foregroundColor(.blue)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.blue.opacity(0.10))
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

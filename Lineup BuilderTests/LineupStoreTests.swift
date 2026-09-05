@@ -323,6 +323,161 @@ final class LineupStoreTests: XCTestCase {
         XCTAssertFalse(LineupStore.shouldPreferCloudBlob(
             cloudData: blob, cloudSavedAt: 0, localData: blob, localSavedAt: 100))
     }
+
+    // MARK: - Per-game lineups (doubleheader support)
+
+    private func makeScheduledGame(_ uid: String, opponent: String, date: Date = Date()) -> ScheduledGame {
+        ScheduledGame(icalUID: uid, date: date, opponent: opponent, rawSummary: "vs \(opponent)")
+    }
+
+    /// Sets the working lineup's batting order to a single marker id, so a test
+    /// can tell which game's lineup is currently loaded.
+    private func markWorkingLineup(_ marker: UUID) {
+        let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
+        store.teams[idx].lineup.battingOrder = [marker]
+    }
+
+    func testDoubleheaderGamesKeepIndependentLineups() {
+        // Two games on the same day — the exact case the coach reported.
+        let day = Date()
+        let gameA = makeScheduledGame("A", opponent: "Eagles", date: day)
+        let gameB = makeScheduledGame("B", opponent: "Hawks", date: day)
+        let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
+        store.teams[idx].scheduledGames = [gameA, gameB]
+
+        let markerA = UUID()
+        let markerB = UUID()
+
+        store.applyScheduledGame(gameA)
+        markWorkingLineup(markerA)
+
+        store.applyScheduledGame(gameB)
+        XCTAssertEqual(store.lineup.opponent, "Hawks", "Opening game B seeds a fresh lineup")
+        XCTAssertNotEqual(store.lineup.battingOrder, [markerA], "Game B must not inherit game A's lineup")
+        markWorkingLineup(markerB)
+
+        // Switch back to game A: its lineup must be exactly what we left.
+        store.applyScheduledGame(gameA)
+        XCTAssertEqual(store.lineup.battingOrder, [markerA], "Game A's lineup must be restored intact")
+        XCTAssertEqual(store.currentGame?.id, gameA.id)
+
+        // And game B is still independently preserved in the stash.
+        XCTAssertEqual(store.savedLineup(for: gameB)?.battingOrder, [markerB])
+    }
+
+    func testFinalizedStatusSurvivesGameSwitch() {
+        // Reported bug: finalize game A, build+finalize game B, come back to A
+        // and it had reverted to draft. Switching games must not revert.
+        let day = Date()
+        let gameA = makeScheduledGame("A", opponent: "Eagles", date: day)
+        let gameB = makeScheduledGame("B", opponent: "Hawks", date: day)
+        let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
+        store.teams[idx].scheduledGames = [gameA, gameB]
+
+        store.applyScheduledGame(gameA)
+        store.finalizeLineup()
+        XCTAssertEqual(store.lineup.status, .finalized)
+
+        store.applyScheduledGame(gameB)
+        store.finalizeLineup()
+
+        // A must still read as finalized from its stash while B is the open game.
+        XCTAssertEqual(store.savedLineup(for: gameA)?.status, .finalized,
+                       "Game A must stay finalized after building and finalizing game B")
+
+        // And reopening A restores its finalized status, not draft.
+        store.applyScheduledGame(gameA)
+        XCTAssertEqual(store.lineup.status, .finalized, "Reopening game A restores its finalized status")
+    }
+
+    func testFirstPickKeepsAdHocLineup() {
+        // Picking a game for the first time with an in-progress ad-hoc lineup
+        // must keep that work (pre-doubleheader behavior), only stamping the
+        // game's opponent — not seed a blank grid over it.
+        let marker = UUID()
+        markWorkingLineup(marker)
+
+        let game = makeScheduledGame("A", opponent: "Eagles")
+        let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
+        store.teams[idx].scheduledGames = [game]
+
+        store.applyScheduledGame(game)
+
+        XCTAssertEqual(store.lineup.battingOrder, [marker], "The ad-hoc lineup's work is carried into the game")
+        XCTAssertEqual(store.lineup.opponent, "Eagles", "The game's opponent is stamped on")
+        XCTAssertEqual(store.currentGame?.id, game.id)
+    }
+
+    func testApplyScheduledGameSetsCurrentGame() {
+        let game = makeScheduledGame("A", opponent: "Eagles")
+        let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
+        store.teams[idx].scheduledGames = [game]
+
+        XCTAssertNil(store.currentGame, "No game is open before applying one")
+        store.applyScheduledGame(game)
+
+        XCTAssertEqual(store.currentGame?.id, game.id)
+        XCTAssertEqual(store.lineup.opponent, "Eagles")
+        // savedLineup for the open game returns the live working lineup.
+        XCTAssertNotNil(store.savedLineup(for: game))
+    }
+
+    func testArchiveClearsCurrentGameSlot() {
+        let game = makeScheduledGame("A", opponent: "Eagles")
+        let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
+        store.teams[idx].scheduledGames = [game]
+
+        store.applyScheduledGame(game)
+        markWorkingLineup(UUID())
+        XCTAssertNotNil(store.currentGame)
+
+        store.archiveCurrentLineup(inningsPlayed: store.activeTeam.gameInningCount)
+
+        XCTAssertNil(store.activeTeam.currentGameID, "Archiving detaches the working lineup from its game")
+        XCTAssertNil(store.savedLineup(for: game), "The played game's saved lineup slot is cleared")
+    }
+
+    func testClearSchedulePrunesGameLineups() {
+        let game = makeScheduledGame("A", opponent: "Eagles")
+        let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
+        store.teams[idx].scheduledGames = [game]
+        store.applyScheduledGame(game)
+        markWorkingLineup(UUID())
+
+        store.clearSchedule()
+
+        XCTAssertTrue(store.activeTeam.gameLineups.isEmpty, "Clearing the schedule prunes orphaned per-game lineups")
+        XCTAssertNil(store.activeTeam.currentGameID, "The working lineup detaches when its game is removed")
+    }
+
+    func testTeamBlobRoundTripsPerGameLineups() throws {
+        let gameID = UUID()
+        var lineup = Lineup(opponent: "Eagles")
+        let marker = UUID()
+        lineup.battingOrder = [marker]
+
+        var team = Team()
+        team.gameLineups = [gameID: lineup]
+        team.currentGameID = gameID
+
+        let data = try JSONEncoder().encode(team)
+        let decoded = try JSONDecoder().decode(Team.self, from: data)
+
+        XCTAssertEqual(decoded.currentGameID, gameID)
+        XCTAssertEqual(decoded.gameLineups[gameID]?.battingOrder, [marker])
+        XCTAssertEqual(decoded.gameLineups[gameID]?.opponent, "Eagles")
+    }
+
+    func testLegacyBlobWithoutStashDecodesSafely() throws {
+        // A Team blob written before per-game lineups existed has neither key.
+        let json = Data(#"{"name":"Legacy","gameInningCount":6}"#.utf8)
+        let decoded = try JSONDecoder().decode(Team.self, from: json)
+
+        XCTAssertEqual(decoded.name, "Legacy")
+        XCTAssertEqual(decoded.gameInningCount, 6)
+        XCTAssertTrue(decoded.gameLineups.isEmpty, "Missing stash decodes to empty")
+        XCTAssertNil(decoded.currentGameID, "Missing current game decodes to nil (ad-hoc lineup)")
+    }
 }
 
 // MARK: - CloudPushDebouncer Tests

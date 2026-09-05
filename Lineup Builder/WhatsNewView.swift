@@ -22,6 +22,17 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "3.3.2",
+            features: [
+                WhatsNewFeature(
+                    icon: "rectangle.stack.fill",
+                    iconColor: .blue,
+                    title: "A Lineup for Each Game",
+                    description: "Build a separate lineup for every game on your schedule. Pick a game, build it, then switch to the next. Each keeps its own batting order, positions, and Finalized status."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "3.3.1",
             features: [
                 WhatsNewFeature(
