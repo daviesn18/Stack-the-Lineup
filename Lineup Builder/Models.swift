@@ -1113,6 +1113,18 @@ nonisolated struct Team: Identifiable, Codable {
     /// new game. At most one template per team can hold this — setting a new
     /// default replaces the old one rather than adding to a list.
     var defaultTemplateID: UUID? = nil
+    /// Saved lineups for individual scheduled games, keyed by `ScheduledGame.id`.
+    /// This is what lets a coach build both games of a doubleheader independently:
+    /// two same-day games no longer share the single `lineup`. The live working
+    /// lineup is still `lineup`; opening a game stashes the current working lineup
+    /// here and swaps in that game's saved copy (see LineupStore.applyScheduledGame).
+    /// Keyed by the stable `ScheduledGame.id`, which mergeScheduledGames preserves
+    /// across re-syncs. Empty for teams that never open a game from the schedule.
+    var gameLineups: [UUID: Lineup] = [:]
+    /// The scheduled game the live `lineup` currently represents, or nil when the
+    /// working lineup isn't tied to a scheduled game (the legacy single-lineup
+    /// path — coaches who don't sync a schedule stay here permanently).
+    var currentGameID: UUID? = nil
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -1139,7 +1151,9 @@ nonisolated struct Team: Identifiable, Codable {
         isReadOnly: Bool = false,
         isSharedParticipant: Bool = false,
         lineupTemplates: [LineupTemplate] = [],
-        defaultTemplateID: UUID? = nil
+        defaultTemplateID: UUID? = nil,
+        gameLineups: [UUID: Lineup] = [:],
+        currentGameID: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -1159,6 +1173,8 @@ nonisolated struct Team: Identifiable, Codable {
         self.isSharedParticipant = isSharedParticipant
         self.lineupTemplates = lineupTemplates
         self.defaultTemplateID = defaultTemplateID
+        self.gameLineups = gameLineups
+        self.currentGameID = currentGameID
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -1194,6 +1210,12 @@ nonisolated struct Team: Identifiable, Codable {
         // defaultTemplateID is new in this release — nil means no default template,
         // which is the pre-upgrade behavior for every existing team.
         defaultTemplateID        = try? c.decode(UUID.self,              forKey: .defaultTemplateID)
+        // gameLineups / currentGameID are new — per-game lineups for doubleheader
+        // support. Older blobs lack both keys: an empty stash with a nil current
+        // game leaves the existing `lineup` as the sole (ad-hoc) working lineup,
+        // identical to pre-upgrade behavior.
+        gameLineups              = (try? c.decode([UUID: Lineup].self,   forKey: .gameLineups))             ?? [:]
+        currentGameID            = try? c.decode(UUID.self,              forKey: .currentGameID)
     }
 }
 
@@ -2063,6 +2085,14 @@ class LineupStore: ObservableObject {
             activeTeam.gameLogs = Array(activeTeam.gameLogs.prefix(maxGameLogs))
         }
 
+        // If this lineup belonged to a scheduled game, that game has now been
+        // played: drop its saved slot and detach the working lineup so the
+        // cleared grid below returns to an ordinary ad-hoc lineup.
+        if let id = activeTeam.currentGameID {
+            activeTeam.gameLineups.removeValue(forKey: id)
+            activeTeam.currentGameID = nil
+        }
+
         clearPositions()
         // Archiving is the app's only "new game starts now" moment, so this is
         // where a default template earns its keep — the next game opens with
@@ -2472,18 +2502,91 @@ class LineupStore: ObservableObject {
     func clearSchedule() {
         activeTeam.scheduledGames = []
         activeTeam.calendarSubscriptionURL = nil
+        // Every saved per-game lineup is now orphaned; drop them and detach the
+        // working lineup so it becomes an ordinary ad-hoc lineup again.
+        pruneOrphanedGameLineups()
         save()
         Analytics.signal("schedule.cleared")
     }
 
-    /// Pre-fills the active lineup's date and opponent from a scheduled game.
-    /// Does not lock the fields — coach can still edit after selection.
-    func applyScheduledGame(_ game: ScheduledGame) {
-        revertToDraftIfFinalized()
-        activeTeam.lineup.gameDate = game.date
-        if let opponent = game.opponent {
-            activeTeam.lineup.opponent = opponent
+    // MARK: - Per-game lineups
+
+    /// The scheduled game the live working `lineup` currently represents, or nil
+    /// when the working lineup isn't tied to a scheduled game.
+    var currentGame: ScheduledGame? {
+        guard let id = activeTeam.currentGameID else { return nil }
+        return activeTeam.scheduledGames.first { $0.id == id }
+    }
+
+    /// The lineup saved for a scheduled game, for read-only display (e.g. the
+    /// picker's status badge). Returns the live working lineup when `game` is the
+    /// one currently open, otherwise the stashed copy, or nil if none exists yet.
+    func savedLineup(for game: ScheduledGame) -> Lineup? {
+        if game.id == activeTeam.currentGameID { return activeTeam.lineup }
+        return activeTeam.gameLineups[game.id]
+    }
+
+    /// Writes the live working lineup back into its game's stash slot, so it isn't
+    /// lost when another game is swapped in. No-op for an ad-hoc lineup.
+    private func stashCurrentLineup() {
+        guard let id = activeTeam.currentGameID else { return }
+        activeTeam.gameLineups[id] = activeTeam.lineup
+    }
+
+    /// Drops stashed lineups whose game no longer exists in the schedule, and
+    /// detaches the working lineup if its game was among them. Called after the
+    /// schedule changes (clear / re-sync) so the stash can't accumulate orphans.
+    private func pruneOrphanedGameLineups() {
+        let liveIDs = Set(activeTeam.scheduledGames.map { $0.id })
+        activeTeam.gameLineups = activeTeam.gameLineups.filter { liveIDs.contains($0.key) }
+        if let id = activeTeam.currentGameID, !liveIDs.contains(id) {
+            // The working lineup's game is gone; keep its content but treat it as
+            // ad-hoc rather than pointing at a game that no longer exists.
+            activeTeam.currentGameID = nil
         }
+    }
+
+    /// Opens a scheduled game for lineup editing. Each game keeps its own lineup:
+    /// the currently open lineup is stashed, then this game's saved lineup is
+    /// swapped in (or a fresh one is seeded). This is what lets a coach build
+    /// both games of a doubleheader without one overwriting the other.
+    ///
+    /// Switching games is not an edit of the outgoing lineup, so its finalized
+    /// status is preserved as it's stashed — only stamping a game's date and
+    /// opponent onto an ad-hoc lineup (the pre-doubleheader first-pick flow)
+    /// counts as an edit and reverts that lineup to draft.
+    func applyScheduledGame(_ game: ScheduledGame) {
+        // Re-picking the game that's already open is a no-op.
+        guard game.id != activeTeam.currentGameID else { return }
+
+        let wasAdHoc = activeTeam.currentGameID == nil
+
+        // Preserve whatever game is currently open — untouched, so a finalized
+        // lineup stays finalized in its stash slot.
+        stashCurrentLineup()
+
+        if let saved = activeTeam.gameLineups[game.id] {
+            // Reopen this game's saved lineup exactly as it was left.
+            activeTeam.lineup = saved
+        } else if wasAdHoc {
+            // First time attaching the ad-hoc working lineup to a game: keep the
+            // coach's in-progress lineup and just stamp the game's date and
+            // opponent, matching the pre-doubleheader behavior. Stamping is an
+            // edit, so a finalized ad-hoc lineup reverts to draft as before.
+            revertToDraftIfFinalized()
+            activeTeam.lineup.gameDate = game.date
+            if let opponent = game.opponent {
+                activeTeam.lineup.opponent = opponent
+            }
+        } else {
+            // Switching from one game to another that has no lineup yet: seed a
+            // fresh lineup from the game and the default template — the same
+            // "new game starts now" seeding archiving uses.
+            activeTeam.lineup = Lineup(gameDate: game.date, opponent: game.opponent ?? "")
+            applyDefaultTemplatePositions()
+        }
+
+        activeTeam.currentGameID = game.id
         save()
         Analytics.signal("schedule.game.applied")
     }

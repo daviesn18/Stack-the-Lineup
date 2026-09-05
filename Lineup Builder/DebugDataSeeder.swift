@@ -184,7 +184,9 @@ enum DebugDataSeeder {
     // pipeline a real GameChanger/LeagueApps export would go through.
     // Covers: UTC datetime, TZID datetime, STATUS:CANCELLED, a practice
     // event (should be filtered from "upcoming games" but still stored),
-    // and a same-opponent rematch against a team from the fake game logs.
+    // a same-opponent rematch against a team from the fake game logs, and a
+    // same-day doubleheader (two games, different opponents) for exercising
+    // per-game lineups.
 
     private static func makeFakeICalData() -> Data {
         let utcFormatter = DateFormatter()
@@ -266,6 +268,29 @@ enum DebugDataSeeder {
             DTSTART:\(utcStamp(daysFromNow: 10, hour: 22, minute: 30))
             SUMMARY:Test Team vs. Blue Jays
             LOCATION:Eastside Complex
+            END:VEVENT
+            """,
+            // A doubleheader: two games on the same day against different
+            // opponents. This is the case per-game lineups exist for — build a
+            // lineup for game 1, switch to game 2, and confirm they stay
+            // independent. Local time so both land on the same calendar day
+            // regardless of the device time zone.
+            """
+            BEGIN:VEVENT
+            UID:stl-test-7@stackthelineup.debug
+            DTSTAMP:\(localStamp(daysFromNow: 4, hour: 10, minute: 0))
+            DTSTART;TZID=America/New_York:\(localStamp(daysFromNow: 4, hour: 10, minute: 0))
+            SUMMARY:Test Team vs Cardinals
+            LOCATION:Riverside Park Field 1
+            END:VEVENT
+            """,
+            """
+            BEGIN:VEVENT
+            UID:stl-test-8@stackthelineup.debug
+            DTSTAMP:\(localStamp(daysFromNow: 4, hour: 13, minute: 30))
+            DTSTART;TZID=America/New_York:\(localStamp(daysFromNow: 4, hour: 13, minute: 30))
+            SUMMARY:Test Team vs Hawks
+            LOCATION:Riverside Park Field 3
             END:VEVENT
             """,
         ]
