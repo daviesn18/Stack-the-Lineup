@@ -10,10 +10,13 @@ import UIKit
 // app holds rosters of minors; that constraint outranks completeness.
 //
 // What it carries is the state that actually diagnoses the sharing/sync bugs we
-// see in support: per-team the record name, the participant/read-only flags, and
+// see in support: per-team the record name, the participant/read-only flags,
 // whether the durable received-share ledger knows about the team — the exact
-// mismatch behind "This team isn't in iCloud yet". Everything is an id, a record
-// name ("team-<uuid>"), a count, a flag, or an enum. Never a name.
+// mismatch behind "This team isn't in iCloud yet" — and the owner-side share
+// state (shared/not, link permission, joined vs. invited), the counterpart the
+// report was missing when a head coach's team "isn't importing" for an assistant.
+// Everything is an id, a record name ("team-<uuid>"), a count, a flag, or an
+// enum. Never a name — not the coach's, not a participant's.
 
 @MainActor
 enum DiagnosticsReport {
@@ -47,6 +50,7 @@ enum DiagnosticsReport {
             lines.append("     record: \(team.ckRecordName ?? "none")")
             lines.append("     sharedParticipant: \(team.isSharedParticipant)   readOnly: \(team.isReadOnly)   inReceivedLedger: \(store.isReceivedShare(team))")
             lines.append("     players: \(team.players.count)   games: \(team.gameLogs.count)")
+            lines.append("     \(await shareStateLine(for: team))")
         }
         lines.append("")
 
@@ -67,6 +71,43 @@ enum DiagnosticsReport {
         lines.append("Active team id: \(store.activeTeamID?.uuidString ?? "none")")
 
         return lines.joined(separator: "\n")
+    }
+
+    /// A name-free, one-line summary of a team's CloudKit share state.
+    ///
+    /// This is the field the owner's report was missing when a shared team
+    /// "isn't importing": the receiver flags above are read from the team blob and
+    /// only ever describe a team this device *received*. Nothing told us, from the
+    /// head coach's phone, whether the team they meant to share is actually shared,
+    /// at what link permission, and how many coaches have joined versus been
+    /// invited. This asks CloudKit that directly, per team.
+    ///
+    /// Privacy holds the same line as the rest of the report. `TeamShareInfo`
+    /// carries participant and owner *names, emails, and phone numbers* — NONE of
+    /// them are printed here. Only the state enum, the link permission, and counts.
+    /// A CloudKit round-trip per team, so this runs only on the manual export.
+    private static func shareStateLine(for team: Team) async -> String {
+        let info: TeamShareInfo
+        do {
+            info = try await CloudKitManager.shared.shareInfo(for: team)
+        } catch {
+            // friendlyMessage is fixed strings / record names only — never a person.
+            return "share: lookup failed (\(CloudKitManager.friendlyMessage(for: error)))"
+        }
+
+        switch info.state {
+        case .notSynced(let stale):
+            return "share: notSynced (staleRecordName: \(stale))"
+        case .notShared:
+            return "share: notShared"
+        case .shared:
+            let joined = info.acceptedCount
+            let total  = info.participants.count
+            let url    = info.url != nil ? "yes" : "none"
+            return "share: shared   link: \(info.linkPermission.rawValue)   joined: \(joined)/\(total)   url: \(url)"
+        case .participant:
+            return "share: participant   myPermission: \(info.myPermission.rawValue)"
+        }
     }
 
     /// The hardware model identifier (e.g. "iPhone15,2"), which helps reproduce

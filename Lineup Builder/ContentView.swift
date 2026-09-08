@@ -70,6 +70,11 @@ struct ContentView: View {
     @State private var showingNudge = false
     @State private var nudgePastGameCount: Int = 0
 
+    // Shared-team join feedback. A tapped invite can take several seconds to
+    // deliver server-side; this drives the banner that tells the assistant the
+    // team is on its way, and the recovery if it doesn't arrive in the window.
+    @State private var shareJoinPhase: ShareJoinPhase = .idle
+
     var body: some View {
         Group {
             if horizontalSizeClass == .regular {
@@ -108,6 +113,17 @@ struct ContentView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: store.reuseToast)
+        // Shared-team join feedback, top-aligned so it clears the toast above and
+        // reads as "something is happening" the moment an invite is accepted.
+        .overlay(alignment: .top) {
+            ShareJoinBanner(
+                phase: shareJoinPhase,
+                onRetry: { retryShareJoin() },
+                onDismiss: { withAnimation { shareJoinPhase = .idle } }
+            )
+            .padding(.horizontal)
+        }
+        .animation(.spring(duration: 0.35), value: shareJoinPhase)
         .onChange(of: store.copiedFromGameOpponent) { _, opponent in
             // Copying from History lands the coach on the Lineup tab, where
             // the copied order is waiting under the "Copied from…" banner.
@@ -351,33 +367,86 @@ struct ContentView: View {
         }
 
         let teamIDsBefore = Set(store.teams.map { $0.id })
-        Task {
-            // Give CloudKit a moment to finish processing the acceptance
-            // server-side before fetching.
-            try? await Task.sleep(for: .seconds(2))
-            await store.fetchCloudKitChanges()
+        joinSharedTeam(rootRecordName: accepted.rootRecordName, teamIDsBefore: teamIDsBefore)
+    }
 
-            // Prefer the record name CloudKit gave us. Falling straight to
-            // "whichever team is new" misidentifies the target when the same
-            // fetch also brings down other teams — which is normal on a device
-            // that has been offline.
-            let joined = accepted.rootRecordName.flatMap { name in
-                store.teams.first { $0.ckRecordName == name }
-            } ?? store.teams.first { !teamIDsBefore.contains($0.id) }
+    /// Polls CloudKit until the just-accepted team lands, then foregrounds it and
+    /// drops the coach on the Players tab. Drives `shareJoinPhase` so the UI can
+    /// show the wait and recover if the team never arrives. Also used by the
+    /// failure banner's Try Again, which is why the baseline is passed in rather
+    /// than captured — a retry's "before" is the current roster, not the original.
+    private func joinSharedTeam(rootRecordName: String?, teamIDsBefore: Set<UUID>) {
+        // Prefer the record name CloudKit gave us. Falling straight to "whichever
+        // team is new" misidentifies the target when the same fetch also brings
+        // down other teams — which is normal on a device that has been offline.
+        func joinedTeam() -> Team? {
+            if let name = rootRecordName,
+               let match = store.teams.first(where: { $0.ckRecordName == name }) {
+                return match
+            }
+            return store.teams.first { !teamIDsBefore.contains($0.id) }
+        }
+
+        withAnimation { shareJoinPhase = .joining }
+
+        Task {
+            // CloudKit makes the owner's shared zone available on its own schedule
+            // after accept() returns — routinely longer than a couple of seconds
+            // on a cold launch, which is exactly when an invite tap lands. A single
+            // fetch-then-give-up left the team to arrive via ordinary sync minutes
+            // later, never foregrounded — the whole failure the invite flow exists
+            // to prevent. So poll a bounded number of times, stopping the instant
+            // the team appears. Worst case ~16s of retries, all in the background;
+            // the coach sees the team the moment it lands, not on the next launch.
+            let backoff: [Duration] = [
+                .seconds(1), .seconds(2), .seconds(3), .seconds(5), .seconds(5)
+            ]
+
+            var joined: Team?
+            for delay in backoff {
+                try? await Task.sleep(for: delay)
+                await store.fetchCloudKitChanges()
+                if let found = joinedTeam() {
+                    joined = found
+                    break
+                }
+            }
 
             if let joined {
                 store.switchTeam(to: joined.id)
+                // Land on the roster — the first thing an assistant is here to do
+                // is help build it, and it is where the team reads as "loaded".
+                selectedTab = 0
                 // Ask who this coach is, now that the answer has somewhere to go.
                 // Joining is the receiving-side counterpart of the question
                 // TeamSharingView asks before sending an invite: until it is
                 // answered, everything this coach does reaches the head coach
                 // attributed to "iPhone". See backlog 1.11.
                 store.requestCoachNameIfPlaceholder(teamID: joined.id)
+                withAnimation { shareJoinPhase = .idle }
                 Analytics.signal("team.share.opened_after_accept")
             } else {
-                Log.sync.error("Share accepted but no matching team arrived in the fetch")
+                // The invite was accepted but the shared zone never delivered the
+                // team within the retry window. Surface it (so the coach isn't left
+                // on a blank screen) and signal it: this is the metric that tells a
+                // propagation delay we should wait longer for from a share that is
+                // genuinely not arriving.
+                withAnimation { shareJoinPhase = .failed(rootRecordName: rootRecordName) }
+                Log.sync.error("Share accepted but no matching team arrived after retries")
+                Analytics.signal("team.share.accept_no_team_arrived")
             }
         }
+    }
+
+    /// Re-runs the join from the failure banner. The team may simply have been
+    /// slow; a fresh poll against the current roster picks it up if it has since
+    /// landed, and re-surfaces the wait if it hasn't.
+    private func retryShareJoin() {
+        guard case .failed(let rootRecordName) = shareJoinPhase else { return }
+        joinSharedTeam(
+            rootRecordName: rootRecordName,
+            teamIDsBefore: Set(store.teams.map { $0.id })
+        )
     }
 
     // MARK: - Tour State
@@ -686,6 +755,75 @@ struct ContentView: View {
             Button("Not Yet", role: .cancel) {
                 dismissNudge()
             }
+        }
+    }
+}
+
+// MARK: - Shared-Team Join Feedback
+
+/// Where a just-accepted invite is in the load cycle. `failed` carries the
+/// CloudKit root record name so Try Again can re-poll for the same team.
+private enum ShareJoinPhase: Equatable {
+    case idle
+    case joining
+    case failed(rootRecordName: String?)
+}
+
+/// The banner shown while a tapped invite is being fetched, and if it doesn't
+/// arrive in the retry window. Nothing shows in `.idle`, so it is safe to keep
+/// mounted as a permanent overlay.
+private struct ShareJoinBanner: View {
+    let phase: ShareJoinPhase
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        switch phase {
+        case .idle:
+            EmptyView()
+
+        case .joining:
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Getting the shared team…")
+                    .font(.subheadline.weight(.medium))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.regularMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            .transition(.move(edge: .top).combined(with: .opacity))
+
+        case .failed:
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "icloud.slash")
+                        .foregroundStyle(.secondary)
+                    Text("That team hasn't arrived yet")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 8)
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text("It'll appear here on its own once iCloud delivers it. Check your connection, or try again.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: onRetry) {
+                    Text("Try Again")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 }

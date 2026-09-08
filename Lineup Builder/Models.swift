@@ -1438,12 +1438,19 @@ class LineupStore: ObservableObject {
             // edit, not a snapshot from when the timer started.
             guard let team = teams.first(where: { $0.id == id }) else { continue }
             // Read-only participants cannot write back to CloudKit.
-            // Read-write participants (isSharedParticipant && !isReadOnly) can and should.
+            // Read-write participants (received && !isReadOnly) can and should.
             guard !team.isReadOnly else { continue }
+            // Judge "received" by the durable ledger, not `isSharedParticipant`.
+            // If the flag has reset to false (a decode with no shared fetch yet
+            // this session), routing this save to the private DB would strand the
+            // edit in this coach's own zone and it would never reach the head
+            // coach — the silent-participant-write failure. The ledger survives
+            // the relaunch and is the same signal shareInfo(for:) now routes on.
+            let useSharedDB = isReceivedShare(team) || team.isSharedParticipant
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let recordName = try await CloudKitManager.shared.saveTeam(team, useSharedDB: team.isSharedParticipant)
+                    let recordName = try await CloudKitManager.shared.saveTeam(team, useSharedDB: useSharedDB)
                     if team.ckRecordName == nil {
                         await MainActor.run {
                             if let idx = self.teams.firstIndex(where: { $0.id == team.id }) {

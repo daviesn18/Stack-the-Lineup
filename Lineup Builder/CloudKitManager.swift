@@ -735,7 +735,21 @@ actor CloudKitManager {
         // sits in the owner's zone in the shared database. Reading it from
         // privateDB throws unknownItem, which is how a perfectly healthy shared
         // team came to render "This team isn't in iCloud yet".
-        if team.isSharedParticipant {
+        //
+        // Route on the DURABLE received-share ledger, not `isSharedParticipant`.
+        // The flag is forced false on every decode and only re-stamped by a
+        // successful fetchSharedTeams, so it is false in the window before the
+        // session's first shared fetch — and a sharing screen that reads it then
+        // sends a genuine participant team down the owned path and straight into
+        // the "not in iCloud yet" screen (the 3.3.1 / build-44 report). The ledger
+        // is written the moment a shared team arrives and survives relaunch, so it
+        // is the authoritative answer to "is this a received team". The flag is
+        // kept only as an OR fast-path: it can never be true for an owned team
+        // (decode clears it; only the shared-DB merge sets it), so widening the
+        // test cannot misroute one.
+        let isReceived = team.isSharedParticipant
+            || TeamStorage.loadReceivedShares().contains(recordName)
+        if isReceived {
             return try await participantShareInfo(recordName: recordName)
         }
 
