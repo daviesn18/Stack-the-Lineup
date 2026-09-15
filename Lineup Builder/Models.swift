@@ -409,6 +409,64 @@ nonisolated enum PositionPreferenceTier: String, Codable, CaseIterable, Sendable
     }
 }
 
+// MARK: - Hitting Archetype
+
+/// How a hitter drives the ball. Feeds batting-order automation.
+nonisolated enum HittingStyle: String, Codable, CaseIterable, Sendable {
+    case power   = "Power"
+    case gap     = "Gap"
+    case singles = "Singles"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+/// A hitter's baserunning speed tier.
+nonisolated enum SpeedRating: String, Codable, CaseIterable, Sendable {
+    case fast   = "Fast"
+    case medium = "Medium"
+    case slow   = "Slow"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+/// A hitter's on-base tendency (OBP).
+nonisolated enum OnBaseRating: String, Codable, CaseIterable, Sendable {
+    case high   = "High"
+    case medium = "Medium"
+    case low    = "Low"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+/// The three archetype axes a coach can tag per hitter. Each is independently
+/// optional — a coach sets only what they know. Nil throughout means "not tagged".
+/// Kept as a struct (rather than three loose fields on Player) so the future
+/// batting-order engine takes one value.
+nonisolated struct HittingArchetype: Codable, Equatable, Sendable {
+    var hitting: HittingStyle?
+    var speed: SpeedRating?
+    var onBase: OnBaseRating?
+
+    nonisolated var isEmpty: Bool { hitting == nil && speed == nil && onBase == nil }
+
+    init(hitting: HittingStyle? = nil, speed: SpeedRating? = nil, onBase: OnBaseRating? = nil) {
+        self.hitting = hitting
+        self.speed = speed
+        self.onBase = onBase
+    }
+
+    // Lenient decode: an unknown or renamed raw value on any axis decodes as nil
+    // for that axis rather than throwing and taking the whole Player down with it
+    // (mirrors PositionPreferenceTier's defensive decode). encode(to:) stays
+    // synthesized.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hitting = (try? c.decodeIfPresent(HittingStyle.self, forKey: .hitting)) ?? nil
+        speed   = (try? c.decodeIfPresent(SpeedRating.self,  forKey: .speed))   ?? nil
+        onBase  = (try? c.decodeIfPresent(OnBaseRating.self, forKey: .onBase))  ?? nil
+    }
+}
+
 // MARK: - Player
 
 nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
@@ -418,6 +476,7 @@ nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
     var number: String
     var leagueAge: Int? = nil
     var positionPreferences: [FieldPosition: PositionPreferenceTier] = [:]
+    var hittingArchetype: HittingArchetype? = nil
 
     nonisolated var displayName: String { "\(firstName) \(lastName)" }
     nonisolated var displayNameWithNumber: String {
@@ -432,13 +491,15 @@ nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
     // suppresses the compiler-synthesized memberwise initializer.
     init(id: UUID = UUID(), firstName: String, lastName: String, number: String,
          leagueAge: Int? = nil,
-         positionPreferences: [FieldPosition: PositionPreferenceTier] = [:]) {
+         positionPreferences: [FieldPosition: PositionPreferenceTier] = [:],
+         hittingArchetype: HittingArchetype? = nil) {
         self.id = id
         self.firstName = firstName
         self.lastName = lastName
         self.number = number
         self.leagueAge = leagueAge
         self.positionPreferences = positionPreferences
+        self.hittingArchetype = hittingArchetype
     }
 
     // Custom decode: if positionPreferences fails for any reason (e.g. schema
@@ -455,6 +516,10 @@ nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
             [FieldPosition: PositionPreferenceTier].self,
             forKey: .positionPreferences
         )) ?? [:]
+        hittingArchetype = (try? container.decodeIfPresent(
+            HittingArchetype.self,
+            forKey: .hittingArchetype
+        )) ?? nil
     }
 }
 
