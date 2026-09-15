@@ -131,6 +131,13 @@ class PurchaseManager: ObservableObject {
     /// one implementation — two copies would eventually disagree, and the copy
     /// that drifted would silently revoke Pro from a $4.99 buyer.
     nonisolated static func isProNow() async -> Bool {
+        #if DEBUG
+        // Test-only override, set by the DEBUG SetProForTestingIntent so
+        // AppIntentsTesting can exercise the Pro path in the out-of-process app it
+        // launches (that framework has no launch-argument hook). nil = fall through
+        // to real StoreKit. #if DEBUG, so it never exists in a shipping build.
+        if let override = proTestingOverride { return override }
+        #endif
         // Any active/owned entitlement for the legacy purchase OR the
         // subscription grants Pro. currentEntitlements already excludes expired
         // subscriptions and refunded purchases, so presence here is sufficient.
@@ -160,6 +167,24 @@ class PurchaseManager: ObservableObject {
         )
         return granting
     }
+
+    #if DEBUG
+    /// Test-only Pro override, set by the DEBUG `SetProForTestingIntent` and
+    /// cleared by `ResetTestDataIntent`. nil = use real StoreKit entitlements. Lets
+    /// AppIntentsTesting drive the Pro path in the out-of-process app, which exposes
+    /// no launch-argument hook. Never compiled into a shipping build.
+    nonisolated private static let proTestingOverrideKey = "stl.debug.forcePro"
+    nonisolated static var proTestingOverride: Bool? {
+        UserDefaults.standard.object(forKey: proTestingOverrideKey) as? Bool
+    }
+    nonisolated static func setProTestingOverride(_ value: Bool?) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: proTestingOverrideKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: proTestingOverrideKey)
+        }
+    }
+    #endif
 
     /// Resolves `status` out of `.undetermined` for good. Called on launch and
     /// again on every `Transaction.updates` event, so a lapse or refund moves

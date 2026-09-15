@@ -20,16 +20,29 @@ import AppIntentsTesting
 // known full-run hang:
 //   -only-testing:"Lineup BuilderUITests/STLAppIntentsTests"
 //
-// Pro path note: these run against a fresh simulator, which is NOT Pro, so they
-// cover the LOCKED path. Exercising the Pro-success path needs a StoreKit test
-// configuration or a FORCE_PRO launch argument (see the [P1] card) and is a
-// follow-up.
+// Pro path: a fresh simulator is NOT Pro, so intents run here see the LOCKED
+// path by default. AppIntentsTesting has no launch-argument/-environment hook, so
+// to exercise the Pro path (and to seed roster data) we drive DEBUG-only
+// test-control intents — SetProForTesting / SeedTestRoster / ResetTestData — which
+// set state inside the same out-of-process app. See DebugTestControlIntents.swift.
 
 @available(iOS 27.0, *)
 final class STLAppIntentsTests: XCTestCase {
 
     private var definitions: IntentDefinitions {
         IntentDefinitions(bundleIdentifier: "com.nickdavies.LineupBuilder.Lineup-Builder")
+    }
+
+    /// Always leave the app process clean: ResetTestData removes the seed roster
+    /// and clears any Pro override, so tests can't leak state into each other.
+    override func tearDown() async throws {
+        _ = try? await definitions.intents["ResetTestDataIntent"].makeIntent().run()
+        try await super.tearDown()
+    }
+
+    private func currentProStatus() async throws -> Bool {
+        let result = try await definitions.intents["ProStatusForTestingIntent"].makeIntent().run()
+        return try result.value
     }
 
     // MARK: The Pro-gate asymmetry
@@ -76,5 +89,36 @@ final class STLAppIntentsTests: XCTestCase {
 
     func testTeamEntitySuggestionsExecute() async throws {
         _ = try await definitions.entities["TeamEntity"].suggestedEntities()
+    }
+
+    // MARK: Pro-success path (via the DEBUG override)
+    //
+    // Proves the override is honored by the REAL gate, end-to-end through the
+    // intent stack: SetPro(true) -> isProNow() reports Pro; ResetTestData ->
+    // back to the real (non-Pro) StoreKit answer. This is the seam that lets a
+    // future test assert a specific gated intent's Pro perform.
+
+    func testProOverrideIsHonoredByTheRealGate() async throws {
+        _ = try await definitions.intents["SetProForTestingIntent"].makeIntent(enabled: true).run()
+        let proOn = try await currentProStatus()
+        XCTAssertTrue(proOn, "Pro override = true should make isProNow() report Pro")
+
+        _ = try await definitions.intents["ResetTestDataIntent"].makeIntent().run()
+        let proOff = try await currentProStatus()
+        XCTAssertFalse(proOff, "Reset should clear the override back to the real (non-Pro) StoreKit answer")
+    }
+
+    // MARK: Data-backed entity resolution
+    //
+    // Seeds a known player, then asserts the real PlayerEntity string query
+    // actually resolves them by name — the query that feeds every player-parameter
+    // intent and Spotlight. tearDown removes the seed.
+
+    func testSeededPlayerResolvesByName() async throws {
+        let seedResult = try await definitions.intents["SeedTestRosterIntent"].makeIntent().run()
+        let query: String = try seedResult.value
+
+        let matches = try await definitions.entities["PlayerEntity"].entities(matching: query)
+        XCTAssertFalse(matches.isEmpty, "Seeded player should be resolvable by \"\(query)\"")
     }
 }
