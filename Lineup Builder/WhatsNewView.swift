@@ -251,6 +251,14 @@ extension WhatsNewContent {
         )
     ]
 
+    /// Versions that intentionally ship no What's New sheet — maintenance and
+    /// bug-fix releases with nothing for a coach to act on. Listed explicitly
+    /// rather than inferred from the version number, because a patch release
+    /// sometimes *does* earn a note (see 3.3.1). The guard test accepts a running
+    /// version that either has an entry above OR appears here, so every bump still
+    /// forces a deliberate choice: write a note, or declare it silent.
+    static let silentReleases: Set<String> = ["3.4.1"]
+
     /// Returns the WhatsNewContent for the current app version, if one exists.
     static var current: WhatsNewContent? {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""

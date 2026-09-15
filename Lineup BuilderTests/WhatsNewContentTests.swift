@@ -20,17 +20,27 @@ final class WhatsNewContentTests: XCTestCase {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     }
 
-    /// The guard. Fails the build whenever the version moves ahead of the registry.
+    /// The guard. Fails the build whenever the version moves ahead of the registry
+    /// without a deliberate choice — either a What's New entry, or an explicit
+    /// entry in `silentReleases` for a maintenance/bug-fix build.
     func testTheRunningVersionHasAnEntry() {
         XCTAssertFalse(
             appVersion.isEmpty,
             "CFBundleShortVersionString is missing — the test host isn't the app bundle"
         )
+        if WhatsNewContent.silentReleases.contains(appVersion) {
+            XCTAssertNil(
+                WhatsNewContent.current,
+                "\(appVersion) is declared a silent release but also has a What's New entry — remove one so the intent is unambiguous."
+            )
+            return
+        }
         XCTAssertNotNil(
             WhatsNewContent.current,
             """
             No What's New entry for version \(appVersion), so the sheet will never appear \
-            for this build. Add one to WhatsNewContent.all whenever MARKETING_VERSION changes.
+            for this build. Add one to WhatsNewContent.all whenever MARKETING_VERSION changes, \
+            or add \(appVersion) to WhatsNewContent.silentReleases if it ships no notes.
             """
         )
     }
@@ -49,6 +59,9 @@ final class WhatsNewContentTests: XCTestCase {
     /// not the whole registry: 2.3 shipped with four and that history isn't worth
     /// rewriting to satisfy a test.
     func testTheCurrentEntryFitsTheSheet() throws {
+        if WhatsNewContent.silentReleases.contains(appVersion) {
+            throw XCTSkip("\(appVersion) is a silent release — no sheet to size.")
+        }
         let content = try XCTUnwrap(
             WhatsNewContent.current,
             "No entry for \(appVersion) — see testTheRunningVersionHasAnEntry"
@@ -61,6 +74,17 @@ final class WhatsNewContentTests: XCTestCase {
             content.features.count,
             3,
             "Version \(content.version) has \(content.features.count) features; past three the sheet stops being dismissible on small screens"
+        )
+    }
+
+    /// A version is either documented or deliberately silent, never both —
+    /// otherwise the declared intent contradicts itself.
+    func testSilentReleasesAreNotAlsoDocumented() {
+        let documented = Set(WhatsNewContent.all.map(\.version))
+        let overlap = documented.intersection(WhatsNewContent.silentReleases)
+        XCTAssertTrue(
+            overlap.isEmpty,
+            "Version(s) both documented and marked silent: \(overlap.sorted())"
         )
     }
 
