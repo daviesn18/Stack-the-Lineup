@@ -54,10 +54,10 @@ nonisolated enum TourState {
 
 private nonisolated func tourTitle(_ text: String, pro: Bool = false) -> Text {
     guard pro, !TourState.isPro else { return Text(text) }
-    return Text(text)
-        + Text("  PRO")
-            .font(.caption2.weight(.black))
-            .foregroundColor(.orange)
+    var badge = AttributedString("  PRO")
+    badge.font = .caption2.weight(.black)
+    badge.foregroundColor = .orange
+    return Text(AttributedString(text) + badge)
 }
 
 // MARK: - Shared Actions

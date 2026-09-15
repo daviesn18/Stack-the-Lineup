@@ -197,14 +197,22 @@ struct PaywallView: View {
 
     // MARK: - Free Tier
 
+    private static let freeTierAttributedText: AttributedString = {
+        var lead = AttributedString("Always free. ")
+        lead.font = .footnote.weight(.semibold)
+        lead.foregroundColor = .primary
+        var detail = AttributedString("Batting order, positions, fair play warnings, and roster import.")
+        detail.font = .footnote
+        detail.foregroundColor = .secondary
+        return lead + detail
+    }()
+
     private var freeTierCard: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.shield.fill")
                 .font(.system(size: 19))
                 .foregroundStyle(Color.green)
-            (Text("Always free. ").font(.footnote.weight(.semibold)).foregroundColor(.primary)
-             + Text("Batting order, positions, fair play warnings, and roster import.")
-                .font(.footnote).foregroundColor(.secondary))
+            Text(Self.freeTierAttributedText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(13)

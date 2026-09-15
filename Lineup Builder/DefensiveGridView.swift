@@ -1202,7 +1202,7 @@ struct DefensiveGridView: View {
 /// Outfield fan: home plate bottom-center, both foul lines out to the arc.
 /// Stroking this shape draws the foul lines and the outfield arc; filling it
 /// gives the grass wash. Shared with the iPad dashboard's By Inning diamond.
-struct OutfieldFanShape: Shape {
+nonisolated struct OutfieldFanShape: Shape {
     func path(in rect: CGRect) -> Path {
         func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: rect.minX + rect.width * x / 100, y: rect.minY + rect.height * y / 100)
@@ -1217,7 +1217,7 @@ struct OutfieldFanShape: Shape {
 }
 
 /// Infield diamond centered under the pitcher's mound slot.
-struct InfieldDiamondShape: Shape {
+nonisolated struct InfieldDiamondShape: Shape {
     func path(in rect: CGRect) -> Path {
         func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: rect.minX + rect.width * x / 100, y: rect.minY + rect.height * y / 100)
