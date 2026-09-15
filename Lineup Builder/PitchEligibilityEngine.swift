@@ -325,7 +325,7 @@ nonisolated struct PitchingGuideSummaryRow {
     let status: PitchEligibilityStatus
 }
 
-extension PitchEligibilityEngine {
+nonisolated extension PitchEligibilityEngine {
 
     /// Builds rows for the Coaches Guide pitching summary table.
     /// Excludes players with Pitcher preference set to Never.

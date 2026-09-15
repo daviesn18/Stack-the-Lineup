@@ -119,7 +119,7 @@ nonisolated struct PlayerEntity: AppEntity, IndexedEntity, URLRepresentableEntit
 
 // MARK: - Roster Snapshot
 
-extension PlayerEntity {
+nonisolated extension PlayerEntity {
     /// Every player on every team, each paired with the roster they came from.
     ///
     /// Deliberately not limited to the active team. `ContentView.applyRoute`

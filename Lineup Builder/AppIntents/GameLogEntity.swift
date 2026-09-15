@@ -73,7 +73,7 @@ nonisolated struct GameLogEntityQuery: EntityQuery {
     }
 }
 
-extension GameLogEntity {
+nonisolated extension GameLogEntity {
 
     /// Every archived game across every team, newest first, with the active
     /// team's games ahead of other teams' games from the same day.

@@ -73,7 +73,7 @@ nonisolated struct TeamEntity: AppEntity, IndexedEntity, URLRepresentableEntity 
     }
 }
 
-extension TeamEntity {
+nonisolated extension TeamEntity {
     static func allFromStorage() -> [TeamEntity] {
         TeamStorage.loadTeamsForReading().teams.map(TeamEntity.init)
     }

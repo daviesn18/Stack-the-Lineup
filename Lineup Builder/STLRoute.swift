@@ -105,7 +105,7 @@ nonisolated enum STLRoute: Equatable, Hashable {
 
 // MARK: - Spotlight Selection
 
-extension STLRoute {
+nonisolated extension STLRoute {
 
     /// Resolves the identifier Spotlight hands back when a coach taps an indexed
     /// entity result.
