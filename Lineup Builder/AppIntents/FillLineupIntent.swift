@@ -32,7 +32,7 @@ struct FillLineupIntent: AppIntent {
         searchKeywords: ["auto-fill", "fill", "positions", "defense", "lineup"]
     )
 
-    static let openAppWhenRun = true
+    static var supportedModes: IntentModes { .foreground }
 
     @Parameter(
         title: "Team",
@@ -72,8 +72,9 @@ struct FillLineupIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        // Not Pro: show the paywall rather than throwing. `openAppWhenRun` has
-        // already brought the app forward by the time this returns either way,
+        // Not Pro: show the paywall rather than throwing. `supportedModes` is
+        // `.foreground`, so the app has already been brought forward by the time
+        // this returns either way,
         // so a thrown error would leave the coach on whatever tab was last open
         // with nothing explaining why nothing happened.
         guard await PurchaseManager.isProNow() else {

@@ -261,7 +261,7 @@ final class AppRouter: ObservableObject {
 
     // MARK: - Paywall
     //
-    // A Pro-gated intent can't just throw and stop. `openAppWhenRun = true`
+    // A Pro-gated intent can't just throw and stop. Its `.foreground` supportedModes
     // brings the app forward whether perform() succeeds or fails, so a thrown
     // error leaves a non-Pro coach staring at whatever tab they left open with
     // no explanation — the same dead end as a Spotlight result that opens the
