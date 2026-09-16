@@ -104,4 +104,74 @@ final class HittingArchetypeTests: XCTestCase {
         XCTAssertEqual(decoded.first?.players.first?.hittingArchetype,
                        HittingArchetype(speed: .slow, onBase: .low))
     }
+
+    // MARK: - CloudKit sync contract
+    //
+    // A shared team syncs as ONE JSON blob per team: CloudKitManager.encodeTeam
+    // does `JSONEncoder().encode(team)` into a CKAsset, and decodeTeam reads it
+    // back with `JSONDecoder().decode(Team.self, ...)` (CloudKitManager.swift).
+    // So cross-build compatibility for the new field is entirely governed by
+    // that single-Team encode/decode with a lenient decoder. These pin that
+    // exact boundary, so a future change (a custom Player CodingKeys that omits
+    // the field, a stricter decoder) fails here rather than silently on a coach's
+    // phone. They mirror the CloudKit path directly — one Team, not the [Team]
+    // array TeamStorage uses.
+
+    /// New build → new build over CloudKit: the archetype survives the
+    /// single-Team blob the CKAsset carries.
+    func testCloudKitSingleTeamBlobPreservesArchetype() throws {
+        var player = Player(firstName: "Sam", lastName: "Vega", number: "21")
+        player.hittingArchetype = HittingArchetype(hitting: .gap, speed: .fast, onBase: .high)
+        let team = Team(id: UUID(), name: "Hawks", players: [player])
+
+        // Exactly what encodeTeam/decodeTeam do (minus the CKAsset file wrapper).
+        let data = try JSONEncoder().encode(team)
+        let decoded = try JSONDecoder().decode(Team.self, from: data)
+        XCTAssertEqual(decoded.players.first?.hittingArchetype,
+                       HittingArchetype(hitting: .gap, speed: .fast, onBase: .high))
+    }
+
+    /// Older build → newer build: a team blob written before the field existed
+    /// decodes cleanly, archetype nil. (A minimal Team object stands in for the
+    /// older schema — Team.init(from:) defaults every absent field.)
+    func testCloudKitTeamBlobWithoutArchetypeDecodes() throws {
+        let json = Data("""
+        {
+          "id": "\(UUID().uuidString)",
+          "name": "Legacy Team",
+          "players": [
+            { "id": "\(UUID().uuidString)", "firstName": "Old", "lastName": "Timer", "number": "1" }
+          ]
+        }
+        """.utf8)
+        let team = try JSONDecoder().decode(Team.self, from: json)
+        XCTAssertEqual(team.name, "Legacy Team")
+        XCTAssertNil(team.players.first?.hittingArchetype)
+    }
+
+    /// Newer build → older build (the data-safety case): the reason a shared
+    /// roster can't break decode on a coach who hasn't updated is that
+    /// JSONDecoder ignores keys it doesn't know. An unknown future key inside a
+    /// player object must not fail the whole Team decode.
+    func testCloudKitTeamBlobWithUnknownPlayerKeyStillDecodes() throws {
+        var player = Player(firstName: "Fwd", lastName: "Compat", number: "9")
+        player.hittingArchetype = HittingArchetype(hitting: .power)
+        let team = Team(id: UUID(), name: "Falcons", players: [player])
+
+        // Round-trip through a mutable JSON object and inject a key no build
+        // knows yet, simulating a blob written by a *newer* build than the reader.
+        let data = try JSONEncoder().encode(team)
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        var players = try XCTUnwrap(object["players"] as? [[String: Any]])
+        players[0]["someFutureField_v99"] = "ignore me"
+        object["players"] = players
+        let mutated = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(Team.self, from: mutated)
+        XCTAssertEqual(decoded.players.first?.firstName, "Fwd",
+                       "an unknown future key must not break the roster decode")
+        XCTAssertEqual(decoded.players.first?.hittingArchetype, HittingArchetype(hitting: .power))
+    }
 }
