@@ -142,4 +142,20 @@ final class STLAppIntentsTests: XCTestCase {
         _ = try await definitions.intents["FairPlayRuleIntent"].makeIntent().run()
         // Reaching here (a returned result, no throw) is the assertion.
     }
+
+    // MARK: Layer 2 — read-only-active-team fallback (5a)
+    //
+    // FillLineupIntent.readOnlyFallback(writableTeams:) decides whether to
+    // throw teamIsReadOnly, auto-redirect to the one other writable team, or
+    // ask among several — see that pure function's unit tests in
+    // AutoFillCoordinatorTests for the full branch coverage. Not exercised
+    // here: AppIntentsTesting's out-of-process harness can't drive the
+    // interactive requestDisambiguation prompt the "ask among several" branch
+    // needs (confirmed empirically — fails with
+    // AppIntentsServicesExecutionErrorDomain 206, "not supported by the
+    // default delegate"), and a debug-seeded attempt at the "auto-redirect"
+    // branch proved unreliable to set up deterministically through this
+    // harness. The read-only-active-team shape needs manual verification on
+    // a real shared+owned roster (see the handoff doc's manual-verification
+    // checklist) rather than an automated UI test.
 }

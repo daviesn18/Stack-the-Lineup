@@ -28,6 +28,8 @@ nonisolated enum DebugTestControl {
     /// The string AppIntentsTesting searches for to find the seeded player.
     static var seededPlayerQuery: String { seedLastName }
 
+    private static var allSeededTeamIDs: Set<UUID> { [seededTeamID] }
+
     private static func currentTeams(defaults: UserDefaults) -> [Team] {
         if case .loaded(let teams, _) = TeamStorage.load(defaults: defaults) { return teams }
         return []
@@ -48,12 +50,13 @@ nonisolated enum DebugTestControl {
         persist(teams, activeID: seededTeamID, defaults: defaults)
     }
 
-    /// Removes the seeded team. If it was active, hands active status to whatever
-    /// remains (or clears it) so we never leave a dangling active id.
+    /// Removes the seeded team. If it was active, hands active status to
+    /// whatever remains (or clears it) so we never leave a dangling active id.
     static func resetSeed(defaults: UserDefaults = .standard) {
         guard case .loaded(let teams, let activeID) = TeamStorage.load(defaults: defaults) else { return }
-        let remaining = teams.filter { $0.id != seededTeamID }
-        persist(remaining, activeID: activeID == seededTeamID ? remaining.first?.id : activeID, defaults: defaults)
+        let remaining = teams.filter { !allSeededTeamIDs.contains($0.id) }
+        let activeStillValid = activeID != nil && !allSeededTeamIDs.contains(activeID!)
+        persist(remaining, activeID: activeStillValid ? activeID : remaining.first?.id, defaults: defaults)
     }
 
     private static func persist(_ teams: [Team], activeID: UUID?, defaults: UserDefaults) {

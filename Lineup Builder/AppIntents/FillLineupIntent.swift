@@ -84,17 +84,47 @@ struct FillLineupIntent: AppIntent {
         }
 
         let (teams, activeTeam) = TeamStorage.loadTeamsForReading()
-        let target: Team?
+        var target: Team
         if let requested = team {
-            target = teams.first { $0.id == requested.id }
-        } else {
+            guard let match = teams.first(where: { $0.id == requested.id }) else {
+                throw STLIntentError.noTeam
+            }
+            target = match
+        } else if let activeTeam {
             target = activeTeam
+        } else {
+            throw STLIntentError.noTeam
         }
-        guard let target else { throw STLIntentError.noTeam }
 
         // A read-only shared team can't be written back, so filling it would
-        // produce a lineup that silently vanishes on the next sync.
-        guard !target.isReadOnly else { throw STLIntentError.teamIsReadOnly }
+        // produce a lineup that silently vanishes on the next sync. This is
+        // reachable in practice — the active (or named) team is a common shape
+        // for a coach who also has a view-only share of someone else's roster.
+        // Rather than dead-ending on teamIsReadOnly, offer the coach's other
+        // writable teams; with exactly one there's nothing to ask about.
+        if target.isReadOnly {
+            switch Self.readOnlyFallback(writableTeams: teams.filter { !$0.isReadOnly }) {
+            case .throwReadOnly:
+                throw STLIntentError.teamIsReadOnly
+            case .useOnly(let only):
+                target = only
+            case .askAmong(let candidates):
+                // requestDisambiguation is a real, interactive Siri/Shortcuts
+                // prompt — AppIntentsTesting's out-of-process harness can't
+                // drive it (fails with AppIntentsServicesExecutionErrorDomain
+                // 206, "not supported by the default delegate"), so this call
+                // itself is exercised by manual verification, not automation.
+                // readOnlyFallback(writableTeams:) above covers the branching.
+                let chosen = try await $team.requestDisambiguation(
+                    among: candidates.map(TeamEntity.init),
+                    dialog: "Which team should I fill?"
+                )
+                guard let match = teams.first(where: { $0.id == chosen.id }) else {
+                    throw STLIntentError.noTeam
+                }
+                target = match
+            }
+        }
 
         guard !target.lineup.activePlayers(from: target.players).isEmpty else {
             throw STLIntentError.noActivePlayers(teamName: target.name)
@@ -138,6 +168,24 @@ struct FillLineupIntent: AppIntent {
         let available = team.lineup.innings.count
         let requestedCount = requested ?? team.gameInningCount
         return min(max(requestedCount, 1), available) - 1
+    }
+
+    /// What to do once the resolved team turns out to be read-only. A pure
+    /// function so this branching is unit-testable without AppIntentsTesting,
+    /// which can't drive the interactive `requestDisambiguation` case (see the
+    /// comment where `.askAmong` is handled in `perform()`).
+    enum ReadOnlyFallback {
+        case throwReadOnly
+        case useOnly(Team)
+        case askAmong([Team])
+    }
+
+    static func readOnlyFallback(writableTeams: [Team]) -> ReadOnlyFallback {
+        switch writableTeams.count {
+        case 0: .throwReadOnly
+        case 1: .useOnly(writableTeams[0])
+        default: .askAmong(writableTeams)
+        }
     }
 }
 
