@@ -121,4 +121,25 @@ final class STLAppIntentsTests: XCTestCase {
         let matches = try await definitions.entities["PlayerEntity"].entities(matching: query)
         XCTAssertFalse(matches.isEmpty, "Seeded player should be resolvable by \"\(query)\"")
     }
+
+    // MARK: Free background answer intents
+    //
+    // FairPlayRuleIntent answers in place with supportedModes `.background` and,
+    // unlike Fill/Recap, is Free — there is no Pro gate to route or throw. The
+    // regression it guards is the opposite one: an answer intent must run its
+    // answer path end-to-end through the real out-of-process stack (team
+    // resolution + the structured TeamRulesBuilder lookup) and RETURN a result,
+    // never foreground the app and never throw on a coach who simply has no rules
+    // switched on ("you haven't turned rules on" is a valid spoken answer). The
+    // structured-lookup contract itself — that these numbers come from
+    // FairPlayConfig/PitchingLimits and never from a generated model — is pinned
+    // exhaustively in the unit target's TeamRulesTests.
+
+    func testFairPlayRuleAnswersOnSeededTeamWithoutThrowing() async throws {
+        // Seed makes a known team active, so the no-parameter intent resolves it
+        // via the active-team path rather than throwing noTeam.
+        _ = try await definitions.intents["SeedTestRosterIntent"].makeIntent().run()
+        _ = try await definitions.intents["FairPlayRuleIntent"].makeIntent().run()
+        // Reaching here (a returned result, no throw) is the assertion.
+    }
 }
