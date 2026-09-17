@@ -77,14 +77,14 @@ struct SiriShortcutsView: View {
     /// these are written out with the real name a coach would say.
     private static let groups: [PhraseGroup] = [
         PhraseGroup(
-            title: "Build a lineup",
-            symbol: "bolt.fill",
+            title: "Open your lineup",
+            symbol: "list.number",
             phrases: [
-                "Fill my lineup in Stack the Lineup",
-                "Auto-fill positions in Stack the Lineup",
+                "Open Stack the Lineup",
+                "Show my lineup in Stack the Lineup",
                 "Open today's lineup in Stack the Lineup"
             ],
-            footnote: "Auto-Fill is part of Pro. Filling opens the app so you can see the grid before the game."
+            footnote: "Free. To auto-fill positions by voice, add the Fill Lineup action in the Shortcuts app below — Auto-Fill is a Pro action, and it opens the app so you can see the grid before the game."
         ),
         PhraseGroup(
             title: "After the game",

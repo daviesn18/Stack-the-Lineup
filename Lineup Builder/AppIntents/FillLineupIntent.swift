@@ -5,6 +5,11 @@ import Foundation
 //
 // "Hey Siri, fill 3 innings, start Caleb pitching."
 //
+// NOTE: as of Sep 2026 this is NOT registered in STLShortcuts, so it is not
+// auto-surfaced in Siri/Spotlight — device testing found Siri confirming fills
+// it hadn't reliably applied. It remains a discoverable Shortcuts action (a
+// coach can build their own), so keep it working; see the note in STLShortcuts.
+//
 // Pro, matching the bolt button's gate in DefensiveGridView and the iPad
 // summary pane. Gating happens on PurchaseManager.isProNow() rather than the
 // @EnvironmentObject PurchaseManager, which an intent can't reach.

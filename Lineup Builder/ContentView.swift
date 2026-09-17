@@ -305,7 +305,15 @@ struct ContentView: View {
                 // appear before the CloudKit incremental fetch completes.
                 store.load()
                 // Pull CloudKit changes (owned + shared teams) concurrently.
-                Task { await store.fetchCloudKitChanges() }
+                // The incremental merge overwrites the active team wholesale
+                // (mergeCloudKitChanges), so a server copy that predates a just-
+                // staged Auto-Fill can stomp it — the fill's own push is
+                // debounced and may not have uploaded yet. Re-assert the fill
+                // after the merge to repair that.
+                Task {
+                    await store.fetchCloudKitChanges()
+                    consumePendingFill(reassert: true)
+                }
                 // Write this device's APNs token for every team, if one arrived
                 // before there was a view to receive it. On a cold launch that
                 // is the normal case, not the edge case — see backlog 1.9.
@@ -583,13 +591,28 @@ struct ContentView: View {
     /// because "fill the Tigers lineup" shouldn't land on another roster, and
     /// because save() only pushes the *active* team to CloudKit, so mutating an
     /// inactive one would persist locally and never sync.
-    private func consumePendingFill() {
-        guard let pending = router.pendingFill,
-              pending.nonce != lastHandledFillNonce else { return }
-        // A fill computed an hour ago would overwrite whatever the coach has
-        // edited since. Same first-drain-only guard as consumePendingRoute().
-        guard lastHandledFillNonce != nil || pending.isFresh else { return }
-        guard store.teams.contains(where: { $0.id == pending.teamID }) else { return }
+    ///
+    /// Two entry points: the normal drain (onAppear / a `pendingFill` change)
+    /// and a re-assert from the scenePhase `.active` handler after a CloudKit
+    /// merge. Gated on freshness rather than a permanent "already handled"
+    /// latch: a foreground CloudKit fetch can overwrite the active team wholesale
+    /// (mergeCloudKitChanges), and because the fill's own push is debounced a
+    /// server copy that predates the fill can land first and stomp it. The
+    /// re-assert re-applies the fill the normal path already latched; past the
+    /// 60s freshness window we stop, so a fill can't resurrect over a later edit
+    /// — the same bound `consumePendingRoute` uses.
+    ///
+    /// Residual edge: a coach edit made in the seconds between the fill and the
+    /// merge completing can be reverted by the re-assert. It restores the exact
+    /// lineup the coach asked Siri for, not arbitrary data. Hardening the merge
+    /// to honor a locally-newer lineup is the proper source fix — tracked as a
+    /// follow-up so it can land with the care shared-team sync warrants.
+    private func consumePendingFill(reassert: Bool = false) {
+        guard let pending = router.pendingFill, pending.isFresh,
+              store.teams.contains(where: { $0.id == pending.teamID }) else { return }
+        // The normal path applies each fill once; only the post-merge re-assert
+        // re-applies one it has already handled.
+        if pending.nonce == lastHandledFillNonce && !reassert { return }
         lastHandledFillNonce = pending.nonce
 
         if pending.teamID != store.activeTeamID {

@@ -71,27 +71,20 @@ nonisolated struct STLShortcuts: AppShortcutsProvider {
             systemImageName: "person.3.fill"
         )
 
-        // Deliberately parameter-free phrases. `throughInning` and
-        // `instructions` are both optional, so Siri can run this from a bare
-        // sentence and the coach adjusts the rest on screen — and a spoken
-        // number in a phrase slot resolves far less reliably than an entity
-        // does, which is a bad trade for a Pro action that rewrites the game.
-        AppShortcut(
-            intent: FillLineupIntent(),
-            phrases: [
-                "Fill my lineup in \(.applicationName)",
-                "Auto-fill positions in \(.applicationName)",
-                "Fill the positions in \(.applicationName)",
-            ],
-            shortTitle: "Fill Lineup",
-            systemImageName: "bolt.fill"
-        )
+        // Fill Lineup is deliberately NOT auto-surfaced here. It's the only
+        // intent that MUTATES the lineup, and device testing (Sep 2026) showed
+        // Siri confirming a fill it had not reliably applied — a wrong result a
+        // coach then acts on. Pulled from the zero-setup Siri/Spotlight surface
+        // until voice-action reliability improves. The intent still ships and
+        // stays discoverable in the Shortcuts app, so a coach can build their
+        // own Fill Lineup shortcut; it's just no longer a spoken phrase we push.
+        // Do not re-add it here without re-verifying the apply path on device.
 
-        // Parameter-free for the same reason as Fill Lineup, plus one of its
-        // own: "how did we do" is a question about the last game roughly always,
-        // and the intent already prompts when a doubleheader makes that
-        // genuinely ambiguous. Making the coach name a game up front would tax
-        // every ask to handle the rare one.
+        // Parameter-free by design: a spoken value in a phrase slot resolves far
+        // less reliably than a preset one, and "how did we do" is a question
+        // about the last game roughly always — the intent already prompts when a
+        // doubleheader makes that genuinely ambiguous. Making the coach name a
+        // game up front would tax every ask to handle the rare one.
         //
         // FAILED ON DEVICE 2 Aug 2026, reworded. "How did we do" reads as a
         // general question right up until the phrase says whose — by which point
