@@ -98,16 +98,24 @@ struct FillLineupIntent: AppIntent {
 
         // A read-only shared team can't be written back, so filling it would
         // produce a lineup that silently vanishes on the next sync. This is
-        // reachable in practice — the active (or named) team is a common shape
-        // for a coach who also has a view-only share of someone else's roster.
-        // Rather than dead-ending on teamIsReadOnly, offer the coach's other
-        // writable teams; with exactly one there's nothing to ask about.
+        // reachable in practice — the active team is a common shape for a coach
+        // who also has a view-only share of someone else's roster. When the
+        // read-only team was the active *default* (not named this run), redirect
+        // to the coach's writable teams rather than dead-ending; a team the
+        // coach named explicitly is honored, not swapped (see readOnlyFallback).
+        var redirectNote = ""
         if target.isReadOnly {
-            switch Self.readOnlyFallback(writableTeams: teams.filter { !$0.isReadOnly }) {
+            switch Self.readOnlyFallback(explicitlyNamed: team != nil,
+                                         writableTeams: teams.filter { !$0.isReadOnly }) {
             case .throwReadOnly:
                 throw STLIntentError.teamIsReadOnly
             case .useOnly(let only):
+                // Silent redirect from the active view-only team to the coach's
+                // one writable team. Name it, because AutoFillOutcome.spokenSummary
+                // doesn't — otherwise the reply sounds like it filled the team
+                // the coach was looking at.
                 target = only
+                redirectNote = "Your other team \(only.name) is the one I can edit. "
             case .askAmong(let candidates):
                 // requestDisambiguation is a real, interactive Siri/Shortcuts
                 // prompt — AppIntentsTesting's out-of-process harness can't
@@ -147,13 +155,13 @@ struct FillLineupIntent: AppIntent {
         // Nothing changed — don't stage a write, and don't yank the coach to
         // the Positions tab for a no-op.
         guard outcome.didFill else {
-            return .result(dialog: IntentDialog(stringLiteral: outcome.spokenSummary))
+            return .result(dialog: IntentDialog(stringLiteral: redirectNote + outcome.spokenSummary))
         }
 
         AppRouter.shared.stageFill(outcome, teamID: target.id)
         AppRouter.shared.route(to: .positions)
 
-        return .result(dialog: IntentDialog(stringLiteral: outcome.spokenSummary))
+        return .result(dialog: IntentDialog(stringLiteral: redirectNote + outcome.spokenSummary))
     }
 
     /// Zero-based last inning to fill.
@@ -180,11 +188,17 @@ struct FillLineupIntent: AppIntent {
         case askAmong([Team])
     }
 
-    static func readOnlyFallback(writableTeams: [Team]) -> ReadOnlyFallback {
+    static func readOnlyFallback(explicitlyNamed: Bool, writableTeams: [Team]) -> ReadOnlyFallback {
+        // An explicitly named team is honored, never silently swapped. A coach
+        // who said "fill the Eagles" (a view-only share) should be told it's
+        // view-only — not have a different team filled behind their back. The
+        // redirect only kicks in when the read-only team was the *active*
+        // default the coach didn't choose for this run.
+        if explicitlyNamed { return .throwReadOnly }
         switch writableTeams.count {
-        case 0: .throwReadOnly
-        case 1: .useOnly(writableTeams[0])
-        default: .askAmong(writableTeams)
+        case 0: return .throwReadOnly
+        case 1: return .useOnly(writableTeams[0])
+        default: return .askAmong(writableTeams)
         }
     }
 }

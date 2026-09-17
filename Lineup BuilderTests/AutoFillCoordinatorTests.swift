@@ -253,7 +253,7 @@ final class AutoFillCoordinatorTests: XCTestCase {
     // function and pinned here instead.
 
     func testReadOnlyFallbackThrowsWhenNoWritableTeamExists() {
-        switch FillLineupIntent.readOnlyFallback(writableTeams: []) {
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: false, writableTeams: []) {
         case .throwReadOnly: break
         default: XCTFail("Expected .throwReadOnly with no writable teams")
         }
@@ -261,7 +261,7 @@ final class AutoFillCoordinatorTests: XCTestCase {
 
     func testReadOnlyFallbackUsesTheOnlyWritableTeamWithoutAsking() {
         let only = Team(name: "Owned Team")
-        switch FillLineupIntent.readOnlyFallback(writableTeams: [only]) {
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: false, writableTeams: [only]) {
         case .useOnly(let team): XCTAssertEqual(team.id, only.id)
         default: XCTFail("Expected .useOnly with exactly one writable team")
         }
@@ -270,10 +270,22 @@ final class AutoFillCoordinatorTests: XCTestCase {
     func testReadOnlyFallbackAsksAmongMultipleWritableTeams() {
         let a = Team(name: "Team A")
         let b = Team(name: "Team B")
-        switch FillLineupIntent.readOnlyFallback(writableTeams: [a, b]) {
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: false, writableTeams: [a, b]) {
         case .askAmong(let candidates):
             XCTAssertEqual(Set(candidates.map(\.id)), Set([a.id, b.id]))
         default: XCTFail("Expected .askAmong with two writable teams")
+        }
+    }
+
+    /// A coach who NAMED the view-only team is told it's view-only, not silently
+    /// redirected to a different team — even when writable teams are available.
+    /// The redirect is only for the active-default case.
+    func testReadOnlyFallbackHonorsAnExplicitlyNamedTeamByThrowing() {
+        let a = Team(name: "Team A")
+        let b = Team(name: "Team B")
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: true, writableTeams: [a, b]) {
+        case .throwReadOnly: break
+        default: XCTFail("Expected .throwReadOnly when the read-only team was named explicitly")
         }
     }
 
