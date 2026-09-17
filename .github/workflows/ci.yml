@@ -81,6 +81,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -clonedSourcePackagesDirPath .spm \
             -only-testing:"Lineup BuilderTests" \
+            -parallel-testing-enabled NO \
             -resultBundlePath TestResults-unit.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
             | tee xcodebuild-unit.log
@@ -155,6 +156,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -clonedSourcePackagesDirPath .spm \
             -only-testing:"Lineup BuilderUITests/STLAppIntentsTests" \
+            -parallel-testing-enabled NO \
             -resultBundlePath TestResults-intents.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
             | tee xcodebuild-intents.log
