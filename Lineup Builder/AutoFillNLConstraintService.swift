@@ -194,6 +194,22 @@ final class AutoFillNLConstraintService {
         self.inningCount = inningCount
     }
 
+    /// Explicitly nonisolated to dodge a runtime crash, not for cleanup: the
+    /// body is empty and `session` is released by deallocation either way.
+    ///
+    /// This is a `@MainActor` class, so without this Swift synthesizes an
+    /// ISOLATED deinit. Under the iOS 26 runtime, deallocating an instance from
+    /// a synchronous `@MainActor` context routes through
+    /// `swift_task_deinitOnExecutorImpl`, which aborts in libmalloc — "pointer
+    /// being freed was not allocated" — a double-free that takes down the whole
+    /// process. Popover-scoped instances, and every unit test that builds one,
+    /// are released exactly that way, so the crash is deterministic: on the CI
+    /// runner's iOS 26 simulator it killed AutoFillDeterministicParserTests
+    /// before any assertion ran. Same fix and same reasoning as AppRouter's
+    /// nonisolated deinit. Xcode 27 doesn't hit it, but the deployment floor is
+    /// iOS 26, so this must stay until the floor moves.
+    nonisolated deinit {}
+
     // MARK: Prewarm
 
     /// Builds the session and asks the model to warm up. Call this when the

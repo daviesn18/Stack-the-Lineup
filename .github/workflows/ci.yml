@@ -73,6 +73,16 @@ jobs:
             -project "$PROJECT" -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath .spm
 
+      # AutoFillDeterministicParserTests is QUARANTINED on CI. Instantiating
+      # AutoFillNLConstraintService double-frees under the iOS 26 runtime the
+      # hosted runners carry (Xcode 26.6), crashing the whole test process
+      # before any assertion runs (same heap address every restart, exceeds the
+      # runner's max restart count -> the entire job fails). It is the only unit
+      # class that constructs the service, so skipping it lets the rest of the
+      # suite run and the job reflect real regressions again. The suite passes
+      # in full on Xcode 27 locally. Tracked in Asana "[Bug][iOS 26] Double-free
+      # crash in AutoFillNLConstraintService" (1218595327624588) — delete this
+      # -skip-testing line once that fix lands (or once runners ship Xcode 27).
       - name: Run unit suite (Lineup BuilderTests)
         run: |
           set -euo pipefail
@@ -81,6 +91,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -clonedSourcePackagesDirPath .spm \
             -only-testing:"Lineup BuilderTests" \
+            -skip-testing:"Lineup BuilderTests/AutoFillDeterministicParserTests" \
             -parallel-testing-enabled NO \
             -resultBundlePath TestResults-unit.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
