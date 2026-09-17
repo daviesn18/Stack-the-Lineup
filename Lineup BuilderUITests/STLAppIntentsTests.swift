@@ -1,3 +1,8 @@
+// AppIntentsTesting ships with the iOS 27 SDK. Guard the whole suite on it so
+// the UI-test target still compiles under Xcode 26.x (e.g. GitHub-hosted
+// runners), where the module is absent. On a Mac with Xcode 27 it compiles and
+// runs normally.
+#if canImport(AppIntentsTesting)
 import XCTest
 import AppIntentsTesting
 
@@ -159,3 +164,4 @@ final class STLAppIntentsTests: XCTestCase {
     // a real shared+owned roster (see the handoff doc's manual-verification
     // checklist) rather than an automated UI test.
 }
+#endif
