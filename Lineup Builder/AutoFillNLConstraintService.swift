@@ -490,11 +490,13 @@ final class AutoFillNLConstraintService {
         }
 
         for phrase in placementPhrases {
-            consume(pattern: "(?i)\\b\(NSRegularExpression.escapedPattern(for: phrase))\\b")
+            // Case-insensitive, ASCII word boundaries (not ICU `\b` — see
+            // wordBoundedPattern for why).
+            consume(pattern: "(?i)" + Self.wordBoundedPattern(for: phrase))
         }
         for abbreviation in ambiguousAbbreviations {
             // Case-sensitive on purpose — see above.
-            consume(pattern: "\\b\(abbreviation)\\b")
+            consume(pattern: Self.wordBoundedPattern(for: abbreviation))
         }
 
         return max(1, count)
@@ -1088,8 +1090,22 @@ final class AutoFillNLConstraintService {
 
     // MARK: Regex helpers
 
+    /// A word-boundary regex pattern that does NOT depend on ICU's Unicode `\b`.
+    ///
+    /// `\b`'s boundary definition (notably around the apostrophe in "don't" and
+    /// other non-ASCII cases) has differed between simulator runtime versions,
+    /// which surfaced as iOS-26-only failures in the deterministic-parser tests
+    /// (`testDontLetPitch`, `testCompoundDifferentSubjects`,
+    /// `testDuplicateFirstNameDefersToModel`) while the same tests were green on
+    /// iOS 27. We only ever tokenize on ASCII letters/digits, so bounding the
+    /// phrase with explicit ASCII look-arounds is identical in behavior for our
+    /// inputs and stable across OS versions.
+    private static func wordBoundedPattern(for phrase: String) -> String {
+        "(?<![A-Za-z0-9])\(NSRegularExpression.escapedPattern(for: phrase))(?![A-Za-z0-9])"
+    }
+
     private func wordRange(of phrase: String, in text: String) -> Range<String.Index>? {
-        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: phrase))\\b"
+        let pattern = Self.wordBoundedPattern(for: phrase)
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let ns = NSRange(text.startIndex..., in: text)
         guard let match = regex.firstMatch(in: text, range: ns) else { return nil }
