@@ -84,7 +84,7 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath TestResults-unit.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
-            | tee xcodebuild-unit.log
+            2>&1 | tee xcodebuild-unit.log
 
       - name: Upload results
         if: always()
@@ -103,8 +103,10 @@ jobs:
         if: failure()
         run: |
           echo "----- Failing tests / assertions -----"
-          grep -E "Test case '.+' failed|error:|TEST FAILED|Testing failed:" xcodebuild-unit.log \
+          grep -E "Test case '.+' failed|error:|TEST FAILED|TEST EXECUTE FAILED|Testing failed:|Testing cancelled|xcodebuild: error|never began executing|Unable to boot|Failed to" xcodebuild-unit.log \
             | sed -E 's/^[0-9T:.-]+Z[[:space:]]*//' | sort -u | tail -100 || true
+          echo "----- tail of build/test log (incl. stderr) -----"
+          tail -40 xcodebuild-unit.log || true
 
   intent-tests:
     name: AppIntentsTesting (informational)
@@ -159,7 +161,7 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath TestResults-intents.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
-            | tee xcodebuild-intents.log
+            2>&1 | tee xcodebuild-intents.log
 
       - name: Upload results
         if: always()
@@ -175,5 +177,7 @@ jobs:
         if: failure()
         run: |
           echo "----- Failing tests / assertions -----"
-          grep -E "Test case '.+' failed|error:|TEST FAILED|Testing failed:" xcodebuild-intents.log \
+          grep -E "Test case '.+' failed|error:|TEST FAILED|TEST EXECUTE FAILED|Testing failed:|Testing cancelled|xcodebuild: error|never began executing|Unable to boot|Failed to" xcodebuild-intents.log \
             | sed -E 's/^[0-9T:.-]+Z[[:space:]]*//' | sort -u | tail -100 || true
+          echo "----- tail of build/test log (incl. stderr) -----"
+          tail -40 xcodebuild-intents.log || true
