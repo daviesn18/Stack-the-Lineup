@@ -95,6 +95,16 @@ jobs:
             xcodebuild-unit.log
           if-no-files-found: ignore
 
+      # Runs last so the failing tests/assertions are the tail of the job log —
+      # otherwise the artifact-upload progress spam buries them past the log
+      # truncation window.
+      - name: Summarize failing tests
+        if: failure()
+        run: |
+          echo "----- Failing tests / assertions -----"
+          grep -E "Test case '.+' failed|error:|TEST FAILED|Testing failed:" xcodebuild-unit.log \
+            | sed -E 's/^[0-9T:.-]+Z[[:space:]]*//' | sort -u | tail -100 || true
+
   intent-tests:
     name: AppIntentsTesting (informational)
     runs-on: macos-latest
@@ -158,3 +168,10 @@ jobs:
             TestResults-intents.xcresult
             xcodebuild-intents.log
           if-no-files-found: ignore
+
+      - name: Summarize failing tests
+        if: failure()
+        run: |
+          echo "----- Failing tests / assertions -----"
+          grep -E "Test case '.+' failed|error:|TEST FAILED|Testing failed:" xcodebuild-intents.log \
+            | sed -E 's/^[0-9T:.-]+Z[[:space:]]*//' | sort -u | tail -100 || true
