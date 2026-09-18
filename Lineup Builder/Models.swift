@@ -1191,6 +1191,13 @@ nonisolated struct Team: Identifiable, Codable {
     /// working lineup isn't tied to a scheduled game (the legacy single-lineup
     /// path — coaches who don't sync a schedule stay here permanently).
     var currentGameID: UUID? = nil
+    /// Wall-clock time of the last local content edit, stamped in `save()`. Rides
+    /// the JSON blob (and therefore CloudKit), and is what `mergeCloudKitChanges`
+    /// compares to avoid stomping a locally-newer copy with a stale server fetch
+    /// whose own push is still debounced. Legacy blobs decode to `.distantPast`,
+    /// so a first edit always wins over a pre-field copy; ties resolve to the
+    /// server, preserving the prior CloudKit-authoritative behavior.
+    var updatedAt: Date = Date()
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -1219,7 +1226,8 @@ nonisolated struct Team: Identifiable, Codable {
         lineupTemplates: [LineupTemplate] = [],
         defaultTemplateID: UUID? = nil,
         gameLineups: [UUID: Lineup] = [:],
-        currentGameID: UUID? = nil
+        currentGameID: UUID? = nil,
+        updatedAt: Date = Date()
     ) {
         self.id = id
         self.name = name
@@ -1241,6 +1249,7 @@ nonisolated struct Team: Identifiable, Codable {
         self.defaultTemplateID = defaultTemplateID
         self.gameLineups = gameLineups
         self.currentGameID = currentGameID
+        self.updatedAt = updatedAt
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -1282,6 +1291,10 @@ nonisolated struct Team: Identifiable, Codable {
         // identical to pre-upgrade behavior.
         gameLineups              = (try? c.decode([UUID: Lineup].self,   forKey: .gameLineups))             ?? [:]
         currentGameID            = try? c.decode(UUID.self,              forKey: .currentGameID)
+        // updatedAt is new in v3.5 — older blobs lack it. Decode to .distantPast
+        // so a pre-field copy never wins a recency comparison against a stamped
+        // local edit; a team's first save() stamps a real Date.
+        updatedAt                = (try? c.decode(Date.self,             forKey: .updatedAt))               ?? .distantPast
     }
 }
 
@@ -1489,6 +1502,17 @@ class LineupStore: ObservableObject {
     // MARK: - Persistence
 
     func save() {
+        // Stamp the edited team's modified time before persisting, so the local
+        // blob (and the eventual CloudKit push) carries it. Only the active team
+        // is ever mutated — the same reason only it is pushed below — so this
+        // stamps exactly the team that changed. Stamping every team would make an
+        // untouched team look newer than a genuine remote edit and wrongly skip
+        // that edit in mergeCloudKitChanges. Metadata-only writes go through
+        // saveLocalOnly() directly and correctly do NOT bump updatedAt.
+        if let activeTeamID, let idx = teams.firstIndex(where: { $0.id == activeTeamID }) {
+            teams[idx].updatedAt = Date()
+        }
+
         // Local write is immediate and unconditional — it is the durability
         // guarantee. Only the CloudKit push is coalesced (see below), so a burst
         // of position drags produces one upload instead of ~70 without ever
@@ -1859,6 +1883,23 @@ class LineupStore: ObservableObject {
         await retryPendingRecordDeletions()
     }
 
+    /// Whether a server copy fetched from CloudKit should replace the local one.
+    ///
+    /// The merge is otherwise a blind wholesale overwrite, which can stomp a local
+    /// edit whose own CloudKit push is still debounced — the race that broke Siri's
+    /// Fill Lineup and that any locally-newer lineup edited around a foreground
+    /// fetch is exposed to. Compare `updatedAt`: take the server copy unless the
+    /// local copy is strictly newer (ties resolve to the server, keeping the prior
+    /// CloudKit-authoritative behavior).
+    ///
+    /// Read-only shared teams are never edited locally, so their local copy can
+    /// never legitimately be newer — always take the owner's copy for them, so a
+    /// clock-skew fluke can't freeze a received team on a stale copy.
+    nonisolated static func shouldApplyServerTeam(local: Team, server: Team) -> Bool {
+        if local.isReadOnly { return true }
+        return server.updatedAt >= local.updatedAt
+    }
+
     @MainActor
     private func mergeCloudKitChanges(
         _ changes: CloudKitManager.FetchChangesResult,
@@ -1872,6 +1913,14 @@ class LineupStore: ObservableObject {
         // server copy, because the server blob always carries the owner's name.
         for serverTeam in changes.modifiedTeams {
             if let idx = localIndex(for: serverTeam) {
+                guard Self.shouldApplyServerTeam(local: teams[idx], server: serverTeam) else {
+                    // Local copy is newer than this fetched server copy — the push
+                    // carrying the local edit is still debounced. Keep local and
+                    // re-schedule its push rather than stomping the coach's edit.
+                    Log.sync.info("Kept a locally-newer team over a stale CloudKit copy")
+                    cloudPushDebouncer.schedule(teams[idx].id)
+                    continue
+                }
                 var updated = serverTeam
                 updated.coachName = teams[idx].coachName
                 teams[idx] = updated
@@ -1929,6 +1978,15 @@ class LineupStore: ObservableObject {
         // stored in the JSON blob so we must stamp it here every time.
         for sharedTeam in sharedTeams {
             if let idx = localIndex(for: sharedTeam) {
+                guard Self.shouldApplyServerTeam(local: teams[idx], server: sharedTeam) else {
+                    // A read-write participant edited this team locally and that
+                    // edit is newer than the copy just fetched. Keep it and let the
+                    // debounced shared-DB push carry it up (read-only teams never
+                    // reach here — shouldApplyServerTeam always applies for them).
+                    Log.sync.info("Kept a locally-newer shared team over a stale CloudKit copy")
+                    cloudPushDebouncer.schedule(teams[idx].id)
+                    continue
+                }
                 let localCoachName = teams[idx].coachName
                 var updated = sharedTeam
                 updated.coachName = localCoachName

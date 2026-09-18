@@ -604,9 +604,12 @@ struct ContentView: View {
     ///
     /// Residual edge: a coach edit made in the seconds between the fill and the
     /// merge completing can be reverted by the re-assert. It restores the exact
-    /// lineup the coach asked Siri for, not arbitrary data. Hardening the merge
-    /// to honor a locally-newer lineup is the proper source fix — tracked as a
-    /// follow-up so it can land with the care shared-team sync warrants.
+    /// lineup the coach asked Siri for, not arbitrary data.
+    ///
+    /// The proper source fix has since landed: `Team.updatedAt` + the recency
+    /// guard in `mergeCloudKitChanges` (`shouldApplyServerTeam`) now stop a stale
+    /// server copy from stomping a locally-newer team at all. This re-assert is
+    /// kept as belt-and-suspenders for the staged-fill nonce path.
     private func consumePendingFill(reassert: Bool = false) {
         guard let pending = router.pendingFill, pending.isFresh,
               store.teams.contains(where: { $0.id == pending.teamID }) else { return }
