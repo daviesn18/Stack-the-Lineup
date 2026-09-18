@@ -176,14 +176,17 @@ final class AutoFillNLConstraintService {
 
     private let activePlayers: [Player]
     private let inningCount: Int
-    private var modelSession: STLLanguageModel.Session?
+    private var session: LanguageModelSession?
 
-    /// True when a model backend is available (PCC on iOS 27 when eligible,
-    /// else on-device). Views can use this to hide the prompt field entirely
-    /// on unsupported hardware rather than letting a coach type into a box
-    /// that will never do anything.
+    /// True when the on-device model is available. Views can use this to
+    /// hide the prompt field entirely on unsupported hardware rather than
+    /// letting a coach type into a box that will never do anything.
     var isAvailable: Bool {
-        STLLanguageModel.isAvailable
+        switch SystemLanguageModel.default.availability {
+        case .available: return true
+        case .unavailable: return false
+        @unknown default: return false
+        }
     }
 
     init(activePlayers: [Player], inningCount: Int) {
@@ -201,10 +204,10 @@ final class AutoFillNLConstraintService {
     /// Safe to call more than once; subsequent calls are no-ops. Safe to
     /// call on unsupported devices; it just returns.
     func prewarm() {
-        guard isAvailable, modelSession == nil else { return }
-        guard let modelSession = STLLanguageModel.makeSession(instructions: instructions) else { return }
-        modelSession.session.prewarm()
-        self.modelSession = modelSession
+        guard isAvailable, session == nil else { return }
+        let session = LanguageModelSession(instructions: instructions)
+        session.prewarm()
+        self.session = session
     }
 
     // MARK: Parse
@@ -242,88 +245,35 @@ final class AutoFillNLConstraintService {
 
         // Normally already built by prewarm(). This is the safety net for a
         // Fill tapped before .onAppear's prewarm could run.
-        if modelSession == nil {
-            modelSession = STLLanguageModel.makeSession(instructions: instructions)
+        if session == nil {
+            session = LanguageModelSession(instructions: instructions)
         }
-        guard let modelSession else { throw AutoFillNLParseError.unsupported }
+        guard let session else { throw AutoFillNLParseError.unsupported }
 
-        let result = try await runModelParse(trimmed, using: modelSession)
+        // Preferred path: constrained decoding against a runtime schema
+        // built from the real roster and the real position list.
+        let result: AutoFillNLParseResult
+        if let schema = try? dynamicSchema() {
+            let response = try await session.respond(
+                to: trimmed,
+                schema: schema
+            )
+            result = resolveDynamic(response.content)
+        } else {
+            // Fallback path: prose roster + post-hoc string matching. Only
+            // reached if schema construction throws, which shouldn't happen
+            // in practice but shouldn't take the whole feature down if it does.
+            let response = try await session.respond(
+                to: trimmed,
+                generating: NLAutoFillConstraintsFallback.self
+            )
+            result = resolveFallback(response.content)
+        }
 
         // OR the deterministic detection over whatever the model produced, so a
         // pattern rule the model missed is still applied.
         let merged = mergingPatternRules(promptPatternRules, into: result)
         return withClauseCountCheck(merged, prompt: trimmed)
-    }
-
-    /// Runs the model half of a parse against `session`, retrying once
-    /// on-device if the PCC backend can't (or, for this call, didn't) serve
-    /// the request. See CONFIRM #3 and #6 in the PCC handoff doc: constrained
-    /// decoding must never silently degrade, and a PCC network/quota/service
-    /// failure should fall back rather than fail the whole parse.
-    private func runModelParse(
-        _ trimmed: String,
-        using session: STLLanguageModel.Session
-    ) async throws -> AutoFillNLParseResult {
-        var active = session
-        if #available(iOS 27, *), active.backend == .pcc, !STLLanguageModel.pccSupportsGuidedGeneration,
-           let onDevice = STLLanguageModel.onDeviceSession(instructions: instructions) {
-            active = onDevice
-        }
-
-        do {
-            return try await respondForParse(trimmed, using: active)
-        } catch {
-            if #available(iOS 27, *), active.backend == .pcc, STLLanguageModel.isPCCFailure(error),
-               let onDevice = STLLanguageModel.onDeviceSession(instructions: instructions) {
-                return try await respondForParse(trimmed, using: onDevice)
-            }
-            throw error
-        }
-    }
-
-    /// Preferred path: constrained decoding against a runtime schema built
-    /// from the real roster and the real position list. Falls back to prose
-    /// roster + post-hoc string matching only if schema construction throws,
-    /// which shouldn't happen in practice but shouldn't take the whole
-    /// feature down if it does.
-    private func respondForParse(
-        _ trimmed: String,
-        using modelSession: STLLanguageModel.Session
-    ) async throws -> AutoFillNLParseResult {
-        let session = modelSession.session
-        if let schema = try? dynamicSchema() {
-            let response: LanguageModelSession.Response<GeneratedContent>
-            if #available(iOS 27, *), modelSession.backend == .pcc {
-                response = try await session.respond(
-                    to: trimmed,
-                    schema: schema,
-                    options: GenerationOptions(),
-                    contextOptions: STLLanguageModel.contextOptions(for: .light)
-                )
-            } else {
-                response = try await session.respond(to: trimmed, schema: schema)
-            }
-            if #available(iOS 27, *) {
-                STLLanguageModel.logUsage(response.usage, backend: modelSession.backend, feature: "autofill_parse")
-            }
-            return resolveDynamic(response.content)
-        } else {
-            let response: LanguageModelSession.Response<NLAutoFillConstraintsFallback>
-            if #available(iOS 27, *), modelSession.backend == .pcc {
-                response = try await session.respond(
-                    to: trimmed,
-                    generating: NLAutoFillConstraintsFallback.self,
-                    options: GenerationOptions(),
-                    contextOptions: STLLanguageModel.contextOptions(for: .light)
-                )
-            } else {
-                response = try await session.respond(to: trimmed, generating: NLAutoFillConstraintsFallback.self)
-            }
-            if #available(iOS 27, *) {
-                STLLanguageModel.logUsage(response.usage, backend: modelSession.backend, feature: "autofill_parse")
-            }
-            return resolveFallback(response.content)
-        }
     }
 
     // MARK: - Deterministic pattern-rule detection

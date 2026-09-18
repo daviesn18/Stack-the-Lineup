@@ -69,7 +69,10 @@ class GameLogInsightsService: ObservableObject {
         state = .loading
 
         // Check model availability on main actor before dispatching
-        guard STLLanguageModel.isAvailable else {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            break
+        case .unavailable:
             state = .unsupported
             return
         }
@@ -121,49 +124,9 @@ class GameLogInsightsService: ObservableObject {
 
     // MARK: - Static inference runner (nonisolated, safe to call from detached task)
 
-    private enum InferenceError: Error {
-        /// STLLanguageModel.isAvailable was checked on the main actor before
-        /// dispatch, so this only fires on a race between that check and this
-        /// detached task actually running.
-        case modelUnavailable
-    }
-
     nonisolated private static func runInference(prompt: String, instructions: String) async throws -> String {
-        guard let modelSession = STLLanguageModel.makeSession(instructions: instructions) else {
-            throw InferenceError.modelUnavailable
-        }
-        do {
-            return try await respond(prompt: prompt, using: modelSession)
-        } catch {
-            // A PCC-specific failure (network/quota/service) retries once
-            // on-device rather than surfacing an error card for what's
-            // otherwise a transient outage.
-            if #available(iOS 27, *), modelSession.backend == .pcc, STLLanguageModel.isPCCFailure(error),
-               let onDevice = STLLanguageModel.onDeviceSession(instructions: instructions) {
-                return try await respond(prompt: prompt, using: onDevice)
-            }
-            throw error
-        }
-    }
-
-    nonisolated private static func respond(
-        prompt: String,
-        using modelSession: STLLanguageModel.Session
-    ) async throws -> String {
-        let session = modelSession.session
-        let response: LanguageModelSession.Response<String>
-        if #available(iOS 27, *), modelSession.backend == .pcc {
-            response = try await session.respond(
-                to: prompt,
-                options: GenerationOptions(),
-                contextOptions: STLLanguageModel.contextOptions(for: .deep)
-            )
-        } else {
-            response = try await session.respond(to: prompt)
-        }
-        if #available(iOS 27, *) {
-            STLLanguageModel.logUsage(response.usage, backend: modelSession.backend, feature: "insights")
-        }
+        let session = LanguageModelSession(instructions: instructions)
+        let response = try await session.respond(to: prompt)
         return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
