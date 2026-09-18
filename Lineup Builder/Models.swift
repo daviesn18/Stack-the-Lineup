@@ -1405,6 +1405,18 @@ class LineupStore: ObservableObject {
         }
     }
 
+    /// Team record names whose CloudKit deletion hasn't been confirmed yet.
+    /// `deleteTeam` enqueues here and `retryPendingRecordDeletions()` drains it on
+    /// every sync until CloudKit confirms each record is gone — the reliable
+    /// replacement for the old fire-and-forget delete that leaked orphan records.
+    /// Persisted so the retry survives relaunch — see `TeamStorage.pendingDeletionsKey`.
+    var pendingRecordDeletions: Set<String> = TeamStorage.loadPendingDeletions() {
+        didSet {
+            guard pendingRecordDeletions != oldValue else { return }
+            TeamStorage.savePendingDeletions(pendingRecordDeletions)
+        }
+    }
+
     /// Shared teams that have gone from the shared database — the head coach
     /// deleted them or stopped sharing. Already removed by the time these are
     /// published; the notice only explains where the team went. In-memory: a
@@ -1837,6 +1849,13 @@ class LineupStore: ObservableObject {
                 sharedFetchSucceeded: sharedFetchSucceeded
             )
         }
+
+        // Drive any not-yet-confirmed team deletion to completion. A delete that
+        // missed on its first attempt (offline/throttled) is retried here on
+        // every sync until the server record is actually gone — this is what
+        // stops orphan records from accumulating and resurrecting on a fresh
+        // install.
+        await retryPendingRecordDeletions()
     }
 
     @MainActor
@@ -3081,6 +3100,26 @@ class LineupStore: ObservableObject {
         return recordName
     }
 
+    /// Drives every unconfirmed team-record deletion to completion, clearing each
+    /// the moment CloudKit confirms it — `deleteTeam(recordName:)` treats an
+    /// already-gone record (`unknownItem`) as success, so a confirmed delete and
+    /// an already-deleted record both clear the entry. A record that still fails
+    /// (offline/throttled) stays queued and is retried on the next sync. Called
+    /// right after a delete and from `fetchCloudKitChanges`, so a missed delete
+    /// can no longer leak an orphan the way fire-and-forget did.
+    @MainActor
+    func retryPendingRecordDeletions() async {
+        guard !pendingRecordDeletions.isEmpty else { return }
+        for recordName in pendingRecordDeletions {
+            do {
+                try await CloudKitManager.shared.deleteTeam(recordName: recordName)
+                pendingRecordDeletions.remove(recordName)
+            } catch {
+                Log.sync.error("Pending team-record deletion still failing, will retry next sync: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     func deleteTeam(id: UUID) {
         guard teams.count > 1 else { return }
         guard let team = teams.first(where: { $0.id == id }) else { return }
@@ -3109,16 +3148,14 @@ class LineupStore: ObservableObject {
         }
 
         if let recordToDelete {
-            // Fire-and-forget: the local delete has already happened, and the
-            // tombstone covers us if this never lands.
-            Task {
-                do {
-                    try await CloudKitManager.shared.deleteTeam(recordName: recordToDelete)
-                    Log.sync.info("Deleted team record from CloudKit")
-                } catch {
-                    Log.sync.error("Team record delete failed, tombstone holds: \(error.localizedDescription, privacy: .public)")
-                }
-            }
+            // Enqueue for reliable deletion rather than fire-and-forget. The
+            // local delete already happened and the tombstone blocks re-add on
+            // this device, but the *server* record must actually go: a delete
+            // that missed (offline/throttled) used to leak an orphan that a fresh
+            // install elsewhere would resurrect. retryPendingRecordDeletions
+            // drives it to completion here and on every subsequent sync.
+            pendingRecordDeletions.insert(recordToDelete)
+            Task { await retryPendingRecordDeletions() }
         }
 
         // Drop this device's push token for the team we just left. Without it the
