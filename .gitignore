@@ -65,3 +65,6 @@ fastlane/test_output
 # 7-tap Seed Sample History gate, so there's no reason to carry the PNGs.
 AppStore-Screenshots - iPhone/
 AppStore-Screenshots-iPad/
+
+# CI: cloned SwiftPM packages dir
+.spm/

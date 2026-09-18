@@ -29,7 +29,7 @@ struct OpenPlayerIntent: AppIntent {
     )
 
     /// The player sheet is the point — there is nothing to report by voice.
-    static let openAppWhenRun = true
+    static var supportedModes: IntentModes { .foreground }
 
     @Parameter(title: "Player")
     var player: PlayerEntity
@@ -58,7 +58,7 @@ struct OpenTeamIntent: AppIntent {
         searchKeywords: ["team", "roster", "lineup", "switch"]
     )
 
-    static let openAppWhenRun = true
+    static var supportedModes: IntentModes { .foreground }
 
     @Parameter(title: "Team")
     var team: TeamEntity
@@ -92,7 +92,7 @@ struct OpenLineupIntent: AppIntent {
         searchKeywords: ["lineup", "today", "game"]
     )
 
-    static let openAppWhenRun = true
+    static var supportedModes: IntentModes { .foreground }
 
     init() {}
 

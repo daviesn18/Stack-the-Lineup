@@ -1212,6 +1212,16 @@ struct PlayerFormView: View {
     @State private var validationMessage = ""
     @State private var showingPaywall = false
 
+    /// Whether the Position Preferences list is expanded. Collapsed by default so
+    /// the form stays short (room for future sections without scrolling); a deep
+    /// link straight into preferences opens it — see the focus onAppear below.
+    @State private var preferencesExpanded = false
+
+    @State private var hittingArchetype = HittingArchetype()
+    /// Whether the Hitting Archetype axes are expanded. Collapsed by default, same
+    /// as Position Preferences.
+    @State private var archetypeExpanded = false
+
     var title: String {
         switch mode {
         case .add: return "Add Player"
@@ -1255,9 +1265,21 @@ struct PlayerFormView: View {
                 }
                 .id(Self.preferencesAnchor)
                 .tourTip(Tour.players.currentTip as? PlayersPreferencesTip, arrowEdge: .top)
+
+                // MARK: Hitting Archetype
+                Group {
+                    if purchaseManager.isPro {
+                        hittingArchetypeSection
+                    } else if purchaseManager.showsLockedUI {
+                        lockedArchetypeSection
+                    }
+                }
             }
             .onAppear {
                 guard focusPositionPreferences else { return }
+                // A coach who asked for a specific player's preferences lands with
+                // the list already open, not on a collapsed header.
+                preferencesExpanded = true
                 // Deferred a beat: scrolling during the sheet's presentation
                 // transition is dropped, so the form would open at the top.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -1295,6 +1317,7 @@ struct PlayerFormView: View {
                     number = player.number
                     leagueAge = player.leagueAge
                     positionPreferences = player.positionPreferences
+                    hittingArchetype = player.hittingArchetype ?? HittingArchetype()
                 }
             }
         }
@@ -1314,13 +1337,116 @@ struct PlayerFormView: View {
 
     private var positionPreferencesSection: some View {
         Section {
-            ForEach(availablePositions, id: \.self) { position in
-                preferenceRow(for: position)
+            // Tappable disclosure header. Using contentShape + onTapGesture rather
+            // than a Button: a plain Button as a Form row can silently not fire.
+            preferencesDisclosureHeader
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        preferencesExpanded.toggle()
+                    }
+                }
+
+            if preferencesExpanded {
+                ForEach(availablePositions, id: \.self) { position in
+                    preferenceRow(for: position)
+                }
             }
-        } header: {
-            Text("Position Preferences")
         } footer: {
-            Text("AutoFill will prioritize Strength and Capable positions. Emergency is used as a last resort. Never positions are never assigned.")
+            if preferencesExpanded {
+                Text("AutoFill will prioritize Strength and Capable positions. Emergency is used as a last resort. Never positions are never assigned.")
+            }
+        }
+    }
+
+    // Card header: bold title on the left; when collapsed, a "N set" count and the
+    // Plays/Avoid summary so a coach sees what's tagged without expanding.
+    private var preferencesDisclosureHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Position Preferences")
+                    .font(.body.weight(.semibold))
+                Spacer()
+                if !preferencesExpanded && !positionPreferences.isEmpty {
+                    Text("\(positionPreferences.count) set")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .rotationEffect(.degrees(preferencesExpanded ? 180 : 0))
+            }
+
+            if !preferencesExpanded {
+                collapsedPreferencesSummary
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    // Tier pill colors — mirror PlayerRosterRow so the collapsed summary here reads
+    // identically to a player's row in the roster list.
+    private let summaryGreen  = Color(red: 0.13, green: 0.63, blue: 0.24)
+    private let summaryBlue   = Color.blue
+    private let summaryRed    = Color(red: 0.81, green: 0.23, blue: 0.20)
+    private let summaryOrange = Color(red: 0.78, green: 0.42, blue: 0.0)
+
+    // Sorted, comma-joined position abbreviations for a tier, from the working
+    // dictionary. Empty string when none carry that tier.
+    private func preferencePositions(_ tier: PositionPreferenceTier) -> String {
+        positionPreferences
+            .filter { $0.value == tier }
+            .map { $0.key.rawValue }
+            .sorted()
+            .joined(separator: ", ")
+    }
+
+    @ViewBuilder
+    private var collapsedPreferencesSummary: some View {
+        if positionPreferences.isEmpty {
+            Text("No preferences set")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .opacity(0.7)
+        } else {
+            let emergency = preferencePositions(.emergency)
+            HStack(alignment: .top, spacing: 18) {
+                summaryColumn(caption: "Plays", pills: [
+                    (preferencePositions(.strength), summaryGreen, summaryGreen.opacity(0.15)),
+                    (preferencePositions(.capable),  summaryBlue,  summaryBlue.opacity(0.12))
+                ])
+                summaryColumn(caption: "Avoid", pills: [
+                    (preferencePositions(.never), summaryRed, summaryRed.opacity(0.12)),
+                    (emergency.isEmpty ? "" : "\(emergency)*", summaryOrange, summaryOrange.opacity(0.15))
+                ])
+            }
+        }
+    }
+
+    // One PLAYS/AVOID column: uppercase caption over stacked pills. Skips the whole
+    // column when it has no pills, and skips empty pills within it.
+    @ViewBuilder
+    private func summaryColumn(caption: String, pills: [(String, Color, Color)]) -> some View {
+        let visible = pills.filter { !$0.0.isEmpty }
+        if !visible.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(caption.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .kerning(0.4)
+                ForEach(visible, id: \.0) { label, fg, bg in
+                    Text(label)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(fg)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(bg)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1425,6 +1551,188 @@ struct PlayerFormView: View {
         }
     }
 
+    // MARK: - Hitting Archetype Section (Pro)
+
+    private var hittingArchetypeSection: some View {
+        Section {
+            archetypeDisclosureHeader
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        archetypeExpanded.toggle()
+                    }
+                }
+
+            if archetypeExpanded {
+                archetypeRow(title: "Hitting", selection: $hittingArchetype.hitting)
+                archetypeRow(title: "Speed",   selection: $hittingArchetype.speed)
+                archetypeRow(title: "OBP",     selection: $hittingArchetype.onBase)
+            }
+        } footer: {
+            if archetypeExpanded {
+                Text("Describe each player's hitting style, speed, and OBP. Used to auto-generate the batting order.")
+            }
+        }
+    }
+
+    // Card header: bold title; when collapsed, a compact summary of the set axes so
+    // a coach sees the archetype at a glance (mirrors the Position Preferences header).
+    private var archetypeDisclosureHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Hitting Archetype")
+                    .font(.body.weight(.semibold))
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .rotationEffect(.degrees(archetypeExpanded ? 180 : 0))
+            }
+
+            if !archetypeExpanded {
+                collapsedArchetypeSummary
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var collapsedArchetypeSummary: some View {
+        if hittingArchetype.isEmpty {
+            Text("No archetype set")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .opacity(0.7)
+        } else {
+            HStack(alignment: .top, spacing: 22) {
+                archetypeSummaryColumn(caption: "Hitting", value: hittingArchetype.hitting?.displayName)
+                archetypeSummaryColumn(caption: "Speed",   value: hittingArchetype.speed?.displayName)
+                archetypeSummaryColumn(caption: "OBP",     value: hittingArchetype.onBase?.displayName)
+            }
+        }
+    }
+
+    // One axis column in the collapsed summary: uppercase caption over the value
+    // pill. Skips the column entirely when that axis isn't tagged.
+    @ViewBuilder
+    private func archetypeSummaryColumn(caption: String, value: String?) -> some View {
+        if let value {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(caption.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .kerning(0.4)
+                Text(value)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color(.systemGray5))
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+        }
+    }
+
+    // One expanded axis row: title on the left, a menu badge on the right listing
+    // the axis's cases plus "No Preference". Generic over the three archetype
+    // enums so all three rows share one implementation (mirrors preferenceRow).
+    @ViewBuilder
+    private func archetypeRow<T: CaseIterable & RawRepresentable & Hashable>(
+        title: String,
+        selection: Binding<T?>
+    ) -> some View where T.RawValue == String {
+        HStack {
+            Text(title)
+            Spacer()
+            Menu {
+                Button {
+                    selection.wrappedValue = nil
+                } label: {
+                    HStack {
+                        Text("—  No Preference")
+                        if selection.wrappedValue == nil {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+
+                Divider()
+
+                ForEach(Array(T.allCases), id: \.self) { option in
+                    Button {
+                        selection.wrappedValue = option
+                    } label: {
+                        HStack {
+                            Text(option.rawValue)
+                            if selection.wrappedValue == option {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                archetypeBadge(text: selection.wrappedValue?.rawValue)
+                    .transaction { $0.animation = nil }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func archetypeBadge(text: String?) -> some View {
+        HStack(spacing: 4) {
+            ZStack {
+                // Invisible sizing ghost — sized to the widest archetype value so the
+                // badge's footprint is constant. Without it the capsule resizes on
+                // selection and that reflow fights the menu's dismiss animation,
+                // producing a visible lag/jank (mirrors tierBadge's ghost).
+                Text("Singles")
+                    .font(.caption.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .hidden()
+
+                Text(text ?? "—")
+                    .font(.caption.bold())
+                    .foregroundColor(text == nil ? .secondary : .primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(Color(.systemGray5), in: Capsule())
+            }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    // MARK: - Locked Archetype Section (non-Pro)
+
+    private var lockedArchetypeSection: some View {
+        Section {
+            Button {
+                showingPaywall = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "lock.fill")
+                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Hitting Archetype")
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        Text("Tag each hitter's power, speed, and on-base profile to automate batting orders. Requires Pro.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
     // MARK: - Save
 
     private func save() {
@@ -1454,11 +1762,25 @@ struct PlayerFormView: View {
             ])
         }
 
+        // Analytics: fire if any archetype axis was tagged
+        if purchaseManager.isPro && !hittingArchetype.isEmpty {
+            Analytics.signal("player.archetype.set", parameters: [
+                "hitting": hittingArchetype.hitting?.rawValue ?? "none",
+                "speed": hittingArchetype.speed?.rawValue ?? "none",
+                "obp": hittingArchetype.onBase?.rawValue ?? "none"
+            ])
+        }
+
+        // Pro-only fields collapse to nil/empty for a non-Pro coach on add, and are
+        // left exactly as they were for an edit (never wiped by a lapsed coach).
+        let archetypeToSave: HittingArchetype? = hittingArchetype.isEmpty ? nil : hittingArchetype
+
         switch mode {
         case .add:
             var player = Player(firstName: trimmedFirst, lastName: trimmedLast, number: trimmedNumber)
             player.leagueAge = leagueAge
             player.positionPreferences = purchaseManager.isPro ? positionPreferences : [:]
+            player.hittingArchetype = purchaseManager.isPro ? archetypeToSave : nil
             store.addPlayer(player)
         case .edit(let existing):
             var updated = existing
@@ -1467,6 +1789,7 @@ struct PlayerFormView: View {
             updated.number = trimmedNumber
             updated.leagueAge = leagueAge
             updated.positionPreferences = purchaseManager.isPro ? positionPreferences : existing.positionPreferences
+            updated.hittingArchetype = purchaseManager.isPro ? archetypeToSave : existing.hittingArchetype
             store.updatePlayer(updated)
         }
         dismiss()
@@ -1504,29 +1827,50 @@ struct PlayerRosterRow: View {
         return first + last
     }
 
-    // Positions for a tier, sorted, joined with ", ". Empty string if none.
-    private func positions(for tier: PositionPreferenceTier) -> String {
+    // Position abbreviations for a tier, sorted (e.g. ["1B", "C"]).
+    private func positionList(for tier: PositionPreferenceTier) -> [String] {
         player.positionPreferences
             .filter { $0.value == tier }
             .map { $0.key.rawValue }
             .sorted()
-            .joined(separator: ", ")
     }
 
-    private var strengthPositions: String { positions(for: .strength) }
-    private var capablePositions:  String { positions(for: .capable) }
-    private var neverPositions:    String { positions(for: .never) }
-    private var emergencyPositions: String { positions(for: .emergency) }
+    private var hasPositions: Bool { !player.positionPreferences.isEmpty }
 
-    private var hasPlays: Bool { !strengthPositions.isEmpty || !capablePositions.isEmpty }
-    private var hasAvoid: Bool { !neverPositions.isEmpty || !emergencyPositions.isEmpty }
-    private var hasAnyPreference: Bool { hasPlays || hasAvoid }
+    // Compact "1B, C +2 · avoid 3B*" summary for the positions tag. Strength then
+    // Capable make up "plays"; Never then Emergency (marked *) make up "avoid".
+    // Each side truncates with a "+N" overflow so the tag stays one line.
+    private var positionsSummary: String {
+        let plays = positionList(for: .strength) + positionList(for: .capable)
+        let avoid = positionList(for: .never) + positionList(for: .emergency).map { "\($0)*" }
+        var parts: [String] = []
+        if !plays.isEmpty { parts.append(joinTruncated(plays, keep: 2)) }
+        if !avoid.isEmpty { parts.append("avoid " + joinTruncated(avoid, keep: 1)) }
+        return parts.joined(separator: " · ")
+    }
 
-    // Tier pill colors — green strength, blue capable, red never, orange emergency.
-    private let greenText = Color(red: 0.13, green: 0.63, blue: 0.24)   // ~#22A03D
-    private let blueText  = Color.blue
-    private let redText   = Color(red: 0.81, green: 0.23, blue: 0.20)   // ~#CF3B34
-    private let orangeText = Color(red: 0.78, green: 0.42, blue: 0.0)   // ~#C76B00
+    // Set archetype axes as "Power · Fast · High" (only the axes that are tagged).
+    private var archetypeSummary: String {
+        guard let archetype = player.hittingArchetype else { return "" }
+        var vals: [String] = []
+        if let hitting = archetype.hitting { vals.append(hitting.displayName) }
+        if let speed = archetype.speed     { vals.append(speed.displayName) }
+        if let onBase = archetype.onBase   { vals.append(onBase.displayName) }
+        return vals.joined(separator: " · ")
+    }
+
+    private var hasArchetype: Bool { !archetypeSummary.isEmpty }
+
+    private func joinTruncated(_ items: [String], keep: Int) -> String {
+        guard items.count > keep else { return items.joined(separator: ", ") }
+        return items.prefix(keep).joined(separator: ", ") + " +\(items.count - keep)"
+    }
+
+    // Tag tints — positions reuse the Strength green; archetype stays neutral (the
+    // axes carry no good/bad meaning), matching the Edit Player archetype badge.
+    private let posTagFg = Color(red: 0.13, green: 0.63, blue: 0.24)   // ~#22A03D
+    private var posTagBg: Color { posTagFg.opacity(0.15) }
+    private let archTagFg = Color(red: 0.29, green: 0.28, blue: 0.34)  // ~#4A4757
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1540,8 +1884,8 @@ struct PlayerRosterRow: View {
             }
             .frame(width: 40, height: 40)
 
-            // Name + jersey + two-column preferences
-            VStack(alignment: .leading, spacing: 9) {
+            // Name + jersey + compact preference / archetype tag line
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
                     Text(player.displayName)
                         .font(.body)
@@ -1557,33 +1901,25 @@ struct PlayerRosterRow: View {
                     }
                 }
 
-                if hasAnyPreference {
-                    HStack(alignment: .top, spacing: 18) {
-                        preferenceColumn(
-                            caption: "Plays",
-                            pills: [
-                                (strengthPositions, greenText, greenText.opacity(0.15)),
-                                (capablePositions,  blueText,  blueText.opacity(0.12))
-                            ]
-                        )
-                        preferenceColumn(
-                            caption: "Avoid",
-                            pills: [
-                                (neverPositions, redText, redText.opacity(0.12)),
-                                (emergencyPositions.isEmpty ? "" : "\(emergencyPositions)*",
-                                 orangeText, orangeText.opacity(0.15))
-                            ]
-                        )
+                if hasPositions || hasArchetype {
+                    ChipFlowLayout(spacing: 6) {
+                        if hasPositions {
+                            tagView(systemImage: "diamond.fill", text: positionsSummary,
+                                    fg: posTagFg, bg: posTagBg)
+                        }
+                        if hasArchetype {
+                            tagView(systemImage: "figure.baseball", text: archetypeSummary,
+                                    fg: archTagFg, bg: Color(.systemGray5))
+                        }
                     }
                 } else {
-                    Text("No preferences set")
+                    Text("Not set")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .opacity(0.7)
                 }
             }
-
-            Spacer(minLength: 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if !isReadOnly {
                 Image(systemName: "chevron.right")
@@ -1599,37 +1935,21 @@ struct PlayerRosterRow: View {
         }
     }
 
-    // One PLAYS/AVOID column: uppercase caption over its stacked pills.
-    // Skips the whole column if it has no pills. Skips empty pills within it.
-    @ViewBuilder
-    private func preferenceColumn(
-        caption: String,
-        pills: [(String, Color, Color)]
-    ) -> some View {
-        let visible = pills.filter { !$0.0.isEmpty }
-        if !visible.isEmpty {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(caption.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(Color(.tertiaryLabel))
-                    .kerning(0.4)
-                ForEach(visible, id: \.0) { label, fg, bg in
-                    pillView(label: label, fg: fg, bg: bg)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    // One tag: a small SF Symbol + summary text in a tinted capsule.
+    private func tagView(systemImage: String, text: String, fg: Color, bg: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(fg)
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(fg)
+                .lineLimit(1)
         }
-    }
-
-    private func pillView(label: String, fg: Color, bg: Color) -> some View {
-        Text(label)
-            .font(.caption.weight(.semibold))
-            .foregroundColor(fg)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(bg)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .lineLimit(1)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(bg)
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 

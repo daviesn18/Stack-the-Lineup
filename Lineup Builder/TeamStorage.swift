@@ -79,6 +79,24 @@ nonisolated enum TeamStorage {
         defaults.set(Array(names), forKey: receivedSharesKey)
     }
 
+    // MARK: - Pending Record Deletions
+    //
+    // Record names whose CloudKit deletion has not been confirmed yet. deleteTeam
+    // used to fire the delete and forget it; a delete that hit a throttle or an
+    // offline blip left the record on the server, the tombstone hid the failure
+    // locally, and a fresh install (no tombstones) then re-downloaded the
+    // survivor as a "zombie" team. This queue is retried on every sync until
+    // CloudKit confirms the record is gone. Local-only, like the tombstones.
+    static let pendingDeletionsKey = "stl_pending_record_deletions"
+
+    static func loadPendingDeletions(defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: pendingDeletionsKey) ?? [])
+    }
+
+    static func savePendingDeletions(_ names: Set<String>, defaults: UserDefaults = .standard) {
+        defaults.set(Array(names), forKey: pendingDeletionsKey)
+    }
+
     // MARK: - Load Result
 
     /// The three outcomes callers must handle differently.

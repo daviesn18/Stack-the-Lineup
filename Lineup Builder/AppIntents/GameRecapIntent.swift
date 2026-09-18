@@ -6,13 +6,13 @@ import SwiftUI
 //
 // "How did the Tigers do today?"
 //
-// The first `openAppWhenRun = false` intent: it answers by voice without ever
+// The first intent with `supportedModes` of `.background`: it answers by voice without ever
 // foregrounding the app. That's the whole point — a coach asking this is usually
 // walking to the car with a bag of bats, and opening the app to read a screen
 // they can't hold is a worse answer than a sentence.
 //
 // It also changes how failure works. FillLineupIntent could not throw on a
-// failed Pro check, because `openAppWhenRun = true` brings the app forward
+// failed Pro check, because its `.foreground` supportedModes brings the app forward
 // regardless and the coach would be left staring at an unchanged screen with no
 // explanation (see the Phase 2 notes). Here there is no app coming forward, so
 // a thrown error IS the answer, and `STLIntentError` is the right channel for
@@ -29,7 +29,7 @@ struct GameRecapIntent: AppIntent {
     )
 
     /// Answers in place. Nothing here mutates anything.
-    static let openAppWhenRun = false
+    static var supportedModes: IntentModes { .background }
 
     @Parameter(
         title: "Team",

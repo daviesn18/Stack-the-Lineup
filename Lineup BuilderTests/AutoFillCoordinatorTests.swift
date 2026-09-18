@@ -243,6 +243,52 @@ final class AutoFillCoordinatorTests: XCTestCase {
         XCTAssertEqual(FillLineupIntent.lastInningIndex(for: team, requested: -3), 0)
     }
 
+    // MARK: - FillLineupIntent read-only fallback
+    //
+    // AppIntentsTesting can't drive the interactive requestDisambiguation call
+    // in perform() (see the comment at its call site — the out-of-process
+    // harness returns AppIntentsServicesExecutionErrorDomain 206, "not
+    // supported by the default delegate"), so the branching that decides
+    // *whether* to throw, auto-redirect, or ask is pulled out as a pure
+    // function and pinned here instead.
+
+    func testReadOnlyFallbackThrowsWhenNoWritableTeamExists() {
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: false, writableTeams: []) {
+        case .throwReadOnly: break
+        default: XCTFail("Expected .throwReadOnly with no writable teams")
+        }
+    }
+
+    func testReadOnlyFallbackUsesTheOnlyWritableTeamWithoutAsking() {
+        let only = Team(name: "Owned Team")
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: false, writableTeams: [only]) {
+        case .useOnly(let team): XCTAssertEqual(team.id, only.id)
+        default: XCTFail("Expected .useOnly with exactly one writable team")
+        }
+    }
+
+    func testReadOnlyFallbackAsksAmongMultipleWritableTeams() {
+        let a = Team(name: "Team A")
+        let b = Team(name: "Team B")
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: false, writableTeams: [a, b]) {
+        case .askAmong(let candidates):
+            XCTAssertEqual(Set(candidates.map(\.id)), Set([a.id, b.id]))
+        default: XCTFail("Expected .askAmong with two writable teams")
+        }
+    }
+
+    /// A coach who NAMED the view-only team is told it's view-only, not silently
+    /// redirected to a different team — even when writable teams are available.
+    /// The redirect is only for the active-default case.
+    func testReadOnlyFallbackHonorsAnExplicitlyNamedTeamByThrowing() {
+        let a = Team(name: "Team A")
+        let b = Team(name: "Team B")
+        switch FillLineupIntent.readOnlyFallback(explicitlyNamed: true, writableTeams: [a, b]) {
+        case .throwReadOnly: break
+        default: XCTFail("Expected .throwReadOnly when the read-only team was named explicitly")
+        }
+    }
+
     // MARK: - Pattern-rule safety net
     //
     // The on-device model parse can time out or throw (returning .empty),

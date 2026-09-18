@@ -5,6 +5,11 @@ import Foundation
 //
 // "Hey Siri, fill 3 innings, start Caleb pitching."
 //
+// NOTE: as of Sep 2026 this is NOT registered in STLShortcuts, so it is not
+// auto-surfaced in Siri/Spotlight — device testing found Siri confirming fills
+// it hadn't reliably applied. It remains a discoverable Shortcuts action (a
+// coach can build their own), so keep it working; see the note in STLShortcuts.
+//
 // Pro, matching the bolt button's gate in DefensiveGridView and the iPad
 // summary pane. Gating happens on PurchaseManager.isProNow() rather than the
 // @EnvironmentObject PurchaseManager, which an intent can't reach.
@@ -32,7 +37,7 @@ struct FillLineupIntent: AppIntent {
         searchKeywords: ["auto-fill", "fill", "positions", "defense", "lineup"]
     )
 
-    static let openAppWhenRun = true
+    static var supportedModes: IntentModes { .foreground }
 
     @Parameter(
         title: "Team",
@@ -72,8 +77,9 @@ struct FillLineupIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        // Not Pro: show the paywall rather than throwing. `openAppWhenRun` has
-        // already brought the app forward by the time this returns either way,
+        // Not Pro: show the paywall rather than throwing. `supportedModes` is
+        // `.foreground`, so the app has already been brought forward by the time
+        // this returns either way,
         // so a thrown error would leave the coach on whatever tab was last open
         // with nothing explaining why nothing happened.
         guard await PurchaseManager.isProNow() else {
@@ -83,17 +89,55 @@ struct FillLineupIntent: AppIntent {
         }
 
         let (teams, activeTeam) = TeamStorage.loadTeamsForReading()
-        let target: Team?
+        var target: Team
         if let requested = team {
-            target = teams.first { $0.id == requested.id }
-        } else {
+            guard let match = teams.first(where: { $0.id == requested.id }) else {
+                throw STLIntentError.noTeam
+            }
+            target = match
+        } else if let activeTeam {
             target = activeTeam
+        } else {
+            throw STLIntentError.noTeam
         }
-        guard let target else { throw STLIntentError.noTeam }
 
         // A read-only shared team can't be written back, so filling it would
-        // produce a lineup that silently vanishes on the next sync.
-        guard !target.isReadOnly else { throw STLIntentError.teamIsReadOnly }
+        // produce a lineup that silently vanishes on the next sync. This is
+        // reachable in practice — the active team is a common shape for a coach
+        // who also has a view-only share of someone else's roster. When the
+        // read-only team was the active *default* (not named this run), redirect
+        // to the coach's writable teams rather than dead-ending; a team the
+        // coach named explicitly is honored, not swapped (see readOnlyFallback).
+        var redirectNote = ""
+        if target.isReadOnly {
+            switch Self.readOnlyFallback(explicitlyNamed: team != nil,
+                                         writableTeams: teams.filter { !$0.isReadOnly }) {
+            case .throwReadOnly:
+                throw STLIntentError.teamIsReadOnly
+            case .useOnly(let only):
+                // Silent redirect from the active view-only team to the coach's
+                // one writable team. Name it, because AutoFillOutcome.spokenSummary
+                // doesn't — otherwise the reply sounds like it filled the team
+                // the coach was looking at.
+                target = only
+                redirectNote = "Your other team \(only.name) is the one I can edit. "
+            case .askAmong(let candidates):
+                // requestDisambiguation is a real, interactive Siri/Shortcuts
+                // prompt — AppIntentsTesting's out-of-process harness can't
+                // drive it (fails with AppIntentsServicesExecutionErrorDomain
+                // 206, "not supported by the default delegate"), so this call
+                // itself is exercised by manual verification, not automation.
+                // readOnlyFallback(writableTeams:) above covers the branching.
+                let chosen = try await $team.requestDisambiguation(
+                    among: candidates.map(TeamEntity.init),
+                    dialog: "Which team should I fill?"
+                )
+                guard let match = teams.first(where: { $0.id == chosen.id }) else {
+                    throw STLIntentError.noTeam
+                }
+                target = match
+            }
+        }
 
         guard !target.lineup.activePlayers(from: target.players).isEmpty else {
             throw STLIntentError.noActivePlayers(teamName: target.name)
@@ -116,13 +160,13 @@ struct FillLineupIntent: AppIntent {
         // Nothing changed — don't stage a write, and don't yank the coach to
         // the Positions tab for a no-op.
         guard outcome.didFill else {
-            return .result(dialog: IntentDialog(stringLiteral: outcome.spokenSummary))
+            return .result(dialog: IntentDialog(stringLiteral: redirectNote + outcome.spokenSummary))
         }
 
         AppRouter.shared.stageFill(outcome, teamID: target.id)
         AppRouter.shared.route(to: .positions)
 
-        return .result(dialog: IntentDialog(stringLiteral: outcome.spokenSummary))
+        return .result(dialog: IntentDialog(stringLiteral: redirectNote + outcome.spokenSummary))
     }
 
     /// Zero-based last inning to fill.
@@ -137,6 +181,30 @@ struct FillLineupIntent: AppIntent {
         let available = team.lineup.innings.count
         let requestedCount = requested ?? team.gameInningCount
         return min(max(requestedCount, 1), available) - 1
+    }
+
+    /// What to do once the resolved team turns out to be read-only. A pure
+    /// function so this branching is unit-testable without AppIntentsTesting,
+    /// which can't drive the interactive `requestDisambiguation` case (see the
+    /// comment where `.askAmong` is handled in `perform()`).
+    enum ReadOnlyFallback {
+        case throwReadOnly
+        case useOnly(Team)
+        case askAmong([Team])
+    }
+
+    static func readOnlyFallback(explicitlyNamed: Bool, writableTeams: [Team]) -> ReadOnlyFallback {
+        // An explicitly named team is honored, never silently swapped. A coach
+        // who said "fill the Eagles" (a view-only share) should be told it's
+        // view-only — not have a different team filled behind their back. The
+        // redirect only kicks in when the read-only team was the *active*
+        // default the coach didn't choose for this run.
+        if explicitlyNamed { return .throwReadOnly }
+        switch writableTeams.count {
+        case 0: return .throwReadOnly
+        case 1: return .useOnly(writableTeams[0])
+        default: return .askAmong(writableTeams)
+        }
     }
 }
 
