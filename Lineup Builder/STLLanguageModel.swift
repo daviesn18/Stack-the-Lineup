@@ -40,6 +40,22 @@ nonisolated enum STLLanguageModel {
         let backend: Backend
     }
 
+    /// PrivateCloudCompute requires the MANAGED entitlement
+    /// `com.apple.developer.private-cloud-compute`, which Apple grants only after
+    /// an eligibility request is approved. Without it, FoundationModels does NOT
+    /// degrade gracefully: establishing a PCC-backed session traps with a
+    /// non-catchable `Fatal error: Missing entitlement` (ErrorConversion.swift:140),
+    /// which crash-loops the app on launch on any device that reaches the model
+    /// path. `pccModel.isAvailable` does NOT reflect the entitlement, so it can't
+    /// gate this — this flag is the gate.
+    ///
+    /// Keep this FALSE until (1) the entitlement is granted and (2) it's added to
+    /// the app's .entitlements, then flip to true. When false, `pccModel` is never
+    /// even constructed (the checks below short-circuit before it), so no PCC code
+    /// runs and the app uses the on-device model exactly as it did pre-PCC.
+    /// Request form: https://developer.apple.com/contact/request/private-cloud-compute/
+    private static let pccEnabled = false
+
     @available(iOS 27, *)
     private static let pccModel = PrivateCloudComputeLanguageModel()
 
@@ -48,7 +64,7 @@ nonisolated enum STLLanguageModel {
     /// `SystemLanguageModel.default.availability` reads that used to live in
     /// AutoFillNLConstraintService and GameLogInsightsService.
     static var isAvailable: Bool {
-        if #available(iOS 27, *), pccModel.isAvailable {
+        if #available(iOS 27, *), pccEnabled, pccModel.isAvailable {
             return true
         }
         return onDeviceAvailable
@@ -58,7 +74,7 @@ nonisolated enum STLLanguageModel {
     /// usable. Preserves the existing no-model behavior: callers still treat
     /// a nil result as "Apple Intelligence isn't available here."
     static func makeSession(instructions: String) -> Session? {
-        if #available(iOS 27, *), pccModel.isAvailable {
+        if #available(iOS 27, *), pccEnabled, pccModel.isAvailable {
             return Session(
                 session: LanguageModelSession(
                     model: pccModel,
