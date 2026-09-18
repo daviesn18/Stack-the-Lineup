@@ -411,7 +411,8 @@ nonisolated enum PositionPreferenceTier: String, Codable, CaseIterable, Sendable
 
 // MARK: - Hitting Archetype
 
-/// How a hitter drives the ball. Feeds batting-order automation.
+/// How a hitter drives the ball. Captured per hitter; intended to inform
+/// batting-order automation in a later release (no consumer reads it yet).
 nonisolated enum HittingStyle: String, Codable, CaseIterable, Sendable {
     case power   = "Power"
     case gap     = "Gap"
@@ -440,8 +441,8 @@ nonisolated enum OnBaseRating: String, Codable, CaseIterable, Sendable {
 
 /// The three archetype axes a coach can tag per hitter. Each is independently
 /// optional — a coach sets only what they know. Nil throughout means "not tagged".
-/// Kept as a struct (rather than three loose fields on Player) so the future
-/// batting-order engine takes one value.
+/// Kept as a struct (rather than three loose fields on Player) so a future
+/// batting-order engine can take one value; this release only captures the data.
 nonisolated struct HittingArchetype: Codable, Equatable, Sendable {
     var hitting: HittingStyle?
     var speed: SpeedRating?

@@ -75,7 +75,7 @@ nonisolated enum DebugTestControl {
 struct SeedTestRosterIntent: AppIntent {
     static let title: LocalizedStringResource = "Seed Test Roster (Debug)"
     static let isDiscoverable = false
-    static let openAppWhenRun = false
+    static var supportedModes: IntentModes { .background }
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         DebugTestControl.seedRoster()
@@ -88,7 +88,7 @@ struct SeedTestRosterIntent: AppIntent {
 struct ResetTestDataIntent: AppIntent {
     static let title: LocalizedStringResource = "Reset Test Data (Debug)"
     static let isDiscoverable = false
-    static let openAppWhenRun = false
+    static var supportedModes: IntentModes { .background }
 
     func perform() async throws -> some IntentResult {
         DebugTestControl.resetSeed()
@@ -101,7 +101,7 @@ struct ResetTestDataIntent: AppIntent {
 struct SetProForTestingIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Pro For Testing (Debug)"
     static let isDiscoverable = false
-    static let openAppWhenRun = false
+    static var supportedModes: IntentModes { .background }
 
     @Parameter(title: "Pro Enabled") var enabled: Bool
 
@@ -116,7 +116,7 @@ struct SetProForTestingIntent: AppIntent {
 struct ProStatusForTestingIntent: AppIntent {
     static let title: LocalizedStringResource = "Pro Status For Testing (Debug)"
     static let isDiscoverable = false
-    static let openAppWhenRun = false
+    static var supportedModes: IntentModes { .background }
 
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> {
         let isPro = await PurchaseManager.isProNow()
