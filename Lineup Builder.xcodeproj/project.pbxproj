@@ -12,6 +12,7 @@
 		720774532FDCAAE500D4E8CE /* STLWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		720CE3CF2F68AEC400116C0A /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 720CE3CE2F68AEC400116C0A /* FoundationModels.framework */; };
 		72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = 72546BC92F80860600EE5B9E /* TelemetryDeck */; };
+		A1F0000000000000000000ED /* STLTeamPreviewExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1F0000000000000000000E1 /* STLTeamPreviewExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -21,6 +22,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 7207743F2FDCAAE300D4E8CE;
 			remoteInfo = STLWidgetExtension;
+		};
+		A1F0000000000000000000EB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 720846EF2F53C48900F70E89 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1F0000000000000000000E4;
+			remoteInfo = STLTeamPreviewExtension;
 		};
 		720847052F53C48B00F70E89 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -46,6 +54,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				720774532FDCAAE500D4E8CE /* STLWidgetExtension.appex in Embed Foundation Extensions */,
+				A1F0000000000000000000ED /* STLTeamPreviewExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -61,6 +70,7 @@
 		720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lineup BuilderUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		720CE3CE2F68AEC400116C0A /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.2.sdk/System/Library/Frameworks/FoundationModels.framework; sourceTree = DEVELOPER_DIR; };
+		A1F0000000000000000000E1 /* STLTeamPreviewExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = STLTeamPreviewExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -86,6 +96,13 @@
 			);
 			target = 720846F62F53C48900F70E89 /* Lineup Builder */;
 		};
+		A1F0000000000000000000E3 /* Exceptions for "STLTeamPreview" folder in "STLTeamPreviewExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A1F0000000000000000000E4 /* STLTeamPreviewExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -95,6 +112,14 @@
 				720774582FDCAAE500D4E8CE /* Exceptions for "STLWidget" folder in "STLWidgetExtension" target */,
 			);
 			path = STLWidget;
+			sourceTree = "<group>";
+		};
+		A1F0000000000000000000E2 /* STLTeamPreview */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1F0000000000000000000E3 /* Exceptions for "STLTeamPreview" folder in "STLTeamPreviewExtension" target */,
+			);
+			path = STLTeamPreview;
 			sourceTree = "<group>";
 		};
 		720846F92F53C48900F70E89 /* Lineup Builder */ = {
@@ -151,6 +176,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1F0000000000000000000E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -162,6 +194,7 @@
 				720847072F53C48B00F70E89 /* Lineup BuilderTests */,
 				720847112F53C48B00F70E89 /* Lineup BuilderUITests */,
 				720774452FDCAAE300D4E8CE /* STLWidget */,
+				A1F0000000000000000000E2 /* STLTeamPreview */,
 				720CE3CD2F68AEC400116C0A /* Frameworks */,
 				720846F82F53C48900F70E89 /* Products */,
 			);
@@ -174,6 +207,7 @@
 				720847042F53C48B00F70E89 /* Lineup BuilderTests.xctest */,
 				7208470E2F53C48B00F70E89 /* Lineup BuilderUITests.xctest */,
 				720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */,
+				A1F0000000000000000000E1 /* STLTeamPreviewExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -191,6 +225,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A1F0000000000000000000E4 /* STLTeamPreviewExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1F0000000000000000000EA /* Build configuration list for PBXNativeTarget "STLTeamPreviewExtension" */;
+			buildPhases = (
+				A1F0000000000000000000E5 /* Sources */,
+				A1F0000000000000000000E6 /* Frameworks */,
+				A1F0000000000000000000E7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1F0000000000000000000E2 /* STLTeamPreview */,
+			);
+			name = STLTeamPreviewExtension;
+			packageProductDependencies = (
+			);
+			productName = STLTeamPreviewExtension;
+			productReference = A1F0000000000000000000E1 /* STLTeamPreviewExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 720774572FDCAAE500D4E8CE /* Build configuration list for PBXNativeTarget "STLWidgetExtension" */;
@@ -226,6 +282,7 @@
 			);
 			dependencies = (
 				720774522FDCAAE500D4E8CE /* PBXTargetDependency */,
+				A1F0000000000000000000EC /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				720846F92F53C48900F70E89 /* Lineup Builder */,
@@ -294,6 +351,9 @@
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					A1F0000000000000000000E4 = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					7207743F2FDCAAE300D4E8CE = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -331,11 +391,19 @@
 				720847032F53C48B00F70E89 /* Lineup BuilderTests */,
 				7208470D2F53C48B00F70E89 /* Lineup BuilderUITests */,
 				7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */,
+				A1F0000000000000000000E4 /* STLTeamPreviewExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A1F0000000000000000000E7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7207743E2FDCAAE300D4E8CE /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -367,6 +435,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A1F0000000000000000000E5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7207743C2FDCAAE300D4E8CE /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -398,6 +473,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A1F0000000000000000000EC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1F0000000000000000000E4 /* STLTeamPreviewExtension */;
+			targetProxy = A1F0000000000000000000EB /* PBXContainerItemProxy */;
+		};
 		720774522FDCAAE500D4E8CE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 7207743F2FDCAAE300D4E8CE /* STLWidgetExtension */;
@@ -416,6 +496,63 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A1F0000000000000000000E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 46;
+				DEVELOPMENT_TEAM = 6R6HA6RU2S;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = STLTeamPreview/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Team Preview";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 3.4.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder.STLTeamPreview";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1F0000000000000000000E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 46;
+				DEVELOPMENT_TEAM = 6R6HA6RU2S;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = STLTeamPreview/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Team Preview";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 3.4.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder.STLTeamPreview";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		720774552FDCAAE500D4E8CE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -812,6 +949,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A1F0000000000000000000EA /* Build configuration list for PBXNativeTarget "STLTeamPreviewExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1F0000000000000000000E8 /* Debug */,
+				A1F0000000000000000000E9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		720774572FDCAAE500D4E8CE /* Build configuration list for PBXNativeTarget "STLWidgetExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
