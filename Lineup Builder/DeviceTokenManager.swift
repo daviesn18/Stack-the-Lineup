@@ -142,21 +142,31 @@ final class DeviceTokenManager {
 
         let recordID = CKRecord.ID(recordName: Self.recordName(teamID: teamID, tokenHex: tokenHex))
 
-        // Fetch existing record or create new one.
-        let record: CKRecord
-        do {
-            record = try await db.record(for: recordID)
-        } catch {
-            record = CKRecord(recordType: recordType, recordID: recordID)
-        }
-
+        // Unconditional overwrite — no fetch-or-create. The record name is fully
+        // derived from (team, token) and every field is rewritten on each call,
+        // so overwriting whatever is there is exactly what we want, and idempotent.
+        //
+        // The old fetch-then-`save` treated ANY fetch failure as "record doesn't
+        // exist, create a new one", which then reached the server as an *insert*
+        // and failed with "record to insert already exists" whenever the record
+        // was in fact present — a transient fetch blip logged as an error on the
+        // push path (seen re-registering a shared team). `.allKeys` overwrites an
+        // existing record and creates a missing one, with no change-tag race.
+        let record = CKRecord(recordType: recordType, recordID: recordID)
         record["teamID"]    = teamID as CKRecordValue
         record["coachName"] = coachName as CKRecordValue
         record["apnsToken"] = tokenHex as CKRecordValue
         record["updatedAt"] = Date() as CKRecordValue
 
         do {
-            try await db.save(record)
+            let (saveResults, _) = try await db.modifyRecords(
+                saving: [record],
+                deleting: [],
+                savePolicy: .allKeys
+            )
+            if case .failure(let error)? = saveResults[recordID] {
+                throw error
+            }
             Log.push.info("DeviceToken saved for team \(teamID)")
         } catch {
             Log.push.error("DeviceToken save failed: \(error.localizedDescription, privacy: .public)")
