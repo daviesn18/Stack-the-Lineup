@@ -153,6 +153,14 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
                     // notification stays for the already-running case; the stored
                     // value is what ContentView drains on first appear.
                     PendingShareAcceptance.record(rootRecordName: rootRecordName)
+                    TeamStorage.saveLastShareAccept(
+                        ShareAcceptOutcome(
+                            succeeded: true,
+                            at: Date(),
+                            detail: "",
+                            rootRecordName: rootRecordName
+                        )
+                    )
                     NotificationCenter.default.post(
                         name: .cloudKitShareAccepted,
                         object: nil,
@@ -160,7 +168,34 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
                     )
                 }
             } catch {
+                // A failed accept used to only reach the log, which made it
+                // invisible: the coach saw the join sheet, tapped Join, the app
+                // opened, and nothing arrived — indistinguishable from success.
+                // Record it durably (for the diagnostics report) and surface it,
+                // so "I tapped Join and nothing happened" has an on-device answer.
                 Log.sync.error("Failed to accept CloudKit share: \(error.localizedDescription, privacy: .public)")
+                let friendly = CloudKitManager.friendlyMessage(for: error)
+                let rootRecordName = cloudKitShareMetadata.hierarchicalRootRecordID?.recordName
+                await MainActor.run {
+                    TeamStorage.saveLastShareAccept(
+                        ShareAcceptOutcome(
+                            succeeded: false,
+                            at: Date(),
+                            detail: friendly,
+                            rootRecordName: rootRecordName
+                        )
+                    )
+                    // Same cold-launch race as the success path: the accept can
+                    // land before ContentView subscribes, so the stored value is
+                    // what a fresh launch drains, and the post covers the
+                    // already-running case.
+                    PendingShareAcceptFailure.record(message: friendly)
+                    NotificationCenter.default.post(
+                        name: .cloudKitShareAcceptFailed,
+                        object: nil,
+                        userInfo: ["message": friendly]
+                    )
+                }
             }
         }
     }
@@ -198,12 +233,41 @@ enum PendingShareAcceptance {
     }
 }
 
+// MARK: - PendingShareAcceptFailure
+//
+// A just-failed share acceptance, held until ContentView can alert the coach.
+// Mirrors PendingShareAcceptance: on a cold launch the accept callback beats the
+// first render, so a posted notification reaches nobody and the failure would go
+// unseen — the very thing this is meant to end.
+
+@MainActor
+enum PendingShareAcceptFailure {
+
+    /// A friendly, name-free message. Nil means nothing is waiting.
+    private static var message: String?
+
+    static func record(message: String) {
+        Self.message = message
+    }
+
+    /// Returns the pending failure exactly once, so the already-running path and
+    /// the cold-launch path can't both alert for the same failure.
+    static func take() -> String? {
+        defer { message = nil }
+        return message
+    }
+}
+
 // MARK: - Notification Names
 
 extension Notification.Name {
     /// Posted after a CloudKit share invitation is accepted.
     /// ContentView observes this to refresh the teams list.
     static let cloudKitShareAccepted = Notification.Name("cloudKitShareAccepted")
+
+    /// Posted when accepting a CloudKit share invitation fails.
+    /// ContentView observes this to tell the coach the invite didn't take.
+    static let cloudKitShareAcceptFailed = Notification.Name("cloudKitShareAcceptFailed")
 
     /// Posted when APNs provides a device token.
     /// ContentView observes this to forward the token to DeviceTokenManager.

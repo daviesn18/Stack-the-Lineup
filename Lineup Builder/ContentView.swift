@@ -29,6 +29,16 @@ struct ContentView: View {
         let message: String
     }
 
+    // A CloudKit share invitation that failed to accept. Surfaced so a coach who
+    // tapped "Join" and got nothing isn't left guessing — SceneDelegate records
+    // the failure and ContentView presents it here.
+    @State private var shareAcceptError: ShareAcceptErrorWrapper? = nil
+
+    private struct ShareAcceptErrorWrapper: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+
     // Share-sheet roster import flow
     @State private var showingImportTeamPicker = false
     @State private var showingImportTeamForm = false
@@ -242,6 +252,13 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .alert(item: $shareAcceptError) { wrapper in
+            Alert(
+                title: Text("Couldn't Join Team"),
+                message: Text(wrapper.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
         .onOpenURL { url in
             // App/widget/Spotlight/Siri deep links route; everything else is a
             // shared file that still goes down the import paths.
@@ -348,6 +365,11 @@ struct ContentView: View {
             // the race handles it and the other finds nothing.
             handleShareAcceptanceIfPending()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAcceptFailed)) { _ in
+            // Same drain contract as acceptance: the stored value is the source
+            // of truth, so this and the cold-launch .task can't double-alert.
+            handleShareAcceptFailureIfPending()
+        }
         .task {
             // The cold-launch half. Tapping an invite when the app isn't running
             // delivers the accept callback before this view subscribes above, so
@@ -355,6 +377,9 @@ struct ContentView: View {
             // silently in the background at the next ordinary sync — which is
             // exactly what it did.
             handleShareAcceptanceIfPending()
+            // A failed accept races the first render the same way; drain it here
+            // too so a cold-launch failure still reaches the coach.
+            handleShareAcceptFailureIfPending()
         }
     }
 
@@ -376,6 +401,14 @@ struct ContentView: View {
 
         let teamIDsBefore = Set(store.teams.map { $0.id })
         joinSharedTeam(rootRecordName: accepted.rootRecordName, teamIDsBefore: teamIDsBefore)
+    }
+
+    /// Tells the coach a share invitation failed to accept. Drains the same
+    /// stored value the notification and the cold-launch `.task` both feed, so a
+    /// single failure produces a single alert.
+    private func handleShareAcceptFailureIfPending() {
+        guard let message = PendingShareAcceptFailure.take() else { return }
+        shareAcceptError = ShareAcceptErrorWrapper(message: message)
     }
 
     /// Polls CloudKit until the just-accepted team lands, then foregrounds it and

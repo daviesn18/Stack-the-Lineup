@@ -124,6 +124,15 @@ nonisolated struct TeamShareInfo: Sendable, Equatable {
     var linkPermission: TeamSharePermission = .readWrite
     var participants: [ShareParticipantInfo] = []
 
+    /// True when the share is a public link (`publicPermission != .none`), which
+    /// is what the "share via Messages" flow creates. It matters because anyone
+    /// opening a public link joins through the *public* permission and is NOT
+    /// added to `participants` — so `acceptedCount` reads 0 even after coaches
+    /// have successfully joined. `linkPermission` alone can't reveal this:
+    /// `TeamSharePermission(.none)` maps to `.readWrite`, so an invite-only share
+    /// and a public read-write link look identical there.
+    var isPublicLink: Bool = false
+
     /// Head coach's name, on a team this coach received. Nil otherwise, and nil
     /// when CloudKit has no discoverable identity for them.
     var ownerName: String?
@@ -991,7 +1000,8 @@ actor CloudKitManager {
             state: .shared,
             url: share.url,
             linkPermission: TeamSharePermission(share.publicPermission),
-            participants: others
+            participants: others,
+            isPublicLink: share.publicPermission != .none
         )
     }
 

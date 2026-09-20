@@ -1,5 +1,24 @@
 import Foundation
 
+/// The outcome of the most recent CloudKit share-acceptance attempt.
+///
+/// Recorded so a silent accept failure leaves evidence. Accepting used to only
+/// log on failure, which made a failed "Join" indistinguishable from a working
+/// one — "I tapped Join and nothing happened" had nothing on-device to point at.
+/// The diagnostics report prints this, and the app tells the coach when an invite
+/// didn't take. `detail` is a friendly, name-free string (from
+/// `CloudKitManager.friendlyMessage` — fixed strings and record names only, never
+/// a person), so it is safe for the support report. Local-only: one device's
+/// record of what it last tried to join, never synchronised.
+nonisolated struct ShareAcceptOutcome: Codable, Sendable, Equatable {
+    var succeeded: Bool
+    var at: Date
+    /// Empty on success; a friendly, name-free description on failure.
+    var detail: String
+    /// The share's hierarchical root record name, when CloudKit provided one.
+    var rootRecordName: String?
+}
+
 // MARK: - TeamStorage
 //
 // Single source of truth for READING the persisted `[Team]` blob.
@@ -77,6 +96,25 @@ nonisolated enum TeamStorage {
 
     static func saveReceivedShares(_ names: Set<String>, defaults: UserDefaults = .standard) {
         defaults.set(Array(names), forKey: receivedSharesKey)
+    }
+
+    // MARK: - Last Share-Accept Outcome
+    //
+    // The result of the most recent `CKContainer.accept`. Written by SceneDelegate
+    // the moment accept returns or throws, read by DiagnosticsReport and surfaced
+    // to the coach on failure. See `ShareAcceptOutcome`. Local-only.
+    static let lastShareAcceptKey = "stl_last_share_accept"
+
+    static func loadLastShareAccept(defaults: UserDefaults = .standard) -> ShareAcceptOutcome? {
+        guard let data = defaults.data(forKey: lastShareAcceptKey),
+              let decoded = try? JSONDecoder().decode(ShareAcceptOutcome.self, from: data)
+        else { return nil }
+        return decoded
+    }
+
+    static func saveLastShareAccept(_ outcome: ShareAcceptOutcome, defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(outcome) else { return }
+        defaults.set(data, forKey: lastShareAcceptKey)
     }
 
     // MARK: - Pending Record Deletions
