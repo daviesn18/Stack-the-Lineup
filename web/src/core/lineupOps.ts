@@ -102,6 +102,23 @@ export function finalize(l: Lineup, coachName: string, now = new Date()): Lineup
 /** iOS reopenLineup: back to draft, keeping who finalized it last. */
 export const reopen = (l: Lineup): Lineup => ({ ...l, status: 'draft' });
 
+/**
+ * The batting order with every active player in it: the saved order first
+ * (minus deleted or absent players), then anyone missing, in roster order.
+ * A lineup whose order was left partial (an imported file with no order, or an
+ * edit made before one existed) would otherwise hide players from the order,
+ * the fair-play panel and the printouts. Returns `l` itself when complete.
+ */
+export function completeBattingOrder(l: Lineup, players: Player[]): Lineup {
+  const absent = new Set(l.absentPlayerIDs);
+  const known = new Set(players.map((p) => p.id));
+  const kept = l.battingOrder.filter((id, i) => known.has(id) && !absent.has(id) && l.battingOrder.indexOf(id) === i);
+  const inOrder = new Set(kept);
+  const order = [...kept, ...players.filter((p) => !absent.has(p.id) && !inOrder.has(p.id)).map((p) => p.id)];
+  const same = order.length === l.battingOrder.length && order.every((id, i) => id === l.battingOrder[i]);
+  return same ? l : { ...l, battingOrder: order };
+}
+
 /** Active players in batting order, or in roster order until an order exists (iOS displayPlayers). */
 export function displayPlayers(l: Lineup, players: Player[]): Player[] {
   const absent = new Set(l.absentPlayerIDs);
@@ -172,4 +189,21 @@ export function restoreAbsent(l: Lineup, playerID: PlayerID): Lineup {
     innings: back.innings.map((inn) =>
       playerID in inn.assignments ? inn : { assignments: { ...inn.assignments, [playerID]: 'Bench' as FieldPosition } }),
   };
+}
+
+/**
+ * What the grid calls each player: the first name, or "Caleb J." when two
+ * players share a first name, or the full name if the initials match too.
+ */
+export function gridNames(players: Player[]): Map<PlayerID, string> {
+  const count = (key: (p: Player) => string) => {
+    const m = new Map<string, number>();
+    for (const p of players) m.set(key(p), (m.get(key(p)) ?? 0) + 1);
+    return (p: Player) => m.get(key(p)) ?? 0;
+  };
+  const first = count((p) => p.firstName.trim().toLowerCase());
+  const short = count((p) => shortName(p).toLowerCase());
+  return new Map(players.map((p) => [
+    p.id, first(p) < 2 ? p.firstName : short(p) < 2 ? shortName(p) : displayName(p),
+  ]));
 }

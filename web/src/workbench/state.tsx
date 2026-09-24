@@ -8,7 +8,7 @@ import {
 } from 'react';
 
 import { activeFieldPositions } from '@/core/fairPlay';
-import { displayPlayers, moveBatter, place } from '@/core/lineupOps';
+import { displayPlayers, gridNames, moveBatter, place } from '@/core/lineupOps';
 import type { FieldPosition, Lineup, Player } from '@/core/model';
 import { useTeam, type TeamData } from '@/data/teamStore';
 
@@ -29,6 +29,8 @@ export interface Workbench extends TeamData {
   /** Active players in batting order. */
   active: Player[];
   byId: Map<string, Player>;
+  /** The name the grid shows: first name, disambiguated when two players share it. */
+  nameOf(p: Player): string;
   positions: FieldPosition[];
   issues: FairPlayIssue[];
   /** Who holds a field spot in an inning. */
@@ -101,7 +103,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       }
       return m;
     });
-    return { byId, active, positions, issues, holders };
+    return { byId, active, positions, issues, holders, names: gridNames(players) };
   }, [lineup, players, team, gameLogs]);
 
   const closeOverlays = useCallback(() => { setPicker(null); setMenu(null); }, []);
@@ -121,6 +123,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const wb: Workbench = {
     ...data!,
     ...derived,
+    nameOf: (p) => derived.names.get(p.id) ?? p.firstName,
     holder: (i, pos) => derived.holders[i]?.get(pos),
     posOf: (pid, i) => lineup.innings[i]?.assignments[pid],
 

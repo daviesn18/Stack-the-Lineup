@@ -1,4 +1,4 @@
-import { keepForRemaining, place, restoreAbsent, toggleAbsent } from '../lineupOps';
+import { completeBattingOrder, gridNames, keepForRemaining, place, restoreAbsent, toggleAbsent } from '../lineupOps';
 import { emptyLineup, type Lineup } from '../model';
 
 const lineup = (): Lineup => {
@@ -44,4 +44,22 @@ it('restoreAbsent brings a player back on the bench', () => {
   expect(back.absentPlayerIDs).toEqual([]);
   expect(back.battingOrder).toEqual(['A', 'B', 'C']);
   expect(back.innings.map((i) => i.assignments.C)).toEqual(['Bench', 'Bench', 'Bench']);
+});
+
+describe('completeBattingOrder', () => {
+  const players = ['A', 'B', 'C', 'D'].map((id) => ({ id, firstName: id, lastName: 'X', number: '', positionPreferences: {} }));
+  it('appends missing active players in roster order, skipping absent and deleted ones', () => {
+    const l = { ...emptyLineup(1), battingOrder: ['C', 'GONE', 'A'], absentPlayerIDs: ['D'] };
+    expect(completeBattingOrder(l, players).battingOrder).toEqual(['C', 'A', 'B']);
+  });
+  it('returns the same lineup when the order is already complete', () => {
+    const l = { ...emptyLineup(1), battingOrder: ['B', 'A', 'C', 'D'] };
+    expect(completeBattingOrder(l, players)).toBe(l);
+  });
+});
+
+it('gridNames disambiguates shared first names', () => {
+  const p = (id: string, firstName: string, lastName: string) => ({ id, firstName, lastName, number: '', positionPreferences: {} });
+  const names = gridNames([p('1', 'Caleb', 'Johnston'), p('2', 'Caleb', 'Van Vleet'), p('3', 'Noah', 'Davies'), p('4', 'Noah', 'Dunn'), p('5', 'Ian', 'Nehez')]);
+  expect([...names.values()]).toEqual(['Caleb J.', 'Caleb V.', 'Noah Davies', 'Noah Dunn', 'Ian']);
 });

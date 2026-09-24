@@ -254,7 +254,7 @@ export function FairPlayPanel() {
         return (
           <div key={p.id} title={`${t.infield} infield, ${t.outfield} outfield`}
             style={{ height: 36, display: 'grid', gridTemplateColumns: '64px 1fr 30px', gap: 10, alignItems: 'center', boxShadow: `inset 0 -0.5px 0 ${C.sep}` }}>
-            <span className="ellipsis" style={{ fontSize: 15 }}>{p.firstName}</span>
+            <span className="ellipsis" style={{ fontSize: 15 }}>{w.nameOf(p)}</span>
             <span style={{ height: 10, borderRadius: 5, background: C.gray5, display: 'flex', overflow: 'hidden' }}>
               <span className="pt-bar" style={{ width: `${(t.infield / inningCount) * 100}%`, background: C.blue }} />
               <span className="pt-bar" style={{ width: `${(t.outfield / inningCount) * 100}%`, background: C.green }} />

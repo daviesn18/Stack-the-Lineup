@@ -6,7 +6,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { addToBattingOrder, changedInnings, removePlayer } from '../core/lineupOps';
+import { addToBattingOrder, changedInnings, completeBattingOrder, removePlayer } from '../core/lineupOps';
 import {
   defaultFairPlayConfig, defaultPitchingConfig, type FairPlayConfig, type FieldPosition, type GameLog, type Lineup,
   type PitchingConfig, type Player,
@@ -106,6 +106,13 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
     must(supabase.from('game_logs').select('*, pitch_counts(player_id, pitches)').eq('team_id', teamId)
       .is('deleted_at', null).order('game_date', { ascending: false })),
   ]);
+  const roster = (players as Row[]).map(toPlayer);
+  const saved = toLineup(lineup);
+  const complete = { ...completeBattingOrder(saved, roster), id: saved.id };
+  if (complete.battingOrder !== saved.battingOrder) {
+    // Repair a partial batting order once, so every screen and printout has everyone.
+    await must(supabase.from('lineups').update({ batting_order: complete.battingOrder }).eq('id', saved.id));
+  }
   return {
     team: {
       id: upperId(t.id), name: t.name, colorHex: t.color_hex, coachName: t.coach_name,
@@ -113,8 +120,8 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
       fairPlayConfig: { ...defaultFairPlayConfig(), ...(t.fair_play_config ?? {}) },
       pitchingConfig: { ...defaultPitchingConfig(), ...(t.pitching_config ?? {}) },
     },
-    players: (players as Row[]).map(toPlayer),
-    lineup: toLineup(lineup),
+    players: roster,
+    lineup: complete,
     gameLogs: (logs as Row[]).map(toGameLog),
   };
 }

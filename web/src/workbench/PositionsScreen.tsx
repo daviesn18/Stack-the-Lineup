@@ -166,6 +166,7 @@ function SectionLabel({ dot, children }: { dot: string; children: string }) {
 }
 
 function GridCell({ inning, pos }: { inning: number; pos: FieldPosition }) {
+  const w = useWorkbench();
   const s = useSpot(inning, pos, `c-${inning}-${pos}`);
   return (
     <button className="field-cell ellipsis" {...s.handlers}
@@ -175,7 +176,7 @@ function GridCell({ inning, pos }: { inning: number; pos: FieldPosition }) {
         background: s.p ? tint(pos) : '#fff', border: s.p ? 'none' : `1px dashed ${C.gray3}`,
         color: s.p ? (s.never ? C.red : C.label) : C.orange, boxShadow: s.ring,
       }}>
-      {s.p ? s.p.firstName : 'Open'}
+      {s.p ? w.nameOf(s.p) : 'Open'}
     </button>
   );
 }
@@ -195,7 +196,7 @@ function BenchChip({ p, inning, capsule }: { p: Player; inning: number; capsule?
       style={capsule
         ? { fontSize: 14, fontWeight: 500, background: C.gray6, borderRadius: 999, padding: '4px 12px', border: unassigned ? `1px dashed ${C.gray2}` : 'none' }
         : { fontSize: 13, color: C.label2, background: '#fff', borderRadius: 6, padding: '4px 6px', textAlign: 'center', border: unassigned ? `1px dashed ${C.gray2}` : `0.5px solid ${C.gray4}` }}>
-      {p.firstName}
+      {w.nameOf(p)}
     </span>
   );
 }
@@ -324,7 +325,7 @@ function FieldChip({ pos, xy }: { pos: FieldPosition; xy: [number, number] }) {
         boxShadow: '0 1px 3px rgba(0,0,0,0.12)', color: s.p ? (s.never ? C.red : C.label) : C.orange,
         border: s.p ? '0.5px solid transparent' : `1px dashed ${C.orange}`,
       }}>
-        {s.p ? s.p.firstName : 'Open'}
+        {s.p ? w.nameOf(s.p) : 'Open'}
       </span>
     </button>
   );
