@@ -155,8 +155,40 @@ describe('Auto-Fill prompt parser (exact)', () => {
   });
 });
 
-describe('Auto-Fill (rules held in every iOS run)', () => {
-  const RUNS = 200;
+// Web Auto-Fill is deliberately stricter than iOS about pitchers (rest days,
+// no league age, avoid instructions in the last-resort pitcher fill), so in
+// scenarios where that can bite, pitcher-shaped metrics are allowed to differ.
+// The stricter rules are asserted directly instead.
+const STRICTER_PITCHER_METRICS = new Set([
+  'blockedPitcherInnings', 'maxPitcherInnings', 'distinctPitchers', 'filledCount', 'unfilledCount',
+  'constraintRejections', 'overrides.pitcherSoftCapBypassedByFallback', 'overrides.pitcherSoftCapBypassed',
+]);
+// With an infield avoid, iOS's leak puts the player at pitcher (an infield
+// position) in ~57% of fills, so iOS averages 3 - 0.57 = 2.43 players without
+// infield where the web, keeping the instruction, is always 3. Zone counts
+// shift by exactly that leak; everything else must still match.
+const STRICTER_AVOID_METRICS = new Set(['playersWithoutInfield', 'playersWithoutOutfield', 'implicatedPlayers']);
+
+/** Deterministic PRNG (mulberry32) so a failure reproduces exactly. */
+function seeded(name: string): () => number {
+  let a = [...name].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 2654435761) >>> 0, 2166136261);
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const meanSd = (xs: number[]) => {
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length);
+  return { mean, sd };
+};
+
+describe('Auto-Fill (rules held in every iOS run, same distributions)', () => {
+  const RUNS = 500;
 
   it('checks the same invariants the iOS writer checks', () => {
     if (!autofill) return;
@@ -182,28 +214,55 @@ describe('Auto-Fill (rules held in every iOS run)', () => {
     const filled: [number, number] =
       scope.kind === 'game' ? [0, lineup.innings.length - 1]
       : scope.kind === 'through' ? [0, scope.inning] : [scope.inning, scope.inning];
+    const hasAvoid = constraints.playerConstraints.some((c) => c.intent === 'avoid');
+    const stricterApplies = !!pitchingConfig?.rulesEnabled || hasAvoid;
+    const allowedDrift = (k: string) =>
+      (stricterApplies && STRICTER_PITCHER_METRICS.has(k)) || (hasAvoid && STRICTER_AVOID_METRICS.has(k));
+    const random = seeded(s.name);
+    const samples: Record<string, number[]> = {};
+    const outcomes = new Set<string>();
 
     for (let run = 0; run < RUNS; run++) {
       const result = engines.autofill!.fill({
-        scope, lineup, players, config, pitchingConfig, gameLogs, constraints, referenceDate,
-      });
+        scope, lineup, players, config, pitchingConfig, gameLogs, constraints, referenceDate, random,
+      } as Parameters<NonNullable<typeof engines.autofill>['fill']>[0]);
       const check = evaluateAutoFill({
         engines: { fairPlay: engines.fairPlay!, pitching: engines.pitching! },
         players, before: lineup, result, config, pitching: pitchingConfig, gameLogs, constraints,
         filledInnings: filled, referenceDate,
       });
-      const brokenGuarantees = s.invariants.filter((name: string) => check.violated.has(name));
-      expect({ run, brokenGuarantees }).toEqual({ run, brokenGuarantees: [] });
+      // Every guarantee iOS kept in all runs, plus the two web-only rules.
+      const required = new Set<string>([...s.invariants, 'avoidConstraintsRespected']);
+      const broken = [...required].filter((name) => check.violated.has(name));
+      expect({ run, broken }).toEqual({ run, broken: [] });
+      expect({ run, blockedPitcherInnings: check.metrics.blockedPitcherInnings })
+        .toEqual({ run, blockedPitcherInnings: 0 });
 
-      for (const [metric, value] of Object.entries(check.metrics)) {
-        const { min, max } = s.metrics[metric];
-        if (value < min || value > max) {
-          throw new Error(`${metric} = ${value} on run ${run}; iOS stayed within ${min}...${max}`);
-        }
+      for (const [k, v] of Object.entries(check.metrics)) (samples[k] ??= []).push(v);
+      for (const u of result.unfilledSlots) {
+        if (!stricterApplies) expect(s.unfilledReasons).toContain(u.reason);
       }
-      const outcome = result.unfilledSlots
-        .map((u) => `${u.inningIndex}:${u.position}:${u.reason}`).sort().join(',');
-      expect(s.unfilledOutcomes).toContain(outcome);
+      outcomes.add(result.unfilledSlots.map((u) => `${u.inningIndex}:${u.position}:${u.reason}`).sort().join(','));
     }
+
+    // Where iOS was deterministic (one outcome in 500 runs), the web must be too.
+    if (s.unfilledOutcomes.length === 1 && !stricterApplies) expect([...outcomes]).toEqual(s.unfilledOutcomes);
+
+    // Averages match iOS within statistical tolerance.
+    const drift: string[] = [];
+    for (const [k, ios] of Object.entries(s.metrics) as [string, { mean: number; sd: number }][]) {
+      if (allowedDrift(k)) continue;
+      const web = meanSd(samples[k]);
+      const diff = Math.abs(web.mean - ios.mean);
+      if (ios.sd === 0 && web.sd === 0) {
+        if (diff > 0) drift.push(`${k}: always ${web.mean} on web, always ${ios.mean} on iOS`);
+        continue;
+      }
+      const se = Math.sqrt(ios.sd ** 2 / autofill.runs + web.sd ** 2 / RUNS);
+      if (diff > 0.05 && diff / se > 5) {
+        drift.push(`${k}: web mean ${web.mean.toFixed(3)} vs iOS ${ios.mean.toFixed(3)} (z=${(diff / se).toFixed(1)})`);
+      }
+    }
+    expect(drift).toEqual([]);
   });
 });

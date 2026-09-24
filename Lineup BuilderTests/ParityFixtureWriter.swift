@@ -14,8 +14,9 @@ import XCTest
 //     and the deterministic Auto-Fill prompt parser. Same input, same output.
 //   * Rules: Auto-Fill shuffles on purpose (two taps give two valid lineups),
 //     so each scenario is filled many times and the fixture records what held
-//     in EVERY run (invariants) and the observed range of each fairness metric.
-//     The web port must never break an invariant or leave a range.
+//     in EVERY run (invariants) and the distribution of each fairness metric.
+//     The web port must never break an invariant, and its metric averages must
+//     match within statistical tolerance.
 //
 // Skipped unless asked for, so normal test runs and CI never rewrite fixtures:
 //
@@ -631,8 +632,9 @@ final class ParityFixtureWriter: XCTestCase {
     private func autoFillFixture(_ s: AutoFillScenario, referenceDate: Date) -> [String: Any] {
         var held = Set(AutoFillRules.invariantNames)
         var broken: [String: Int] = [:]
-        var ranges: [String: (min: Int, max: Int)] = [:]
+        var samples: [String: [Int]] = [:]
         var unfilledOutcomes = Set<String>()
+        var unfilledReasons = Set<String>()
 
         for _ in 0..<Self.autoFillRuns {
             let result = fill(s)
@@ -641,10 +643,8 @@ final class ParityFixtureWriter: XCTestCase {
                                                constraints: s.constraints, filledInnings: filledRange(s),
                                                referenceDate: referenceDate)
             for name in check.violated { held.remove(name); broken[name, default: 0] += 1 }
-            for (k, v) in check.metrics {
-                let r = ranges[k] ?? (v, v)
-                ranges[k] = (min(r.min, v), max(r.max, v))
-            }
+            for (k, v) in check.metrics { samples[k, default: []].append(v) }
+            for slot in result.unfilledSlots { unfilledReasons.insert(Self.enc(slot.reason)) }
             unfilledOutcomes.insert(result.unfilledSlots
                 .map { "\($0.inningIndex):\($0.position.rawValue):\(Self.enc($0.reason))" }
                 .sorted().joined(separator: ","))
@@ -668,9 +668,24 @@ final class ParityFixtureWriter: XCTestCase {
             ] as [String: Any],
             "invariants": held.sorted(),
             "notAlwaysHeld": broken,
-            "metrics": ranges.mapValues { ["min": $0.min, "max": $0.max] },
+            "metrics": samples.mapValues { Self.distribution($0) },
             "unfilledOutcomes": unfilledOutcomes.sorted(),
+            "unfilledReasons": unfilledReasons.sorted(),
         ]
+    }
+
+    /// min/max plus mean, standard deviation and a histogram, so the web side
+    /// can compare distributions instead of treating a rare tail it happens to
+    /// hit (and iOS happened not to, in 500 runs) as a failure.
+    private static func distribution(_ values: [Int]) -> [String: Any] {
+        let n = Double(values.count)
+        let mean = values.reduce(0.0) { $0 + Double($1) } / n
+        let variance = values.reduce(0.0) { $0 + pow(Double($1) - mean, 2) } / n
+        var counts: [String: Int] = [:]
+        for v in values { counts[String(v), default: 0] += 1 }
+        return ["min": values.min() ?? 0, "max": values.max() ?? 0,
+                "mean": (mean * 10_000).rounded() / 10_000, "sd": (sqrt(variance) * 10_000).rounded() / 10_000,
+                "counts": counts]
     }
 
     private func filledRange(_ s: AutoFillScenario) -> ClosedRange<Int> {

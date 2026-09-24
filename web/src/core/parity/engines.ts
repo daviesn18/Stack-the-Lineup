@@ -4,83 +4,24 @@
 // show those scenarios as pending rather than failing. When a port lands,
 // register it here and its fixtures start running.
 
+import * as fairPlay from '../fairPlay';
+import type { FairPlayFindings } from '../fairPlay';
+import { fill } from '../autofillEngine';
+import * as parser from '../autofillParser';
+import type {
+  AutoFillInput, AutoFillResult, AutoFillScope, ConstraintSet, ConstraintTarget, OverrideReason,
+  PlayerConstraint, UnfilledReason,
+} from '../autofillTypes';
+import * as pitching from '../pitching';
+import type { PitchEligibilityStatus, PitchingSummaryRow } from '../pitching';
 import type {
   FairPlayConfig, FieldPosition, GameLog, Lineup, PitchingConfig, Player, PlayerID,
 } from '../model';
 
-export interface FairPlayFindings {
-  withoutInfield: Player[];
-  withoutOutfield: Player[];
-  underFieldingMinimum: Player[];
-  backToBackBench: Player[];
-  catcherThenPitcher: Player[];
-  pitcherThenCatcher: Player[];
-  minimumFieldingInnings: number;
-}
-
-export type PitchEligibilityStatus =
-  | { kind: 'eligible' }
-  | { kind: 'limited'; remaining: number }
-  | { kind: 'mustRest'; until: Date }
-  | { kind: 'unknownAge' };
-
-export interface PitchingSummaryRow {
-  player: Player;
-  pitchesInWindow: number;
-  dailyMax: number;
-  available: number;
-  restDaysRequired: number;
-  status: PitchEligibilityStatus;
-}
-
-export type ConstraintTarget =
-  | { kind: 'position'; position: FieldPosition }
-  | { kind: 'infield' }
-  | { kind: 'outfield' }
-  | { kind: 'bench' };
-
-export interface PlayerConstraint {
-  playerID: PlayerID;
-  target: ConstraintTarget;
-  /** Zero-based, inclusive. */
-  inningRange: [number, number];
-  intent: 'assign' | 'avoid' | 'prioritize';
-}
-
-export interface ConstraintSet {
-  playerConstraints: PlayerConstraint[];
-  patternRules: { benchInConsecutivePairs: boolean };
-}
-
-export type UnfilledReason = 'rosterTooSmall' | 'neverPreferences' | 'pitcherReentry' | 'pitchCapacityLimited';
-export type OverrideReason =
-  | 'pitcherSoftCapBypassed'
-  | 'pitcherSoftCapBypassedByFallback'
-  | 'benchedOutOfTurn'
-  | 'fairPlayZoneSkipped.infield'
-  | 'fairPlayZoneSkipped.outfield';
-
-export interface AutoFillResult {
-  lineup: Lineup;
-  filledCount: number;
-  unfilledSlots: { inningIndex: number; position: FieldPosition; reason: UnfilledReason }[];
-  constraintOverrides: { inningIndex: number; playerID: PlayerID; reason: OverrideReason }[];
-  constraintRejections: { inningIndex: number; playerID: PlayerID; reason: string }[];
-}
-
-export type AutoFillScope = { kind: 'game' } | { kind: 'through'; inning: number } | { kind: 'inning'; inning: number };
-
-export interface AutoFillInput {
-  scope: AutoFillScope;
-  lineup: Lineup;
-  players: Player[];
-  config: FairPlayConfig;
-  pitchingConfig?: PitchingConfig;
-  gameLogs: GameLog[];
-  constraints: ConstraintSet;
-  /** iOS reads "today" internally; the port takes it explicitly. */
-  referenceDate: Date;
-}
+export type {
+  AutoFillInput, AutoFillResult, AutoFillScope, ConstraintSet, ConstraintTarget, FairPlayFindings,
+  OverrideReason, PitchEligibilityStatus, PitchingSummaryRow, PlayerConstraint, UnfilledReason,
+};
 
 export interface Engines {
   fairPlay?: {
@@ -114,5 +55,27 @@ export interface Engines {
   };
 }
 
-/** Registered ports. Empty until Web 7 lands each engine. */
-export const engines: Engines = {};
+/** Registered ports; groups not yet ported stay undefined. */
+export const engines: Engines = {
+  fairPlay: {
+    activeFieldPositions: fairPlay.activeFieldPositions,
+    openPositions: fairPlay.openPositions,
+    fairPlayFindings: fairPlay.fairPlayFindings,
+    backToBackBenchInnings: fairPlay.backToBackBenchInnings,
+  },
+  pitching: {
+    compute: pitching.compute,
+    status: pitching.status,
+    pitchingSummaryRows: pitching.pitchingSummaryRows,
+    coachesGuideSummary: pitching.coachesGuideSummary,
+    pitchesRemaining: pitching.pitchesRemaining,
+    startOfPitchingWeek: pitching.startOfPitchingWeek,
+  },
+  parser: {
+    parseDeterministically: (players, inningCount, prompt) =>
+      new parser.AutoFillParser(players, inningCount).parseDeterministically(prompt),
+    detectedPatternRules: parser.detectedPatternRules,
+    shouldTrustDeterministic: parser.shouldTrustDeterministic,
+  },
+  autofill: { fill },
+};
