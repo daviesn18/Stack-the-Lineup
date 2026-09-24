@@ -25,12 +25,17 @@ function Routes() {
       <Stack.Protected guard={signedIn}>
         <Stack.Screen name="index" />
         <Stack.Screen name="import" />
+        <Stack.Screen name="team/[id]" />
       </Stack.Protected>
       <Stack.Protected guard={!!session && mustSetPassword}>
         <Stack.Screen name="set-password" />
       </Stack.Protected>
       <Stack.Protected guard={!session}>
         <Stack.Screen name="sign-in" />
+      </Stack.Protected>
+      {/* Development-only preview on a made-up in-memory team (renders nothing in production). */}
+      <Stack.Protected guard={__DEV__}>
+        <Stack.Screen name="dev-grid" />
       </Stack.Protected>
     </Stack>
   );

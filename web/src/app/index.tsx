@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth, useIsPro } from '@/data/auth';
 import { supabase } from '@/data/supabase';
@@ -40,7 +40,8 @@ export default function Teams() {
       )}
 
       {teams?.map((t) => (
-        <Card key={t.id}>
+        <Pressable key={t.id} accessibilityRole="link" onPress={() => router.push({ pathname: '/team/[id]', params: { id: t.id } })}>
+        <Card>
           <View style={styles.teamRow}>
             <View style={[styles.swatch, { backgroundColor: `#${t.colorHex}` }]} />
             <View style={{ flex: 1 }}>
@@ -49,6 +50,7 @@ export default function Teams() {
             </View>
           </View>
         </Card>
+        </Pressable>
       ))}
 
       <Button title="Import a team from iPhone" kind={teams?.length ? 'secondary' : 'primary'} onPress={() => router.push('/import')} />

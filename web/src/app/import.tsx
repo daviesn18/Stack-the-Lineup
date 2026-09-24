@@ -37,7 +37,7 @@ export default function Import() {
     setBusy(true); setError(null);
     const outcome = await importTeam(preview.payload, mode);
     setBusy(false);
-    if (outcome.ok) router.replace('/');
+    if (outcome.ok) router.replace({ pathname: '/team/[id]', params: { id: outcome.teamId } });
     else if (outcome.reason === 'error') setError(outcome.message);
     else setConflict(outcome.reason);
   }

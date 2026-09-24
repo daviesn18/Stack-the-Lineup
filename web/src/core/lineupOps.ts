@@ -1,0 +1,132 @@
+// Lineup edits, as pure functions returning a new Lineup. Mirrors the
+// LineupStore operations in Models.swift so the web grid behaves like the app:
+//
+//  * assign: taking a position that someone else holds that inning removes
+//    them from it (they're left unassigned, not swapped). Bench and ABS are
+//    shared and never evict.
+//  * every edit to a finalized lineup quietly returns it to draft
+//    (revertToDraftIfFinalized).
+//  * marking a player absent drops them from the batting order and every
+//    inning; marking them back appends them to the bottom of the order.
+
+import { displayName, isNonFielding, type FieldPosition, type Lineup, type Player, type PlayerID } from './model';
+
+const withInnings = (l: Lineup, innings: Lineup['innings']): Lineup => ({ ...l, innings });
+
+/** Clears the finalized stamp only when the lineup was finalized. */
+export function revertToDraft(l: Lineup): Lineup {
+  if (l.status !== 'finalized') return l;
+  const { lastFinalizedBy: _by, lastFinalizedAt: _at, ...rest } = l;
+  return { ...rest, status: 'draft' };
+}
+
+export function assign(l: Lineup, playerID: PlayerID, innings: number[], position: FieldPosition): Lineup {
+  const next = l.innings.map((inn, i) => {
+    if (!innings.includes(i)) return inn;
+    const a = { ...inn.assignments };
+    if (!isNonFielding(position)) {
+      for (const [id, pos] of Object.entries(a)) if (pos === position && id !== playerID) delete a[id];
+    }
+    a[playerID] = position;
+    return { assignments: a };
+  });
+  return revertToDraft(withInnings(l, next));
+}
+
+export function unassign(l: Lineup, playerID: PlayerID, innings: number[]): Lineup {
+  const next = l.innings.map((inn, i) => {
+    if (!innings.includes(i) || !(playerID in inn.assignments)) return inn;
+    const { [playerID]: _gone, ...rest } = inn.assignments;
+    return { assignments: rest };
+  });
+  return revertToDraft(withInnings(l, next));
+}
+
+/** Empties every inning (iOS clearPositions); keeps date, opponent, order, absences. */
+export function clearPositions(l: Lineup, inningCount = l.innings.length): Lineup {
+  const { defaultTemplateID: _t, ...rest } = revertToDraft(l);
+  return { ...rest, innings: Array.from({ length: inningCount }, () => ({ assignments: {} })) };
+}
+
+export function toggleAbsent(l: Lineup, playerID: PlayerID): Lineup {
+  const base = revertToDraft(l);
+  if (base.absentPlayerIDs.includes(playerID)) {
+    return {
+      ...base,
+      absentPlayerIDs: base.absentPlayerIDs.filter((id) => id !== playerID),
+      battingOrder: base.battingOrder.includes(playerID) ? base.battingOrder : [...base.battingOrder, playerID],
+    };
+  }
+  return {
+    ...base,
+    absentPlayerIDs: [...base.absentPlayerIDs, playerID],
+    battingOrder: base.battingOrder.filter((id) => id !== playerID),
+    innings: base.innings.map((inn) => {
+      if (!(playerID in inn.assignments)) return inn;
+      const { [playerID]: _gone, ...rest } = inn.assignments;
+      return { assignments: rest };
+    }),
+  };
+}
+
+/** Moves one batter to `to` (0-based index in the batting order). */
+export function moveBatter(l: Lineup, playerID: PlayerID, to: number): Lineup {
+  const order = l.battingOrder.filter((id) => id !== playerID);
+  const at = Math.max(0, Math.min(to, order.length));
+  order.splice(at, 0, playerID);
+  return revertToDraft({ ...l, battingOrder: order });
+}
+
+export const addToBattingOrder = (l: Lineup, playerID: PlayerID): Lineup =>
+  l.battingOrder.includes(playerID) ? l : { ...l, battingOrder: [...l.battingOrder, playerID] };
+
+/** Removes a deleted player from the order and every inning (iOS deletePlayer). */
+export function removePlayer(l: Lineup, playerID: PlayerID): Lineup {
+  return {
+    ...l,
+    battingOrder: l.battingOrder.filter((id) => id !== playerID),
+    absentPlayerIDs: l.absentPlayerIDs.filter((id) => id !== playerID),
+    innings: l.innings.map((inn) => {
+      if (!(playerID in inn.assignments)) return inn;
+      const { [playerID]: _gone, ...rest } = inn.assignments;
+      return { assignments: rest };
+    }),
+  };
+}
+
+export function finalize(l: Lineup, coachName: string, now = new Date()): Lineup {
+  const by = coachName.trim();
+  return { ...l, status: 'finalized', lastFinalizedAt: now, ...(by ? { lastFinalizedBy: by } : {}) };
+}
+
+/** iOS reopenLineup: back to draft, keeping who finalized it last. */
+export const reopen = (l: Lineup): Lineup => ({ ...l, status: 'draft' });
+
+/** Active players in batting order, or in roster order until an order exists (iOS displayPlayers). */
+export function displayPlayers(l: Lineup, players: Player[]): Player[] {
+  const absent = new Set(l.absentPlayerIDs);
+  const active = players.filter((p) => !absent.has(p.id));
+  const byId = new Map(active.map((p) => [p.id, p]));
+  const ordered = l.battingOrder.map((id) => byId.get(id)).filter((p): p is Player => !!p);
+  return ordered.length ? ordered : active;
+}
+
+/** Innings whose assignments differ between two lineups (what needs saving). */
+export function changedInnings(before: Lineup, after: Lineup): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < after.innings.length; i++) {
+    const a = before.innings[i]?.assignments ?? {};
+    const b = after.innings[i].assignments;
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const k of keys) if (a[k] !== b[k]) { out.push(i); break; }
+  }
+  return out;
+}
+
+/** "Jake R." — iOS Player.shortName. */
+export function shortName(p: Pick<Player, 'firstName' | 'lastName'>): string {
+  const initial = p.lastName.charAt(0);
+  return initial ? `${p.firstName} ${initial}.` : p.firstName;
+}
+
+export { displayName };
