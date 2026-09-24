@@ -46,7 +46,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "jest",
+    "test": "TZ=America/Los_Angeles jest",
     "build:web": "expo export -p web",
     "test:db": "node --test --test-reporter=spec \"supabase/tests/*.test.mjs\""
   },
