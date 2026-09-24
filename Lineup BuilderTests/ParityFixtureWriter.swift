@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import Lineup_Builder
 
@@ -479,6 +480,63 @@ final class ParityFixtureWriter: XCTestCase {
             "cases": cases.map { var c = $0; if c["roster"] == nil { c["roster"] = "demo" }; return c },
             "benchPairingConfirmationMessage": AutoFillNLConstraintService.benchPairingConfirmationMessage,
         ])
+    }
+
+    // MARK: - 5. Printouts (visual reference)
+    //
+    // The real PDFGenerator output for a fixed made-up lineup, plus the exact
+    // inputs, so the web printouts can be rendered from the same data and
+    // compared page for page (web/scripts/compare-print.ts).
+
+    func testWritePrintSamples() throws {
+        let roster = Self.demoRoster()
+        var lineup = Self.emptyLineup(roster)
+        lineup.gameDate = Self.date(2026, 9, 27, 17)
+        lineup.opponent = "Opponent A"
+        lineup.absentPlayerIDs = [roster[9].id]
+        lineup.battingOrder.removeAll { $0 == roster[9].id }
+        let nine = FieldPosition.fieldPositions.filter { $0 != .leftCenterField && $0 != .rightCenterField }
+        let active = roster.filter { $0.id != roster[9].id }
+        for i in 0..<6 {
+            for (k, p) in active.enumerated() {
+                let slot = (k + i * 2) % active.count
+                lineup.innings[i].assign(player: p, position: slot < nine.count ? nine[slot] : .bench)
+            }
+        }
+        lineup.innings[5].assign(player: active[0], position: .absent)
+
+        var pitching = PitchingConfig(rulesEnabled: true); pitching.applyLittleLeaguePreset()
+        pitching.weeklyLimitEnabled = true; pitching.weeklyLimit = 100
+        let logs = [
+            GameLog(id: Self.pid(801), gameDate: Self.date(2026, 9, 24), opponent: "Opponent B", inningsPlayed: 6,
+                    battingOrder: [], innings: [], playerSnapshot: [], archivedAt: Self.date(2026, 9, 24),
+                    pitchCounts: [roster[0].id.uuidString: 70, roster[6].id.uuidString: 30]),
+            GameLog(id: Self.pid(802), gameDate: Self.date(2026, 9, 26), opponent: "Opponent C", inningsPlayed: 6,
+                    battingOrder: [], innings: [], playerSnapshot: [], archivedAt: Self.date(2026, 9, 26),
+                    pitchCounts: [roster[3].id.uuidString: 45, roster[1].id.uuidString: 20]),
+        ]
+        let teamName = "Demo Tigers"
+        let colorHex = "E4572E"
+        let color = Color(red: 0xE4 / 255.0, green: 0x57 / 255.0, blue: 0x2E / 255.0)
+
+        let dir = outputDirectory.deletingLastPathComponent().appendingPathComponent("print", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for type in [PDFType.battingOrder, .coachesGuide] {
+            let pdf = PDFGenerator.generate(type: type, lineup: lineup, players: roster, teamName: teamName,
+                                            teamColor: color, gameLogs: logs, pitchingConfig: pitching)
+            let name = type == .battingOrder ? "ios-batting-order.pdf" : "ios-coaches-guide.pdf"
+            try pdf.data.write(to: dir.appendingPathComponent(name))
+        }
+        var doc: [String: Any] = [
+            "teamName": teamName, "teamColorHex": colorHex, "players": roster.map { Self.enc($0) },
+            "lineup": Self.enc(lineup), "gameLogs": logs.map { Self.enc($0) }, "pitchingConfig": Self.enc(pitching),
+            "generatedBy": "Lineup BuilderTests/ParityFixtureWriter.swift", "timeZone": Self.timeZoneID,
+        ]
+        doc["note"] = "Inputs for ios-*.pdf. Made-up names."
+        var data = try JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys])
+        data.append(0x0A)
+        try data.write(to: dir.appendingPathComponent("print-input.json"))
+        print("PARITY wrote print samples to \(dir.path)")
     }
 
     // MARK: - 4. Auto-Fill (rules)

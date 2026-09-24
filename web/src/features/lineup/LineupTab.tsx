@@ -12,6 +12,8 @@ import type { FieldPosition, GameLog, Lineup, Player } from '@/core/model';
 import { blocksAssignment, status as pitchStatus } from '@/core/pitching';
 import { useIsPro } from '@/data/auth';
 import { useTeam, type TeamInfo } from '@/data/teamStore';
+import { battingOrderPdf, coachesGuidePdf, pdfFilename } from '@/print/lineupPdf';
+import { openPdfTab } from '@/print/openPdf';
 import { DateField } from '@/ui/DateField';
 import { Body, Button, Card, Field, Notice, usePalette } from '@/ui/kit';
 
@@ -30,6 +32,7 @@ export function LineupTab() {
   const [prompt, setPrompt] = useState('');
   const [fillResult, setFillResult] = useState<{ outcome: AutoFillOutcome; before: Lineup } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
 
   const { team, players, lineup, gameLogs } = data!;
   const config = team.fairPlayConfig;
@@ -88,6 +91,17 @@ export function LineupTab() {
     });
     if (outcome.filledCount > 0) editLineup(() => outcome.lineup);
     setFillResult({ outcome, before });
+  };
+
+  const print = (kind: 'battingOrder' | 'coachesGuide') => {
+    setPrintError(null);
+    const show = openPdfTab();   // must happen in the click, before any await
+    const input = {
+      lineup, players, gameLogs, teamName: team.name, teamColorHex: team.colorHex, pitchingConfig: team.pitchingConfig,
+    };
+    (kind === 'battingOrder' ? battingOrderPdf(input) : coachesGuidePdf(input))
+      .then((bytes) => show(bytes, pdfFilename(kind, lineup.gameDate)))
+      .catch((e: Error) => setPrintError(`Couldn't make the printout: ${e.message}`));
   };
 
   const warnings = useMemo(() => buildWarnings(lineup, players, team, gameLogs), [lineup, players, team, gameLogs]);
@@ -231,6 +245,19 @@ export function LineupTab() {
       </Card>
 
       <Card>
+        <Text style={[styles.cardTitle, { color: c.ink }]}>Print</Text>
+        <View style={styles.buttonRow}>
+          <Button title="Batting order" onPress={() => print('battingOrder')} />
+          <Button title="Coaches guide" onPress={() => print('coachesGuide')} />
+        </View>
+        <Body muted>Opens a PDF (US Letter) in a new tab, ready to print or save.</Body>
+        {openCount(lineup, players, config) > 0 && (
+          <Notice kind="warn">{openCount(lineup, players, config)} field {openCount(lineup, players, config) === 1 ? 'spot is' : 'spots are'} still open. They print as blanks.</Notice>
+        )}
+        {printError && <Notice kind="error">{printError}</Notice>}
+      </Card>
+
+      <Card>
         <Text style={[styles.cardTitle, { color: c.ink }]}>Batting order</Text>
         {rows.map((p, i) => (
           <View key={p.id} style={styles.batter}>
@@ -284,6 +311,10 @@ function SmallButton({ label, onPress, disabled }: { label: string; onPress: () 
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+/** Open field spots across all innings. */
+const openCount = (lineup: Lineup, players: Player[], config: TeamInfo['fairPlayConfig']) =>
+  lineup.innings.reduce((n, _, i) => n + openPositions(lineup, i, players, config).length, 0);
 
 /** The grid's warnings: fair-play rules, plus pitchers who must rest on game day. */
 function buildWarnings(lineup: Lineup, players: Player[], team: TeamInfo, gameLogs: GameLog[]): string[] {
