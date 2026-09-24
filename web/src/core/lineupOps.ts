@@ -130,3 +130,46 @@ export function shortName(p: Pick<Player, 'firstName' | 'lastName'>): string {
 }
 
 export { displayName };
+
+// MARK: - Web grid (design handoff): assign with swap
+
+/**
+ * The web grid's core edit: put a player at `position` (a field spot, Bench,
+ * or null for unassigned) in one inning. If someone else holds that field
+ * spot, they SWAP into the player's old spot (or go to Bench if the player had
+ * none). iOS `assign` evicts instead; the web picker, menu and drag and drop
+ * all use this.
+ */
+export function place(l: Lineup, playerID: PlayerID, inning: number, position: FieldPosition | null): Lineup {
+  const next = l.innings.map((inn, i) => {
+    if (i !== inning) return inn;
+    const a = { ...inn.assignments };
+    const prev = a[playerID];
+    if (position && !isNonFielding(position)) {
+      const holder = Object.keys(a).find((id) => id !== playerID && a[id] === position);
+      if (holder) a[holder] = prev && prev !== 'ABS' ? prev : 'Bench';
+    }
+    if (position) a[playerID] = position;
+    else delete a[playerID];
+    return { assignments: a };
+  });
+  return revertToDraft(withInnings(l, next));
+}
+
+/** "Keep here for remaining innings": the player's spot in `inning`, repeated (with swaps) to the end. */
+export function keepForRemaining(l: Lineup, playerID: PlayerID, inning: number): Lineup {
+  const position = l.innings[inning]?.assignments[playerID] ?? null;
+  let out = l;
+  for (let i = inning + 1; i < l.innings.length; i++) out = place(out, playerID, i, position);
+  return out;
+}
+
+/** Back from absent: into the batting order (bottom) and on Bench wherever they have no spot. */
+export function restoreAbsent(l: Lineup, playerID: PlayerID): Lineup {
+  const back = l.absentPlayerIDs.includes(playerID) ? toggleAbsent(l, playerID) : l;
+  return {
+    ...back,
+    innings: back.innings.map((inn) =>
+      playerID in inn.assignments ? inn : { assignments: { ...inn.assignments, [playerID]: 'Bench' as FieldPosition } }),
+  };
+}

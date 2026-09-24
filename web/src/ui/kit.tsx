@@ -1,6 +1,6 @@
-// Small shared UI kit for the web pilot: colors, a centered page, text, buttons,
-// fields and notices. Plain React Native components so the same code runs on
-// Android later.
+// Small shared UI kit for the web pilot's simple pages (sign-in, team list,
+// import): iOS system colors, a centered page, text, buttons, fields and
+// notices. Plain React Native components so the same code runs on Android later.
 
 import type { ReactNode } from 'react';
 import {
@@ -9,14 +9,14 @@ import {
 } from 'react-native';
 
 const light = {
-  ground: '#F4F6F5', surface: '#FFFFFF', ink: '#14202B', muted: '#5A6672', line: '#DCE2DF',
-  accent: '#1D6B47', accentInk: '#FFFFFF', accentSoft: '#E2EFE8',
-  warn: '#8A5A0F', warnSoft: '#FBF0DC', danger: '#A3322A', dangerSoft: '#FBE7E5',
+  ground: '#F2F2F7', surface: '#FFFFFF', ink: '#000000', muted: 'rgba(60,60,67,0.6)', line: '#E5E5EA',
+  accent: '#007AFF', accentInk: '#FFFFFF', accentSoft: 'rgba(0,122,255,0.12)',
+  warn: '#C93400', warnSoft: 'rgba(255,149,0,0.12)', danger: '#FF3B30', dangerSoft: 'rgba(255,59,48,0.09)',
 };
 const dark: typeof light = {
-  ground: '#0F1519', surface: '#172027', ink: '#E5ECE9', muted: '#9AA7A1', line: '#28343B',
-  accent: '#5CC08F', accentInk: '#0B1A12', accentSoft: '#173024',
-  warn: '#E4AE55', warnSoft: '#2F2513', danger: '#EF8A80', dangerSoft: '#3A1D1A',
+  ground: '#000000', surface: '#1C1C1E', ink: '#FFFFFF', muted: 'rgba(235,235,245,0.6)', line: '#38383A',
+  accent: '#0A84FF', accentInk: '#FFFFFF', accentSoft: 'rgba(10,132,255,0.18)',
+  warn: '#FF9F0A', warnSoft: 'rgba(255,159,10,0.16)', danger: '#FF453A', dangerSoft: 'rgba(255,69,58,0.16)',
 };
 export type Palette = typeof light;
 export const usePalette = (): Palette => (useColorScheme() === 'dark' ? dark : light);
