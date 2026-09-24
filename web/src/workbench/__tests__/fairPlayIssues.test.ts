@@ -21,7 +21,7 @@ describe('fairPlayIssues', () => {
     const issues = fairPlayIssues({ ...input, lineup });
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ title: 'Positions not filled', severity: 'red', inning: 0 });
-    expect(issues[0].detail).toBe('6 open spots in innings 1, 3, 4, 5, 6, 7');
+    expect(issues[0].detail).toBe('6 open in innings 1, 3, 4, 5, 6, 7');
   });
 
   it('flags back-to-back bench and a Never position', () => {
@@ -31,10 +31,10 @@ describe('fairPlayIssues', () => {
     let lineup = place(d.lineup, eli.id, 0, 'SS');
     const issues = fairPlayIssues({ ...input, lineup });
     expect(issues.map((i) => i.title)).toEqual(['Back-to-back bench']);
-    expect(issues[0].detail).toBe('Nate C. in innings 1 and 2');
+    expect(issues[0].detail).toBe('Nate C., innings 1-2');
     // Tyler is Never at RF.
     lineup = place(d.lineup, byFirst(d, 'Tyler').id, 2, 'RF');
-    expect(fairPlayIssues({ ...input, lineup }).find((i) => i.title === 'Never position assigned')).toMatchObject({ severity: 'orange', inning: 2, detail: 'Tyler N. at RF, inning 3' });
+    expect(fairPlayIssues({ ...input, lineup }).find((i) => i.title === 'Never position')).toMatchObject({ severity: 'orange', inning: 2, detail: 'Tyler N. at RF, inning 3' });
   });
 
   it('flags a pitcher the pitch-count rules say must rest', () => {

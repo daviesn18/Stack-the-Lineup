@@ -4,7 +4,7 @@
 import type { CSSProperties } from 'react';
 
 import {
-  Archive, ArrowRight, Calendar, CalendarPlus, ChevronDown, ChevronRight, CircleMinus, CirclePlus, Diamond,
+  Archive, ArrowRight, Calendar, CalendarPlus, ChevronDown, ChevronRight, CircleCheck, CircleMinus, CirclePlus, Diamond,
   FileText, GripVertical, History, Info, ListOrdered, Settings, Share, ShieldCheck, TriangleAlert, UserPlus, Users, Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -20,6 +20,8 @@ const MAP: Record<string, LucideIcon> = {
   'gearshape.fill': Settings,
   gearshape: Settings,
   'plus.circle.fill': CirclePlus,
+  'plus.circle': CirclePlus,
+  'checkmark.circle.fill': CircleCheck,
   'minus.circle.fill': CircleMinus,
   'person.badge.plus': UserPlus,
   'chevron.down': ChevronDown,
@@ -35,7 +37,7 @@ const MAP: Record<string, LucideIcon> = {
   grip: GripVertical,
 };
 
-const FILLED = new Set(['plus.circle.fill', 'minus.circle.fill', 'checkmark.shield.fill', 'exclamationmark.triangle.fill', 'bolt.fill']);
+const FILLED = new Set(['checkmark.circle.fill', 'plus.circle.fill', 'minus.circle.fill', 'checkmark.shield.fill', 'exclamationmark.triangle.fill', 'bolt.fill']);
 
 export function Icon({ name, size = 18, color = 'currentColor', style }: { name: string; size?: number; color?: string; style?: CSSProperties }) {
   const Glyph = MAP[name] ?? Info;

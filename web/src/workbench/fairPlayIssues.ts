@@ -19,8 +19,11 @@ export interface FairPlayIssue {
   title: string;
   detail: string;
   severity: Severity;
-  /** 0-based inning to open in By Inning when the card is clicked. */
+  /** 0-based inning to open in the Field view when the chip is clicked. */
   inning: number;
+  /** Back-to-back bench only: who, and the 0-based innings involved. */
+  pid?: string;
+  cells?: number[];
 }
 
 export interface IssueInput {
@@ -48,9 +51,9 @@ export function fairPlayIssues({ lineup, players, config, pitchingConfig, gameLo
     const innings = [...new Set(open.map((o) => o.i + 1))];
     out.push({
       key: 'open', title: 'Positions not filled', severity: 'red', inning: open[0].i,
-      detail: open.length <= 3
-        ? open.map((o) => `${o.pos} (Inning ${o.i + 1})`).join(', ')
-        : `${open.length} open spots in innings ${innings.join(', ')}`,
+      detail: open.length <= 2
+        ? open.map((o) => `${o.pos} in inning ${o.i + 1}`).join(', ')
+        : `${open.length} open in innings ${innings.join(', ')}`,
     });
   }
 
@@ -74,8 +77,12 @@ export function fairPlayIssues({ lineup, players, config, pitchingConfig, gameLo
 
   // 3. Back-to-back bench (the team's rule).
   for (const p of f.backToBackBench) {
-    const [a, b] = backToBackBenchInnings(lineup, p)[0];
-    out.push({ key: `b2b-${p.id}`, title: 'Back-to-back bench', detail: `${shortName(p)} in innings ${a} and ${b}`, severity: 'red', inning: a - 1 });
+    const pairs = backToBackBenchInnings(lineup, p);
+    const [a, b] = pairs[0];
+    out.push({
+      key: `b2b-${p.id}`, title: 'Back-to-back bench', detail: `${shortName(p)}, innings ${a}-${b}`, severity: 'red', inning: a - 1,
+      pid: p.id, cells: [...new Set(pairs.flat().map((n) => n - 1))],
+    });
   }
 
   // 4. Infield / outfield minimums, once a player has enough innings to judge.
@@ -103,7 +110,7 @@ export function fairPlayIssues({ lineup, players, config, pitchingConfig, gameLo
     lineup.innings.forEach((inn, i) => {
       const x = inn.assignments[p.id];
       if (x && p.positionPreferences[x] === 'Never') {
-        out.push({ key: `never-${p.id}-${i}`, title: 'Never position assigned', detail: `${shortName(p)} at ${x}, inning ${i + 1}`, severity: 'orange', inning: i });
+        out.push({ key: `never-${p.id}-${i}`, title: 'Never position', detail: `${shortName(p)} at ${x}, inning ${i + 1}`, severity: 'orange', inning: i });
       }
     });
   }

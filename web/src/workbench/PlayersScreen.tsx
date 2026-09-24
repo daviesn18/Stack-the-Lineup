@@ -12,7 +12,8 @@ import { Icon } from './Icon';
 import { parseRosterList } from './rosterList';
 import { useWorkbench } from './state';
 import { avatarStyle, C, TIER_STYLE } from './theme';
-import { card, Modal, PillButton, TextField, Title } from './ui';
+import { PageHeader, PrimaryButton } from './Shell';
+import { card, Modal, PillButton, TextField } from './ui';
 
 export function PlayersScreen({ demo }: { demo?: boolean }) {
   const w = useWorkbench();
@@ -22,9 +23,12 @@ export function PlayersScreen({ demo }: { demo?: boolean }) {
   const [pasteOpen, setPasteOpen] = useState(false);
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '22px 28px 36px' }}>
-        <Title>Players</Title>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: C.grouped }}>
+      <PageHeader right={<PrimaryButton icon="person.badge.plus" onClick={() => w.setPlayerModal({ id: 'new' })}>Add player</PrimaryButton>}>
+        <span style={{ fontSize: 15, fontWeight: 600 }}>Roster</span>
+      </PageHeader>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 24px 36px' }}>
 
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px' }}>
@@ -75,6 +79,7 @@ export function PlayersScreen({ demo }: { demo?: boolean }) {
           {w.players.map((p, i) => <PlayerRow key={p.id} p={p} first={i === 0} />)}
           {w.players.length === 0 && <div style={{ padding: 16, color: C.label2 }}>No players yet. Add them above.</div>}
         </div>
+      </div>
       </div>
       {pasteOpen && <PasteList onClose={() => setPasteOpen(false)} />}
     </div>

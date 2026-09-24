@@ -135,7 +135,7 @@ function Toast() {
   const t = w.toast!;
   return (
     <div key={t.id} role="status" className="toast"
-      style={{ position: 'fixed', left: '50%', bottom: 66, transform: 'translateX(-50%)', zIndex: 50, background: '#000', color: '#fff', borderRadius: 999, padding: '10px 18px', fontSize: 14, fontWeight: 500, display: 'flex', gap: 16, alignItems: 'center', boxShadow: '0 8px 24px rgba(0,0,0,0.2)', whiteSpace: 'nowrap' }}>
+      style={{ position: 'fixed', left: '50%', bottom: 84, transform: 'translateX(-50%)', zIndex: 50, background: '#000', color: '#fff', borderRadius: 999, padding: '10px 18px', fontSize: 14, fontWeight: 500, display: 'flex', gap: 16, alignItems: 'center', boxShadow: '0 8px 24px rgba(0,0,0,0.2)', whiteSpace: 'nowrap' }}>
       {t.text}
       {t.before && <button onClick={w.undo} style={{ color: C.yellow, fontWeight: 600 }}>Undo</button>}
     </div>

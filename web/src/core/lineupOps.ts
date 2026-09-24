@@ -239,3 +239,18 @@ export function dropPositions(l: Lineup, positions: FieldPosition[]): Lineup {
   });
   return changed ? revertToDraft(withInnings(l, innings)) : l;
 }
+
+/**
+ * Takes everyone on the Bench in `innings` off it (unassigned), so Auto-Fill
+ * can use them. The engine never moves a benched player, so without this an
+ * absence leaves open spots it can't fill. Returns `l` when nothing changed.
+ */
+export function unbench(l: Lineup, innings: number[]): Lineup {
+  let changed = false;
+  const next = l.innings.map((inn, i) => {
+    if (!innings.includes(i) || !Object.values(inn.assignments).includes('Bench')) return inn;
+    changed = true;
+    return { assignments: Object.fromEntries(Object.entries(inn.assignments).filter(([, p]) => p !== 'Bench')) };
+  });
+  return changed ? withInnings(l, next) : l;
+}

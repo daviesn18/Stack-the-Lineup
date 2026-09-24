@@ -1,19 +1,9 @@
-// Small shared pieces for the web workbench: large title, segmented control,
+// Small shared pieces for the web workbench: segmented control,
 // iOS switch, modal sheet and form fields, styled to the handoff tokens.
 
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 
 import { C } from './theme';
-
-export function Title({ children, hint, right }: { children: ReactNode; hint?: string; right?: ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 16 }}>
-      <h1 style={{ margin: 0, fontSize: 34, lineHeight: '41px', fontWeight: 700, letterSpacing: 0.37 }}>{children}</h1>
-      {hint && <span style={{ marginLeft: 'auto', fontSize: 13, color: C.label2, paddingBottom: 6 }}>{hint}</span>}
-      {right && <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>{right}</div>}
-    </div>
-  );
-}
 
 export function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange(v: T): void; options: [T, string][] }) {
   return (

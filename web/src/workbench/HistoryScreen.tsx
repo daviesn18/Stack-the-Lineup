@@ -9,7 +9,8 @@ import { isInfield, isOutfield, type FieldPosition, type GameLog, type Player } 
 import { Icon } from './Icon';
 import { useWorkbench } from './state';
 import { C, TIER_STYLE } from './theme';
-import { card, Segmented, Title } from './ui';
+import { PageHeader } from './Shell';
+import { card, Segmented } from './ui';
 
 /** The innings actually played in an archived game. */
 const playedInnings = (g: GameLog) => g.innings.slice(0, g.inningsPlayed || g.innings.length);
@@ -37,9 +38,10 @@ export function HistoryScreen() {
   const totals = useMemo(() => seasonTotals(w.players, w.gameLogs), [w.players, w.gameLogs]);
   const empty = w.gameLogs.length === 0;
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '22px 28px 36px' }}>
-        <Title>History</Title>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: C.grouped }}>
+      <PageHeader><span style={{ fontSize: 15, fontWeight: 600 }}>Season stats</span></PageHeader>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 24px 36px' }}>
         <Segmented value={w.histView} onChange={w.setHistView} options={[['players', 'Players'], ['games', 'Games'], ['team', 'Team']]} />
         {empty ? (
           <div style={{ ...card, marginTop: 20, padding: '18px 16px', fontSize: 15, color: C.label2, lineHeight: '21px' }}>
@@ -52,6 +54,7 @@ export function HistoryScreen() {
             {w.histView === 'players' && <PlayersView totals={totals} />}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

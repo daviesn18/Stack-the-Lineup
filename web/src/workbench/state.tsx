@@ -7,15 +7,18 @@ import {
   createContext, useCallback, useContext, useMemo, useRef, useState, type DragEvent, type ReactNode,
 } from 'react';
 
-import { activeFieldPositions } from '@/core/fairPlay';
-import { displayPlayers, gridNames, moveBatter, place } from '@/core/lineupOps';
+import { runAutoFill, type AutoFillOutcome } from '@/core/autofillCoordinator';
+import { activeFieldPositions, activePlayers, openPositions } from '@/core/fairPlay';
+import { displayPlayers, gridNames, moveBatter, place, unbench } from '@/core/lineupOps';
 import type { FieldPosition, Lineup, Player } from '@/core/model';
 import { useTeam, type TeamData } from '@/data/teamStore';
 
 import { fairPlayIssues, type FairPlayIssue } from './fairPlayIssues';
 
-export type Screen = 'players' | 'lineup' | 'positions' | 'history';
-export type PosView = 'position' | 'inning' | 'pitching';
+export type Screen = 'home' | 'game' | 'roster' | 'stats';
+/** Game prep: 1 Attendance, 2 Batting order, 3 Defense, 4 Review. */
+export type Step = 1 | 2 | 3 | 4;
+export type DefView = 'field' | 'grid' | 'pitching';
 export type HistView = 'players' | 'games' | 'team';
 
 export interface PickerState { inning: number; pos: FieldPosition; x: number; y: number }
@@ -38,11 +41,19 @@ export interface Workbench extends TeamData {
   posOf(pid: string, inning: number): FieldPosition | undefined;
 
   screen: Screen; go(screen: Screen): void;
-  posView: PosView; setPosView(v: PosView): void;
+  step: Step; goStep(step: Step): void;
+  defView: DefView; setDefView(v: DefView): void;
   histView: HistView; setHistView(v: HistView): void;
   inning: number; setInning(i: number): void;
-  /** Positions › By Inning at `inning`. */
+  /** Game › Defense › Field at `inning`. */
   showInning(inning: number): void;
+
+  /** Optional Auto-Fill instructions (one per line). */
+  prompt: string; setPrompt(p: string): void;
+  /** Fills every open spot in every inning; toasts with Undo. */
+  autoFill(): void;
+  /** The last Auto-Fill's notes (couldn't fill, or instructions it skipped). */
+  fillNotes: AutoFillOutcome | null; clearFillNotes(): void;
 
   picker: PickerState | null;
   openPicker(anchor: Element, inning: number, pos: FieldPosition): void;
@@ -76,9 +87,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const { data, editLineup } = useTeam();
   const { team, players, lineup, gameLogs } = data!;
 
-  const [screen, setScreen] = useState<Screen>('positions');
-  const [posView, setPosView] = useState<PosView>('position');
+  const [screen, setScreen] = useState<Screen>('home');
+  const [step, setStep] = useState<Step>(1);
+  const [defView, setDefView] = useState<DefView>('field');
   const [histView, setHistView] = useState<HistView>('team');
+  const [prompt, setPrompt] = useState('');
+  const [fillNotes, setFillNotes] = useState<AutoFillOutcome | null>(null);
   const [inning, setInningRaw] = useState(0);
   const [picker, setPicker] = useState<PickerState | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -131,8 +145,26 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     posOf: (pid, i) => lineup.innings[i]?.assignments[pid],
 
     screen, go: (s) => { closeOverlays(); setScreen(s); },
-    posView, setPosView, histView, setHistView, inning, setInning,
-    showInning: (i) => { closeOverlays(); setScreen('positions'); setPosView('inning'); setInning(i); },
+    step, goStep: (n) => { closeOverlays(); setScreen('game'); setStep(n); },
+    defView, setDefView: (v) => { closeOverlays(); setDefView(v); },
+    histView, setHistView, inning, setInning,
+    showInning: (i) => { closeOverlays(); setScreen('game'); setStep(3); setDefView('field'); setInning(i); },
+
+    prompt, setPrompt,
+    autoFill: () => {
+      closeOverlays();
+      // Innings with open spots put their bench back in play, so Auto-Fill can rebalance around an absence.
+      const short = lineup.innings.map((_, i) => i).filter((i) => openPositions(lineup, i, players, team.fairPlayConfig).length > 0);
+      const outcome = runAutoFill({
+        scope: { kind: 'through', inning: lineup.innings.length - 1 }, prompt,
+        lineup: unbench(lineup, short), players, config: team.fairPlayConfig, pitchingConfig: team.pitchingConfig, gameLogs,
+      });
+      setFillNotes(outcome.incompleteMessage || outcome.noticeMessage ? outcome : null);
+      if (outcome.filledCount === 0) { showToast('Nothing to fill: every spot is already set'); return; }
+      const n = activePlayers(lineup, players).length;
+      edit(() => outcome.lineup, `Filled ${lineup.innings.length} innings for ${n} players`);
+    },
+    fillNotes, clearFillNotes: () => setFillNotes(null),
 
     picker,
     openPicker: (anchor, i, pos) => {

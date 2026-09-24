@@ -1,4 +1,4 @@
-import { dropPositions, lastAssignedInning, resizeInnings } from '../lineupOps';
+import { dropPositions, lastAssignedInning, resizeInnings, unbench } from '../lineupOps';
 import { emptyLineup, type Lineup } from '../model';
 
 const lineup = (): Lineup => {
@@ -47,5 +47,17 @@ describe('dropPositions', () => {
     const l = lineup();
     expect(dropPositions(l, ['C'])).toBe(l);
     expect(dropPositions(l, [])).toBe(l);
+  });
+});
+
+describe('unbench', () => {
+  it('unassigns benched players in the given innings only', () => {
+    const l = unbench(lineup(), [6]);
+    expect(l.innings[6].assignments).toEqual({ A: 'RCF' });
+    expect(l.innings[0].assignments).toEqual({ A: 'LCF', B: 'SS' });
+  });
+  it('returns the same lineup when nobody is benched there', () => {
+    const l = lineup();
+    expect(unbench(l, [0, 3])).toBe(l);
   });
 });

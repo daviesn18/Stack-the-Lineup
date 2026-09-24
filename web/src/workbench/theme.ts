@@ -48,9 +48,10 @@ export const CSS = `
 .stl input, .stl textarea, .stl select { font: inherit; color: inherit; }
 .stl :focus-visible { outline: 2px solid ${C.blue}; outline-offset: 2px; }
 .stl .num { font-variant-numeric: tabular-nums; }
+.stl .settings-group > * + * { box-shadow: inset 0 0.5px 0 rgba(60,60,67,0.29); }
 .stl .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stl [draggable="true"] { cursor: grab; }
-.stl .field-cell, .stl .field-chip, .stl .issue, .stl .inn-status { transition: box-shadow .12s, background-color .2s, color .2s; }
+.stl .field-cell, .stl .field-chip, .stl .h-card, .stl .h-ring, .stl .issue, .stl .inn-status { transition: box-shadow .12s, background-color .2s, color .2s; }
 .stl .strip { transition: background-color .2s ease-in-out, color .2s ease-in-out; }
 .stl .pt-bar { transition: width .2s; }
 .stl .switch-knob { transition: transform .2s; }
@@ -64,7 +65,11 @@ export const CSS = `
   .stl .h-dim:hover { filter: brightness(0.97); }
   .stl .h-link:hover:not(:disabled) { opacity: 0.7; }
   .stl .h-tint:hover { background: rgba(0,122,255,0.05); }
-  .stl .settings-group > * + * { box-shadow: inset 0 0.5px 0 rgba(60,60,67,0.29); }
+  .stl .h-side:hover { background: rgba(60,60,67,0.08); }
+  .stl .h-sec:hover:not(:disabled) { background: #F7F7FA !important; }
+  .stl .h-step:hover { background: rgba(60,60,67,0.05); }
+  .stl .h-card:hover { box-shadow: inset 0 0 0 1.5px rgba(0,122,255,0.55) !important; }
+  .stl .h-ring:hover { box-shadow: 0 0 0 2px ${C.blue}; }
   .stl .field-cell:hover { box-shadow: inset 0 0 0 1.5px rgba(0,122,255,0.55); }
   .stl .field-chip:hover { background: rgba(0,122,255,0.07); }
   .stl .inn-head:hover { color: ${C.blue}; background: rgba(0,0,0,0.04); }
