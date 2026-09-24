@@ -1,0 +1,615 @@
+{
+  "appVersion": "3.4.1",
+  "exportedAt": "2026-09-19T22:14:25Z",
+  "team": {
+    "calendarSubscriptionURL": "https://example.com/calendar.ics",
+    "ckRecordName": "team-49041328-3C7A-4E63-B214-072E0F76A8DB",
+    "coachName": "Coach",
+    "colorHex": "361793",
+    "createdAt": "2026-08-13T03:25:44Z",
+    "currentGameID": "AD9FD733-EAAE-45FE-BC7D-0E6D68F57356",
+    "fairPlayConfig": {
+      "catcherToPitcherThreshold": 0,
+      "equalBenchTime": true,
+      "leagueRuleset": "Custom",
+      "minimumFieldingInnings": 3,
+      "minimumInfieldInnings": 0,
+      "minimumOutfieldInnings": 0,
+      "noCatcher": false,
+      "noConsecutiveBench": true,
+      "noConsecutivePosition": false,
+      "noPitcher": false,
+      "noRepeatPositions": true,
+      "outfielderCount": 3,
+      "pitcherToCatcherThreshold": 0
+    },
+    "gameInningCount": 6,
+    "gameLineups": [
+      "EEC1E81E-84A0-4D34-8E47-A94C4141213D",
+      {
+        "absentPlayerIDs": [],
+        "battingOrder": [
+          "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+          "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+          "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+          "0628080E-9051-406B-A05D-8B7806BAA795",
+          "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+          "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+          "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+          "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+          "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+          "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+          "541B82EC-0A74-4927-936E-0AF9E17968C4",
+          "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+          "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+          "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+          "9A6EF832-3B59-4918-A306-7A351690EE64",
+          "59C25E8A-A7C4-4CF7-AB17-6144CE709E04"
+        ],
+        "gameDate": "2026-10-11T20:00:00Z",
+        "innings": [
+          {
+            "assignments": [
+              "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+              "Bench",
+              "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+              "SS",
+              "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+              "Bench",
+              "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+              "LF",
+              "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+              "3B",
+              "9A6EF832-3B59-4918-A306-7A351690EE64",
+              "C",
+              "0628080E-9051-406B-A05D-8B7806BAA795",
+              "Bench",
+              "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+              "Bench",
+              "541B82EC-0A74-4927-936E-0AF9E17968C4",
+              "CF",
+              "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+              "Bench",
+              "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+              "2B",
+              "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+              "1B",
+              "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+              "Bench",
+              "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+              "RF",
+              "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+              "P",
+              "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+              "Bench"
+            ]
+          },
+          {
+            "assignments": [
+              "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+              "Bench",
+              "9A6EF832-3B59-4918-A306-7A351690EE64",
+              "Bench",
+              "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+              "Bench",
+              "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+              "1B",
+              "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+              "P",
+              "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+              "C",
+              "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+              "Bench",
+              "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+              "LF",
+              "541B82EC-0A74-4927-936E-0AF9E17968C4",
+              "CF",
+              "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+              "Bench",
+              "0628080E-9051-406B-A05D-8B7806BAA795",
+              "RF",
+              "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+              "SS",
+              "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+              "3B",
+              "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+              "2B",
+              "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+              "Bench",
+              "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+              "Bench"
+            ]
+          },
+          {
+            "assignments": [
+              "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+              "Bench",
+              "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+              "Bench",
+              "9A6EF832-3B59-4918-A306-7A351690EE64",
+              "LF",
+              "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+              "CF",
+              "0628080E-9051-406B-A05D-8B7806BAA795",
+              "SS",
+              "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+              "3B",
+              "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+              "RF",
+              "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+              "Bench",
+              "541B82EC-0A74-4927-936E-0AF9E17968C4",
+              "Bench",
+              "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+              "C",
+              "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+              "Bench",
+              "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+              "2B",
+              "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+              "P",
+              "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+              "1B",
+              "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+              "Bench",
+              "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+              "Bench"
+            ]
+          },
+          {
+            "assignments": [
+              "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+              "C",
+              "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+              "Bench",
+              "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+              "Bench",
+              "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+              "2B",
+              "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+              "CF",
+              "9A6EF832-3B59-4918-A306-7A351690EE64",
+              "Bench",
+              "0628080E-9051-406B-A05D-8B7806BAA795",
+              "Bench",
+              "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+              "Bench",
+              "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+              "SS",
+              "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+              "Bench",
+              "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+              "LF",
+              "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+              "P",
+              "541B82EC-0A74-4927-936E-0AF9E17968C4",
+              "3B",
+              "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+              "Bench",
+              "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+              "1B",
+              "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+              "RF"
+            ]
+          },
+          {
+            "assignments": [
+              "9A6EF832-3B59-4918-A306-7A351690EE64",
+              "3B",
+              "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+              "LF",
+              "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+              "Bench",
+              "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+              "Bench",
+              "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+              "Bench",
+              "541B82EC-0A74-4927-936E-0AF9E17968C4",
+              "Bench",
+              "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+              "2B",
+              "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+              "1B",
+              "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+              "Bench",
+              "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+              "CF",
+              "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+              "Bench",
+              "0628080E-9051-406B-A05D-8B7806BAA795",
+              "P",
+              "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+              "RF",
+              "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+              "Bench",
+              "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+              "SS",
+              "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+              "C"
+            ]
+          },
+          {
+            "assignments": [
+              "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+              "Bench",
+              "9A6EF832-3B59-4918-A306-7A351690EE64",
+              "Bench",
+              "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+              "SS",
+              "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+              "Bench",
+              "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+              "CF",
+              "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+              "LF",
+              "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+              "Bench",
+              "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+              "Bench",
+              "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+              "2B",
+              "0628080E-9051-406B-A05D-8B7806BAA795",
+              "P",
+              "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+              "Bench",
+              "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+              "C",
+              "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+              "Bench",
+              "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+              "3B",
+              "541B82EC-0A74-4927-936E-0AF9E17968C4",
+              "1B",
+              "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+              "RF"
+            ]
+          }
+        ],
+        "opponent": "Opponent E",
+        "status": "draft"
+      },
+      "4D9CB5F1-AFD8-4B2D-8C4D-4E26EDFF1D68",
+      {
+        "absentPlayerIDs": [
+          "23E3D13D-B73D-401F-8C2E-C09F22BB5579"
+        ],
+        "battingOrder": [
+          "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+          "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+          "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+          "541B82EC-0A74-4927-936E-0AF9E17968C4",
+          "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+          "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+          "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+          "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+          "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+          "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+          "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+          "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+          "0628080E-9051-406B-A05D-8B7806BAA795",
+          "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+          "9A6EF832-3B59-4918-A306-7A351690EE64"
+        ],
+        "gameDate": "2026-09-17T15:45:41Z",
+        "innings": [
+          {
+            "assignments": []
+          },
+          {
+            "assignments": []
+          },
+          {
+            "assignments": []
+          },
+          {
+            "assignments": []
+          },
+          {
+            "assignments": []
+          },
+          {
+            "assignments": []
+          }
+        ],
+        "opponent": "Opponent A",
+        "status": "draft"
+      }
+    ],
+    "gameLogs": [],
+    "id": "49041328-3C7A-4E63-B214-072E0F76A8DB",
+    "isReadOnly": false,
+    "isSharedParticipant": false,
+    "lineup": {
+      "absentPlayerIDs": [],
+      "battingOrder": [],
+      "gameDate": "2026-09-19T22:14:25Z",
+      "innings": [
+        {
+          "assignments": []
+        },
+        {
+          "assignments": []
+        },
+        {
+          "assignments": []
+        },
+        {
+          "assignments": []
+        },
+        {
+          "assignments": []
+        },
+        {
+          "assignments": []
+        },
+        {
+          "assignments": []
+        }
+      ],
+      "opponent": "",
+      "status": "draft"
+    },
+    "lineupTemplates": [],
+    "name": "Sample Team",
+    "pitchingConfig": {
+      "ageLimits": [
+        "7-8",
+        {
+          "dailyMax": 50,
+          "restDay1Min": 21,
+          "restDay2Min": 36
+        },
+        "9-10",
+        {
+          "dailyMax": 75,
+          "restDay1Min": 21,
+          "restDay2Min": 36,
+          "restDay3Min": 51,
+          "restDay4Min": 66
+        },
+        "13-14",
+        {
+          "dailyMax": 95,
+          "restDay1Min": 21,
+          "restDay2Min": 36,
+          "restDay3Min": 51,
+          "restDay4Min": 66
+        },
+        "15-16",
+        {
+          "dailyMax": 95,
+          "restDay1Min": 31,
+          "restDay2Min": 46,
+          "restDay3Min": 61,
+          "restDay4Min": 76
+        },
+        "11-12",
+        {
+          "dailyMax": 85,
+          "restDay1Min": 21,
+          "restDay2Min": 36,
+          "restDay3Min": 51,
+          "restDay4Min": 66
+        }
+      ],
+      "rollingWindowDays": 7,
+      "rollingWindowType": "Rolling 7 Days",
+      "rulesEnabled": true,
+      "weeklyLimit": 100,
+      "weeklyLimitEnabled": true
+    },
+    "players": [
+      {
+        "firstName": "Player",
+        "id": "24D1BAE5-6DC1-4C5F-B099-4A2F0909C045",
+        "lastName": "01",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "EE862CAC-583E-46F1-9888-9BF1CDF4F308",
+        "lastName": "02",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "DC370907-FE44-4124-AE36-9DCF4830EDBA",
+        "lastName": "03",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "0628080E-9051-406B-A05D-8B7806BAA795",
+        "lastName": "04",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "96AC7FCE-B888-4184-A04E-CF715B4B3B8F",
+        "lastName": "05",
+        "leagueAge": 11,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "F7FBFE73-EA2C-493A-A461-D5E8A5B2A433",
+        "lastName": "06",
+        "leagueAge": 11,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "F4E92011-FCF6-46F3-8953-F6F8C06FDC0C",
+        "lastName": "07",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "23E3D13D-B73D-401F-8C2E-C09F22BB5579",
+        "lastName": "08",
+        "leagueAge": 12,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "3DA40274-DB3F-4C04-AA1D-891C9FEEE62B",
+        "lastName": "09",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "FEDC9D63-CF7D-4A4B-86AE-ADC863BBB4CF",
+        "lastName": "10",
+        "leagueAge": 11,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "541B82EC-0A74-4927-936E-0AF9E17968C4",
+        "lastName": "11",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "A78F8C17-5F1A-4A86-BFB1-3822C38AAF52",
+        "lastName": "12",
+        "leagueAge": 11,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "E6E81A41-665E-4588-95C0-1CFC8FE14BC7",
+        "lastName": "13",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "F7D4A156-6A95-4AC0-83C5-62078FFEB141",
+        "lastName": "14",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "9A6EF832-3B59-4918-A306-7A351690EE64",
+        "lastName": "15",
+        "leagueAge": 10,
+        "number": "",
+        "positionPreferences": []
+      },
+      {
+        "firstName": "Player",
+        "id": "59C25E8A-A7C4-4CF7-AB17-6144CE709E04",
+        "lastName": "16",
+        "leagueAge": 11,
+        "number": "",
+        "positionPreferences": []
+      }
+    ],
+    "scheduledGames": [
+      {
+        "date": "2026-09-13T23:30:00Z",
+        "icalUID": "ce5c91af-7e01-484f-bc01-cfd347ca28c7",
+        "id": "4D9CB5F1-AFD8-4B2D-8C4D-4E26EDFF1D68",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent A",
+        "rawSummary": "vs Opponent A"
+      },
+      {
+        "date": "2026-09-20T23:30:00Z",
+        "icalUID": "eb4c9887-2df6-44da-8fe7-f428a10d31ba",
+        "id": "AD9FD733-EAAE-45FE-BC7D-0E6D68F57356",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent B",
+        "rawSummary": "vs Opponent B"
+      },
+      {
+        "date": "2026-09-27T23:30:00Z",
+        "icalUID": "742da046-de16-4f64-bc6d-b5f5b80ad126",
+        "id": "70D0DE1A-22B9-4EAB-8AC7-18CE6D494ED7",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent C",
+        "rawSummary": "vs Opponent C"
+      },
+      {
+        "date": "2026-10-04T23:00:00Z",
+        "icalUID": "93e6f019-e914-402f-aaba-86cb64e1f2be",
+        "id": "F3732265-DDF1-4289-9D82-5FB58C1B6DFC",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent D",
+        "rawSummary": "vs Opponent D"
+      },
+      {
+        "date": "2026-10-11T20:00:00Z",
+        "icalUID": "6d0424b7-695a-4476-8732-a2721d00aad9",
+        "id": "EEC1E81E-84A0-4D34-8E47-A94C4141213D",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent E",
+        "rawSummary": "vs Opponent E"
+      },
+      {
+        "date": "2026-10-18T23:30:00Z",
+        "icalUID": "0e46418b-6df7-43aa-9309-c1ddb4195443",
+        "id": "B8E4FF80-221B-4B8A-A728-E86638B808BC",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent F",
+        "rawSummary": "vs Opponent F"
+      },
+      {
+        "date": "2026-10-25T20:30:00Z",
+        "icalUID": "b6830f6e-2718-44a7-8d23-c3b0a7135583",
+        "id": "DBAB10E3-D18B-4AAB-8EA2-92A6906C270E",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent G",
+        "rawSummary": "vs Opponent G"
+      },
+      {
+        "date": "2026-11-01T19:30:00Z",
+        "icalUID": "f4d54598-27c1-44e2-9e08-2c66cd209df4",
+        "id": "FE0A1D34-2D40-495B-BF4B-CB92AA8F56C0",
+        "isCancelled": false,
+        "lastSyncedAt": "2026-09-07T14:38:30Z",
+        "location": "Sample Field",
+        "opponent": "Opponent H",
+        "rawSummary": "vs Opponent H"
+      }
+    ]
+  },
+  "version": 1
+}
