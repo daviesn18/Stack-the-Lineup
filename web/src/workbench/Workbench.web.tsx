@@ -11,6 +11,7 @@ import { LineupScreen } from './LineupScreen';
 import { Overlays } from './Overlays';
 import { PlayerModal, PlayersScreen } from './PlayersScreen';
 import { PositionsScreen } from './PositionsScreen';
+import { SettingsModal } from './SettingsModal';
 import { FairPlayPanel, Sidebar, TopBar } from './Shell';
 import { useWorkbench, WorkbenchProvider } from './state';
 import { C, CSS } from './theme';
@@ -52,6 +53,7 @@ function Frame({ demo }: { demo?: boolean }) {
       </div>
       <Overlays />
       {w.playerModal && <PlayerModal key={w.playerModal.id} />}
+      {w.settingsOpen && <SettingsModal onClose={() => w.setSettingsOpen(false)} />}
     </div>
   );
 }
@@ -64,7 +66,7 @@ function useKeyboard() {
       const tag = (e.target as HTMLElement | null)?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (e.key === 'Escape') { w.closeOverlays(); return; }
-      if (typing || e.metaKey || e.ctrlKey || e.altKey || w.playerModal) return;
+      if (typing || e.metaKey || e.ctrlKey || e.altKey || w.playerModal || w.settingsOpen) return;
       if (w.menu && e.key.toLowerCase() === 'b') { e.preventDefault(); w.place(w.menu.pid, w.menu.inning, 'Bench'); return; }
       if (w.screen === 'positions' && w.posView === 'inning' && !w.picker && !w.menu) {
         if (/^[1-9]$/.test(e.key) && Number(e.key) <= w.lineup.innings.length) w.setInning(Number(e.key) - 1);

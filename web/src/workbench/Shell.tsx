@@ -36,7 +36,7 @@ export function TopBar({ demo }: { demo?: boolean }) {
       <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
         <TopIcon name="calendar.badge.plus" title="Import schedule (coming soon)" />
         <TopIcon name="archivebox" title="Archive game (coming soon)" />
-        <TopIcon name="gearshape.fill" title="Settings (coming soon)" />
+        <TopIcon name="gearshape.fill" title="Team settings" onClick={() => w.setSettingsOpen(true)} />
       </div>
     </header>
   );

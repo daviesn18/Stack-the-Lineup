@@ -30,7 +30,7 @@ export function PlayersScreen({ demo }: { demo?: boolean }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px' }}>
             <span style={{ width: 26, height: 26, borderRadius: 13, background: `#${w.team.colorHex}` }} />
             <span className="ellipsis" style={{ fontSize: 20, fontWeight: 700, flex: 1 }}>{w.team.name || 'Untitled team'}</span>
-            <span title="Team settings (coming soon)" style={{ opacity: 0.4, display: 'flex' }}><Icon name="gearshape" size={20} color={C.blue} /></span>
+            <button className="h-link" title="Team settings" aria-label="Team settings" onClick={() => w.setSettingsOpen(true)} style={{ display: 'flex' }}><Icon name="gearshape" size={20} color={C.blue} /></button>
             <span style={{ width: 0.5, height: 20, background: C.sep }} />
             <button className="h-link" style={{ fontSize: 17, color: C.blue }} onClick={() => router.push('/')} disabled={demo}>Switch</button>
           </div>
@@ -44,7 +44,7 @@ export function PlayersScreen({ demo }: { demo?: boolean }) {
               <span style={{ color: C.label2 }}>Coach</span><span>{w.team.coachName || '—'}</span>
               <span style={{ color: C.label2 }}>Outfielders</span><span>{w.team.fairPlayConfig.outfielderCount}</span>
               <span style={{ color: C.label2 }}>Pitch count rules</span><span>{w.team.pitchingConfig.rulesEnabled ? 'On' : 'Off'}</span>
-              <span style={{ gridColumn: '1 / -1', fontSize: 13, color: C.label2 }}>These come from the team file you imported. Editing them here is coming soon.</span>
+              <button className="h-link" onClick={() => w.setSettingsOpen(true)} style={{ gridColumn: '1 / -1', justifySelf: 'start', fontSize: 15, color: C.blue }}>Change in team settings</button>
             </div>
           )}
         </div>

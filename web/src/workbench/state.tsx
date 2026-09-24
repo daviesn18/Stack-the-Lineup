@@ -52,6 +52,8 @@ export interface Workbench extends TeamData {
 
   playerModal: PlayerModal;
   setPlayerModal(m: PlayerModal): void;
+  settingsOpen: boolean;
+  setSettingsOpen(open: boolean): void;
 
   /** Assign with swap (see lineupOps.place); closes overlays. */
   place(pid: string, inning: number, pos: FieldPosition | null): void;
@@ -81,6 +83,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [picker, setPicker] = useState<PickerState | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [playerModal, setPlayerModal] = useState<PlayerModal>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [dragging, setDragging] = useState<DragSource | null>(null);
@@ -153,6 +156,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     closeOverlays,
 
     playerModal, setPlayerModal,
+    settingsOpen, setSettingsOpen: (open) => { closeOverlays(); setSettingsOpen(open); },
 
     place: (pid, i, pos) => { closeOverlays(); setDropKey(null); editLineup((l) => place(l, pid, i, pos)); },
     edit,

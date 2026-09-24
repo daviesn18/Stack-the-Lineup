@@ -207,3 +207,35 @@ export function gridNames(players: Player[]): Map<PlayerID, string> {
     p.id, first(p) < 2 ? p.firstName : short(p) < 2 ? shortName(p) : displayName(p),
   ]));
 }
+
+/**
+ * Game length changed (iOS applyGameInningCount): cut innings off the end or
+ * add empty ones. Shortening a finalized lineup returns it to draft.
+ */
+export function resizeInnings(l: Lineup, count: number): Lineup {
+  const n = Math.max(1, Math.min(9, count));
+  if (n === l.innings.length) return l;
+  if (n < l.innings.length) return revertToDraft(withInnings(l, l.innings.slice(0, n)));
+  return withInnings(l, [...l.innings, ...Array.from({ length: n - l.innings.length }, () => ({ assignments: {} }))]);
+}
+
+/** The last inning (1-based) with anyone assigned, or 0. */
+export const lastAssignedInning = (l: Lineup): number =>
+  l.innings.reduce((last, inn, i) => (Object.keys(inn.assignments).length ? i + 1 : last), 0);
+
+/**
+ * Unassigns everyone at `positions` (taken off the field by a rules change,
+ * e.g. going from 4 outfielders to 3), so nobody is left on a spot the grid
+ * no longer shows. Returns `l` itself when nothing changed.
+ */
+export function dropPositions(l: Lineup, positions: FieldPosition[]): Lineup {
+  if (!positions.length) return l;
+  let changed = false;
+  const innings = l.innings.map((inn) => {
+    const a = Object.fromEntries(Object.entries(inn.assignments).filter(([, p]) => !positions.includes(p)));
+    if (Object.keys(a).length === Object.keys(inn.assignments).length) return inn;
+    changed = true;
+    return { assignments: a };
+  });
+  return changed ? revertToDraft(withInnings(l, innings)) : l;
+}

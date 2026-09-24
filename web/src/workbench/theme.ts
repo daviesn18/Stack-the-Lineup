@@ -64,6 +64,7 @@ export const CSS = `
   .stl .h-dim:hover { filter: brightness(0.97); }
   .stl .h-link:hover:not(:disabled) { opacity: 0.7; }
   .stl .h-tint:hover { background: rgba(0,122,255,0.05); }
+  .stl .settings-group > * + * { box-shadow: inset 0 0.5px 0 rgba(60,60,67,0.29); }
   .stl .field-cell:hover { box-shadow: inset 0 0 0 1.5px rgba(0,122,255,0.55); }
   .stl .field-chip:hover { background: rgba(0,122,255,0.07); }
   .stl .inn-head:hover { color: ${C.blue}; background: rgba(0,0,0,0.04); }

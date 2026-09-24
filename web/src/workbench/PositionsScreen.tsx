@@ -1,7 +1,7 @@
 // Positions: By Position (summary grid), By Inning (field view) and Pitching,
 // with the Draft/Finalized strip on top and Clear positions at the bottom.
 
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 
 import { runAutoFill, type AutoFillOutcome } from '@/core/autofillCoordinator';
 import { openPositions } from '@/core/fairPlay';
@@ -122,9 +122,15 @@ function SummaryGrid() {
     ['Infield', C.blue, w.positions.filter(isInfield)],
     ['Outfield', C.green, w.positions.filter(isOutfield)],
   ];
+  const open = innings.reduce((n, i) => n + openPositions(w.lineup, i, w.players, w.team.fairPlayConfig).length, 0);
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, alignItems: 'center' }}>
+      <AutoFillBar left={
+        <span style={{ fontSize: 17, fontWeight: 500, color: open ? C.orange : C.green }}>
+          {open ? `${open} open ${open === 1 ? 'spot' : 'spots'} across ${innings.length} innings` : 'Every inning is set'}
+        </span>
+      } />
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, alignItems: 'center', marginTop: 16 }}>
         <span style={{ fontSize: 14, color: C.label2 }}>Position</span>
         {innings.map((i) => (
           <button key={i} className="inn-head" onClick={() => w.showInning(i)} title={`Open inning ${i + 1}`}
@@ -219,15 +225,23 @@ const FIELD_XY: Partial<Record<FieldPosition, [number, number]>> = {
   SS: [196, 204], '2B': [364, 204], '3B': [122, 300], '1B': [438, 300], P: [280, 282], C: [280, 392],
 };
 
-function ByInning() {
+/**
+ * Auto-Fill with its optional instructions and result notes, under a view's
+ * own heading (`left`). Fills every open spot in every inning, so it reads
+ * the same on By Position and By Inning.
+ */
+function AutoFillBar({ left }: { left: ReactNode }) {
+  const w = useWorkbench();
+  // A new game length or field (team settings) makes the last run's notes stale.
+  return <AutoFillControls key={`${w.lineup.innings.length}:${w.positions.join()}`} left={left} />;
+}
+
+function AutoFillControls({ left }: { left: ReactNode }) {
   const w = useWorkbench();
   const isPro = useIsPro();
-  const state = useInningState();
   const [prompt, setPrompt] = useState('');
   const [showPrompt, setShowPrompt] = useState(false);
   const [result, setResult] = useState<AutoFillOutcome | null>(null);
-  const cur = w.inning;
-  const open = openPositions(w.lineup, cur, w.players, w.team.fairPlayConfig).length;
 
   const autoFill = () => {
     const outcome = runAutoFill({
@@ -241,11 +255,8 @@ function ByInning() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 28, fontWeight: 700 }}>Inning {cur + 1}</span>
-        <span style={{ fontSize: 17, fontWeight: 500, color: open ? C.orange : C.green, alignSelf: 'flex-end', marginBottom: 4 }}>
-          {open ? `${open} open` : 'Field set'}
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 40 }}>
+        {left}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
           <button className="h-link" style={{ fontSize: 14, color: C.blue }} onClick={() => setShowPrompt((v) => !v)}>
             {showPrompt ? 'Hide instructions' : prompt.trim() ? 'Edit instructions' : 'Add instructions'}
@@ -271,6 +282,24 @@ function ByInning() {
           {result.noticeMessage && <Note color={C.blue} bg="rgba(0,122,255,0.07)" onClose={() => setResult(null)}>{result.noticeMessage}</Note>}
         </div>
       )}
+    </div>
+  );
+}
+
+function ByInning() {
+  const w = useWorkbench();
+  const state = useInningState();
+  const cur = w.inning;
+  const open = openPositions(w.lineup, cur, w.players, w.team.fairPlayConfig).length;
+
+  return (
+    <div>
+      <AutoFillBar left={<>
+        <span style={{ fontSize: 28, fontWeight: 700 }}>Inning {cur + 1}</span>
+        <span style={{ fontSize: 17, fontWeight: 500, color: open ? C.orange : C.green, alignSelf: 'flex-end', marginBottom: 4 }}>
+          {open ? `${open} open` : 'Field set'}
+        </span>
+      </>} />
 
       <div style={{ display: 'flex', gap: 24, marginTop: 16 }}>
         <div role="tablist" aria-label="Innings" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

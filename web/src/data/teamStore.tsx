@@ -6,7 +6,10 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { addToBattingOrder, changedInnings, completeBattingOrder, removePlayer } from '../core/lineupOps';
+import { activeFieldPositions } from '../core/fairPlay';
+import {
+  addToBattingOrder, changedInnings, completeBattingOrder, dropPositions, removePlayer, resizeInnings,
+} from '../core/lineupOps';
 import {
   defaultFairPlayConfig, defaultPitchingConfig, type FairPlayConfig, type FieldPosition, type GameLog, type Lineup,
   type PitchingConfig, type Player,
@@ -162,6 +165,12 @@ interface TeamStore {
   addPlayer(p: Omit<Player, 'id'>): void;
   updatePlayer(p: Player): void;
   deletePlayer(id: string): void;
+  /**
+   * Team settings (name, color, coach, game length, rules). A new game length
+   * resizes the open lineup, and positions the rules take off the field are
+   * unassigned, as in the grid they'd otherwise be invisible.
+   */
+  updateTeam(team: TeamInfo): void;
   reload(): Promise<void>;
 }
 
@@ -246,9 +255,32 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     });
   }, [enqueue]);
 
+  const updateTeam = useCallback((team: TeamInfo) => {
+    const now = current.current;
+    if (!now) return;
+    const kept = new Set(activeFieldPositions(team.fairPlayConfig));
+    const removed = activeFieldPositions(now.team.fairPlayConfig).filter((p) => !kept.has(p));
+    const resized = resizeInnings(dropPositions(now.lineup, removed), team.gameInningCount);
+    const lineup = { ...resized, id: now.lineup.id };
+    set({ ...now, team, lineup });
+    enqueue(async () => {
+      await must(supabase.from('teams').update({
+        name: team.name, color_hex: team.colorHex, coach_name: team.coachName,
+        game_inning_count: team.gameInningCount,
+        fair_play_config: team.fairPlayConfig, pitching_config: team.pitchingConfig,
+      }).eq('id', team.id));
+      if (lineup.innings.length < now.lineup.innings.length) {
+        // Cells past the new last inning would come back if the game got longer again.
+        await must(supabase.from('lineup_cells').delete().eq('lineup_id', lineup.id).gte('inning', lineup.innings.length));
+      }
+      // Sends any cleared positions, then the new inning_count (and draft status).
+      await saveLineup(now.lineup, lineup);
+    });
+  }, [enqueue]);
+
   const store: TeamStore = {
     data, loadError, saveError, saving: pending > 0, dismissSaveError: () => setSaveError(null),
-    editLineup, addPlayer, updatePlayer, deletePlayer, reload,
+    editLineup, addPlayer, updatePlayer, deletePlayer, updateTeam, reload,
   };
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }
