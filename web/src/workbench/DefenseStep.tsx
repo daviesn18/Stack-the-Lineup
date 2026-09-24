@@ -112,26 +112,29 @@ function useBackToBack() {
   return m;
 }
 
-type InningState = 'done' | 'partial' | 'empty' | 'issue';
+type InningState = 'done' | 'partial' | 'empty';
 
+/**
+ * How filled an inning is. Fair-play problems aren't shown here: a bench-heavy
+ * player can touch every inning, which would hide every check. They show on
+ * the bench chips, the BN column and the fair-play box instead.
+ */
 function useInningState() {
   const w = useWorkbench();
-  const bad = new Set(w.issues.flatMap((i) => i.cells ?? []));
   return (i: number): InningState => {
-    if (bad.has(i)) return 'issue';
     const open = openPositions(w.lineup, i, w.players, w.team.fairPlayConfig).length;
     return open === 0 && w.active.length > 0 ? 'done' : open === w.positions.length ? 'empty' : 'partial';
   };
 }
 
-/** A check when every spot in the inning is filled; otherwise a dot (orange partial, gray empty, red issue). */
+/** A check when every spot in the inning is filled; otherwise a dot (orange partial, gray empty). */
 function InningMark({ state, onBlue }: { state: InningState; onBlue?: boolean }) {
   if (state === 'done') {
     return onBlue
       ? <Icon name="checkmark" size={14} color="#fff" style={{ strokeWidth: 3 }} />
       : <Icon name="checkmark.circle.fill" size={14} color={C.green} />;
   }
-  const color = onBlue ? 'rgba(255,255,255,0.85)' : state === 'issue' ? C.red : state === 'partial' ? C.orange : C.gray3;
+  const color = onBlue ? 'rgba(255,255,255,0.85)' : state === 'partial' ? C.orange : C.gray3;
   return <span style={{ width: 6, height: 6, borderRadius: 3, background: color }} />;
 }
 
