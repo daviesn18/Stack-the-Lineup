@@ -135,7 +135,7 @@ function Attendance() {
           const out = absent.has(p.id);
           return (
             <button key={p.id} role="switch" aria-checked={!out} aria-label={`${p.firstName} ${p.lastName} is coming`}
-              onClick={() => w.edit((l) => (out ? restoreAbsent(l, p.id) : toggleAbsent(l, p.id)), out ? undefined : `${p.firstName} marked not coming`)}
+              onClick={() => w.edit((l) => (out ? restoreAbsent(l, p.id) : toggleAbsent(l, p.id)), out ? undefined : `${p.firstName} marked absent`)}
               className="h-card"
               style={{ padding: 14, borderRadius: 12, textAlign: 'left', background: out ? 'rgba(255,59,48,0.04)' : '#fff', boxShadow: `inset 0 0 0 1px ${out ? 'rgba(255,59,48,0.35)' : 'rgba(60,60,67,0.12)'}` }}>
               <span style={{ display: 'flex', alignItems: 'flex-start', opacity: out ? 0.55 : 1 }}>
@@ -145,7 +145,7 @@ function Attendance() {
                 <span style={{ marginLeft: 'auto' }}><Icon name={out ? 'minus.circle.fill' : 'checkmark.circle.fill'} size={20} color={out ? C.red : C.green} /></span>
               </span>
               <span className="ellipsis" style={{ display: 'block', fontSize: 14, fontWeight: 600, marginTop: 12, opacity: out ? 0.55 : 1 }}>{p.firstName} {p.lastName}</span>
-              <span style={{ display: 'block', fontSize: 12, color: out ? C.red : SUB }}>{out ? 'Not coming' : 'Coming'}</span>
+              {out && <span style={{ display: 'block', fontSize: 12, color: C.red }}>Absent</span>}
             </button>
           );
         })}
@@ -207,7 +207,7 @@ function BattingOrder() {
           <div key={p.id} style={{ height: 46, padding: '0 14px', display: 'flex', alignItems: 'center', gap: 14, borderTop: '1px solid rgba(60,60,67,0.08)', opacity: 0.45 }}>
             <span style={{ width: 22 }} />
             <span className="ellipsis" style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{p.firstName} {p.lastName}</span>
-            <span style={{ fontSize: 13, color: SUB }}>Not coming</span>
+            <span style={{ fontSize: 13, color: SUB }}>Absent</span>
           </div>
         ))}
       </div>

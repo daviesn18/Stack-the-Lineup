@@ -112,14 +112,27 @@ function useBackToBack() {
   return m;
 }
 
-function useInningDot() {
+type InningState = 'done' | 'partial' | 'empty' | 'issue';
+
+function useInningState() {
   const w = useWorkbench();
   const bad = new Set(w.issues.flatMap((i) => i.cells ?? []));
-  return (i: number) => {
-    if (bad.has(i)) return C.red;
+  return (i: number): InningState => {
+    if (bad.has(i)) return 'issue';
     const open = openPositions(w.lineup, i, w.players, w.team.fairPlayConfig).length;
-    return open === 0 && w.active.length > 0 ? C.green : open === w.positions.length ? C.gray3 : C.orange;
+    return open === 0 && w.active.length > 0 ? 'done' : open === w.positions.length ? 'empty' : 'partial';
   };
+}
+
+/** A check when every spot in the inning is filled; otherwise a dot (orange partial, gray empty, red issue). */
+function InningMark({ state, onBlue }: { state: InningState; onBlue?: boolean }) {
+  if (state === 'done') {
+    return onBlue
+      ? <Icon name="checkmark" size={14} color="#fff" style={{ strokeWidth: 3 }} />
+      : <Icon name="checkmark.circle.fill" size={14} color={C.green} />;
+  }
+  const color = onBlue ? 'rgba(255,255,255,0.85)' : state === 'issue' ? C.red : state === 'partial' ? C.orange : C.gray3;
+  return <span style={{ width: 6, height: 6, borderRadius: 3, background: color }} />;
 }
 
 /** A field spot in one inning: click for the picker, right-click for the menu, drag to swap. */
@@ -171,7 +184,7 @@ const SCALE = 0.92;
 
 function FieldView() {
   const w = useWorkbench();
-  const dot = useInningDot();
+  const state = useInningState();
   return (
     <div style={{ display: 'flex', gap: 16 }}>
       <div role="tablist" aria-label="Innings" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -180,9 +193,9 @@ function FieldView() {
           return (
             <button key={i} role="tab" aria-selected={on} onClick={() => w.setInning(i)} title={`Inning ${i + 1}${i < 9 ? ` (press ${i + 1})` : ''}`}
               className={on ? '' : 'h-dim'}
-              style={{ width: 48, height: 46, borderRadius: 10, background: on ? C.blue : FILL, color: on ? '#fff' : C.label, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+              style={{ width: 48, height: 46, borderRadius: 10, background: on ? C.blue : FILL, color: on ? '#fff' : C.label, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
               <span className="num" style={{ fontSize: 17, fontWeight: 700, lineHeight: '19px' }}>{i + 1}</span>
-              <span style={{ width: 6, height: 6, borderRadius: 3, background: on ? 'rgba(255,255,255,0.85)' : dot(i) }} />
+              <span style={{ height: 14, display: 'grid', placeItems: 'center' }}><InningMark state={state(i)} onBlue={on} /></span>
             </button>
           );
         })}
@@ -276,7 +289,7 @@ function Totals() {
 
 function GridView() {
   const w = useWorkbench();
-  const dot = useInningDot();
+  const state = useInningState();
   const innings = w.lineup.innings.map((_, i) => i);
   const cols = `120px repeat(${innings.length}, minmax(0, 1fr))`;
   const sections: [string, string, FieldPosition[]][] = [
@@ -290,7 +303,7 @@ function GridView() {
         {innings.map((i) => (
           <button key={i} className="inn-head" onClick={() => w.showInning(i)} title={`Open inning ${i + 1} on the field`}
             style={{ fontSize: 13, fontWeight: 500, color: SUB, borderRadius: 6, padding: '4px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-            Inn {i + 1}<span style={{ width: 6, height: 6, borderRadius: 3, background: dot(i) }} />
+            Inn {i + 1}<InningMark state={state(i)} />
           </button>
         ))}
       </div>
