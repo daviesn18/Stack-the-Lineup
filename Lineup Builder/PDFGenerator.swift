@@ -3,6 +3,10 @@ import PDFKit
 import SwiftUI
 
 class PDFGenerator {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     static func generate(
         type: PDFType,

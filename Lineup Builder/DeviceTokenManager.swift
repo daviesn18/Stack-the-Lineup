@@ -20,6 +20,10 @@ import os
 
 @MainActor
 final class DeviceTokenManager {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     static let shared = DeviceTokenManager()
     private init() {}

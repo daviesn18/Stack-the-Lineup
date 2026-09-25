@@ -41,6 +41,10 @@ struct MailComposeView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: MFMailComposeViewController, context: Context) {}
 
     final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+            /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+            /// AutoFillNLConstraintService's deinit.
+            nonisolated deinit {}
+
         let onFinish: () -> Void
         init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
 

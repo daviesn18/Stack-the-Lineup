@@ -12,6 +12,10 @@ import os
 // any other push notification.
 
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     static let shared = NotificationManager()
 

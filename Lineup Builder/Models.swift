@@ -1334,6 +1334,10 @@ enum PendingRosterImport {
 // closes that window for the ordinary case.
 @MainActor
 final class CloudPushDebouncer {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     private var dirty: Set<UUID> = []
     private var timer: Task<Void, Never>?
@@ -1380,6 +1384,10 @@ final class CloudPushDebouncer {
 }
 
 class LineupStore: ObservableObject {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     // MARK: - Published State
     @Published var teams: [Team] = []

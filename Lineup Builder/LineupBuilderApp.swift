@@ -47,6 +47,10 @@ struct LineupBuilderApp: App {
 // silently dropped and share acceptance never fires.
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     func application(
         _ application: UIApplication,
@@ -130,6 +134,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 // the shared team.
 
 class SceneDelegate: NSObject, UIWindowSceneDelegate {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     func windowScene(
         _ windowScene: UIWindowScene,

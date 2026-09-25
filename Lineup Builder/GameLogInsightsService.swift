@@ -15,6 +15,10 @@ import FoundationModels
 
 @MainActor
 class GameLogInsightsService: ObservableObject {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     enum InsightState {
         case idle

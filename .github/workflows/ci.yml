@@ -2,10 +2,10 @@ name: CI
 
 # Runs the automated test suites the P1 handoff describes, so a push no longer
 # has to wait for a manual Xcode run on someone's Mac. Two jobs:
-#   * unit-tests   — the gate, on iOS 27 only. It self-skips (staying green) on
-#                    runners without an iOS 27 runtime, because the iOS 26
-#                    runtime crashes the suite with a Swift teardown double-free
-#                    (see the sim step). Auto-activates once runners ship Xcode 27.
+#   * unit-tests   — the gate. Prefers an iOS 27 simulator and falls back to
+#                    the newest iPhone runtime on the runner. Also scans the
+#                    built app for isolated deinits, which crash on iOS 26.0-26.3
+#                    (see scripts/check-isolated-deinits.sh).
 #   * intent-tests — the AppIntentsTesting UI suite. Informational at first
 #                    (continue-on-error) until it's proven stable on the runner;
 #                    flip `continue-on-error` to false to make it a hard gate.
@@ -42,27 +42,24 @@ jobs:
           echo "Available schemes:"
           xcodebuild -list -project "$PROJECT" || true
 
-      - name: Pick an iOS 27 simulator (required — iOS 26 runtime crash, see note)
+      - name: Pick a simulator (iOS 27 preferred)
         id: sim
         run: |
           set -euo pipefail
-          # The unit suite is gated to an iOS 27 runtime ON PURPOSE. Under the
-          # iOS 26 runtime the hosted runners currently carry, a Swift-runtime
-          # teardown bug double-frees mid-run (libmalloc "pointer being freed was
-          # not allocated", same heap address every time) and crashes the whole
-          # test process. It is NOT localized — skipping the blamed class just
-          # moves the crash to the next one — and does NOT reproduce on a local
-          # iOS 26.4 simulator, so it can't be pinned down or skipped away. The
-          # suite is green on iOS 27 (the 3.5 SDK target), so run it only where
-          # it's trustworthy and skip — job stays green — where it isn't. This
-          # auto-activates once GitHub's runners ship Xcode 27.
-          # Tracked: Asana "[Bug][iOS 26] Double-free crash..." (1218595327624588).
+          # The suite used to be gated to iOS 27 because it crashed on iOS 26
+          # runtimes. That crash was main-actor classes' synthesized ISOLATED
+          # deinits aborting in swift_task_deinitOnExecutorImpl on iOS 26.0-26.3,
+          # fixed 2026-09-25 with explicit nonisolated deinits, so any iOS
+          # runtime is fair game now. Prefer 27 (the 3.5 SDK target).
           UDID=$(xcrun simctl list devices available --json \
             | jq -r '[.devices | to_entries[] | select(.key|test("iOS-27")) | .value[] | select(.name|test("iPhone"))][0].udid // empty')
           if [ -z "$UDID" ]; then
-            echo "::warning::No iOS 27 iPhone runtime on this runner — skipping the unit suite (iOS 26 runtime double-free, see the step comment)."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            UDID=$(xcrun simctl list devices available --json \
+              | jq -r '[.devices | to_entries[] | select(.key|test("iOS-")) ] | sort_by(.key) | reverse | [.[].value[] | select(.name|test("iPhone"))][0].udid // empty')
+          fi
+          if [ -z "$UDID" ]; then
+            echo "::error::No iPhone simulator available on this runner."
+            exit 1
           fi
           echo "Using simulator UDID: $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
@@ -75,7 +72,6 @@ jobs:
           restore-keys: spm-${{ runner.os }}-
 
       - name: Resolve packages
-        if: steps.sim.outputs.skip != 'true'
         run: |
           set -euo pipefail
           xcodebuild -resolvePackageDependencies \
@@ -83,18 +79,24 @@ jobs:
             -clonedSourcePackagesDirPath .spm
 
       - name: Run unit suite (Lineup BuilderTests)
-        if: steps.sim.outputs.skip != 'true'
         run: |
           set -euo pipefail
           xcodebuild test \
             -project "$PROJECT" -scheme "$SCHEME" \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -clonedSourcePackagesDirPath .spm \
+            -derivedDataPath DerivedData \
             -only-testing:"Lineup BuilderTests" \
             -parallel-testing-enabled NO \
             -resultBundlePath TestResults-unit.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
             2>&1 | tee xcodebuild-unit.log
+
+      # Tests only catch the iOS 26.0-26.3 isolated-deinit crash when they run
+      # on one of those runtimes, and runners don't carry them. The binary
+      # check catches a new main-actor class regardless of runtime.
+      - name: Check for isolated deinits
+        run: scripts/check-isolated-deinits.sh "DerivedData/Build/Products/Debug-iphonesimulator/Stack the Lineup.app"
 
       - name: Upload results
         if: always()
