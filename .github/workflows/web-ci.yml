@@ -1,0 +1,62 @@
+name: Web CI
+
+# Web pilot (web/): lint, typecheck, Jest (incl. Swift/TypeScript parity
+# fixtures), the PGlite database tests, and the static web export Vercel ships.
+# The iOS workflow (ci.yml) is separate and never runs for web-only changes.
+
+on:
+  push:
+    branches: [main, "web/**"]
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  check:
+    name: Lint, typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # src/data/supabase.ts throws at import without these. CI never talks to
+      # Supabase, so placeholders are enough; the real (publishable) values live
+      # in Vercel's environment settings.
+      EXPO_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + parity tests (Jest)
+        run: npm test -- --ci
+
+      - name: Database tests (PGlite)
+        run: npm run test:db
+
+      - name: Web export
+        run: npm run build:web
