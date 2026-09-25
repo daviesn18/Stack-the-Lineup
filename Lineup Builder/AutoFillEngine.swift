@@ -19,6 +19,15 @@ nonisolated enum AutoFillUnfilledReason {
     /// estimated from their available pitch count (pitches remaining / 20).
     /// Only applies when pitching rules are enabled.
     case pitchCapacityLimited
+    /// The pitcher slot could not be filled because every pitcher-eligible
+    /// player must rest today under the pitch count rules, or has no league
+    /// age set (so their limits can't be checked). Only applies when pitching
+    /// rules are enabled.
+    case pitchersResting
+    /// The pitcher slot could not be filled without breaking a coach's
+    /// Auto-Fill instruction: the only players left who could pitch were told
+    /// to stay off Pitcher (directly, or by being kept out of the infield).
+    case avoidInstructions
 }
 
 /// A field position that auto-fill could not assign in a given inning.
@@ -99,6 +108,16 @@ nonisolated struct AutoFillResult {
         let capacitySlots = unfilledSlots.filter { $0.reason == .pitchCapacityLimited }
         if !capacitySlots.isEmpty {
             parts.append("\(label(for: capacitySlots)) could not be filled. All eligible pitchers have reached their estimated pitch count limit for today. Assign pitcher manually or adjust pitch counts on the Players tab.")
+        }
+
+        let restingSlots = unfilledSlots.filter { $0.reason == .pitchersResting }
+        if !restingSlots.isEmpty {
+            parts.append("\(label(for: restingSlots)) could not be filled. Every available pitcher either needs rest days under your pitch count rules or has no league age set. Set league ages on the Players tab, or assign pitcher manually.")
+        }
+
+        let avoidSlots = unfilledSlots.filter { $0.reason == .avoidInstructions }
+        if !avoidSlots.isEmpty {
+            parts.append("\(label(for: avoidSlots)) could not be filled without breaking your instructions. The only players left who could pitch were asked to stay off Pitcher or out of the infield. Change the instruction, or assign pitcher manually.")
         }
 
         let neverSlots = unfilledSlots.filter { $0.reason == .neverPreferences }
@@ -246,6 +265,12 @@ nonisolated struct AutoFillResult {
 //   The pitcher force-fill pass respects this constraint as well — if all
 //   eligible pitchers are at capacity, the slot is reported as unfilled with
 //   reason .pitchCapacityLimited.
+//
+//   Rest days are a HARD rule: a player whose PitchEligibilityEngine status
+//   blocks assignment (owes rest days, weekly cap exhausted, or no league age)
+//   is never auto-placed at pitcher, not even by an explicit NL "X pitches".
+//   All pitch checks use the lineup's gameDate, not today, matching the grid's
+//   blocked-pitcher warning.
 
 enum AutoFillEngine {
 
@@ -544,21 +569,43 @@ enum AutoFillEngine {
         /// over-assign innings to pitchers with limited availability.
         func estimatedPitcherInningsCapacity(_ player: Player) -> Int? {
             guard let pc = pitchingConfig, pc.rulesEnabled else { return nil }
-            guard let remaining = pitchesRemaining(for: player, gameLogs: gameLogs, config: pc) else {
+            guard let remaining = pitchesRemaining(
+                for: player, gameLogs: gameLogs, config: pc, referenceDate: lineup.gameDate
+            ) else {
                 return nil
             }
             return remaining / pitchesPerInning
         }
 
-        /// True when the player passes all hard pitcher rules (re-entry and
-        /// Never preference) without considering pitch count capacity.
-        /// Used by the unfilled classifier to distinguish capacity blocks from
-        /// re-entry blocks.
-        func isPitcherBaseEligible(_ player: Player) -> Bool {
+        /// Players the pitch count rules bar from pitching in this game: they
+        /// owe rest days, have exhausted the weekly cap, or have no league age.
+        /// Same test the grid uses to warn about blocked pitchers, and against
+        /// the same date (the game's, not today's).
+        let restBlockedPitcherIDs: Set<UUID> = {
+            guard let pc = pitchingConfig, pc.rulesEnabled else { return [] }
+            let gameDate = lineup.gameDate
+            return Set(active.filter {
+                PitchEligibilityEngine.status(
+                    for: $0, gameLogs: gameLogs, config: pc, referenceDate: gameDate
+                ).blocksAssignment
+            }.map(\.id))
+        }()
+
+        /// True when the player passes the re-entry and Never rules. Split out
+        /// so the unfilled classifier can tell a rest block from a re-entry one.
+        func passesReentryAndNever(_ player: Player) -> Bool {
             if hasExitedPitcher(player) { return false }
             let prefs = preferences[player.id] ?? [:]
             if prefs[.pitcher] == .never { return false }
             return true
+        }
+
+        /// True when the player passes all hard pitcher rules (re-entry, Never
+        /// preference, and pitch-rule rest) without considering pitch count
+        /// capacity. Used by the unfilled classifier to distinguish capacity
+        /// blocks from hard-rule blocks.
+        func isPitcherBaseEligible(_ player: Player) -> Bool {
+            passesReentryAndNever(player) && !restBlockedPitcherIDs.contains(player.id)
         }
 
         /// True when the player can be assigned pitcher in this inning.
@@ -742,9 +789,12 @@ enum AutoFillEngine {
 
             // Hard pitcher rules are never bypassed, even for an explicit assign.
             if target == .pitcher && !isPitcherBaseEligible(player) {
+                let reason = passesReentryAndNever(player)
+                    ? "Needs rest days under your pitch count rules, or has no league age set."
+                    : "Already exited the mound this game (re-entry rule), or marked Never for Pitcher."
                 constraintRejections.append(AutoFillConstraintRejection(
                     inningIndex: inningIndex, playerID: player.id, target: constraint.target,
-                    reason: "Already exited the mound this game (re-entry rule), or marked Never for Pitcher."
+                    reason: reason
                 ))
                 continue
             }
@@ -953,22 +1003,9 @@ enum AutoFillEngine {
         // player who is over their pitch budget.
 
         if openPositions.contains(.pitcher) {
-            // Players the coach explicitly asked to keep off Pitcher this
-            // inning are excluded from the fallback too — this is what
-            // actually stops "Connor pitches the first 2 innings" from
-            // having Connor reappear at Pitcher in inning 4 just because
-            // no one else was left. (An .assign for Pitcher outside its
-            // own range is turned into an implicit .avoid for the rest of
-            // the game by AutoFillNLConstraintService — see there.)
-            let avoidPitcherPlayerIDs = Set(
-                inningConstraints
-                    .filter { $0.intent == .avoid && $0.target == .position(.pitcher) }
-                    .map { $0.playerID }
-            )
-            let pitcherFallback = active.filter {
+            let eligibleFallback = active.filter {
                 lineup.innings[inningIndex].position(for: $0) == nil &&
                 isPitcherEligible($0) &&
-                !avoidPitcherPlayerIDs.contains($0.id) &&
                 // Don't un-bench a player who was deliberately held out this
                 // inning. Forced-bench players (a coach's explicit "bench X",
                 // or a bench-pairing mid-pair sit) still read as position==nil
@@ -976,6 +1013,18 @@ enum AutoFillEngine {
                 // below — without this guard the fallback would quietly pull a
                 // pitcher-eligible one onto the mound, breaking the instruction.
                 !forcedBenchPlayerIDs.contains($0.id)
+            }
+            // Players the coach asked to keep off Pitcher this inning are
+            // excluded from the fallback too — this is what actually stops
+            // "Connor pitches the first 2 innings" from having Connor reappear
+            // at Pitcher in inning 4 just because no one else was left. (An
+            // .assign for Pitcher outside its own range is turned into an
+            // implicit .avoid for the rest of the game by
+            // AutoFillNLConstraintService — see there.) Uses the same zone
+            // expansion as resolvePosition, so "keep X out of the infield"
+            // keeps X off the mound here as well.
+            let pitcherFallback = eligibleFallback.filter {
+                !avoidedPositions(for: $0).contains(.pitcher)
             }
             // Prefer players who haven't pitched yet, then by fewest innings.
             let sorted = pitcherFallback.sorted { a, b in
@@ -1058,6 +1107,20 @@ enum AutoFillEngine {
 
                 if allNeverPitcher {
                     reason = .neverPreferences
+                } else if active.contains(where: { isPitcherEligible($0) }) &&
+                            active.allSatisfy({
+                                !isPitcherEligible($0) || avoidedPositions(for: $0).contains(.pitcher)
+                            }) {
+                    // Everyone who could have pitched was told to stay off
+                    // the mound (directly or via an infield avoid). Name the
+                    // instruction rather than blaming roster size.
+                    reason = .avoidInstructions
+                } else if !anyBaseEligible && active.contains(where: {
+                    passesReentryAndNever($0) && restBlockedPitcherIDs.contains($0.id)
+                }) {
+                    // Nobody passes the hard rules, and at least one player
+                    // would have if not for rest days / unknown age.
+                    reason = .pitchersResting
                 } else if anyBaseEligible && !anyFullyEligible {
                     // Players exist who could pitch (pass hard rules) but have
                     // reached their estimated pitch count capacity for today.
