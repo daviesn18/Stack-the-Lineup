@@ -1,0 +1,195 @@
+name: CI
+
+# Runs the automated test suites the P1 handoff describes, so a push no longer
+# has to wait for a manual Xcode run on someone's Mac. Two jobs:
+#   * unit-tests   — the gate. Prefers an iOS 27 simulator and falls back to
+#                    the newest iPhone runtime on the runner. Also scans the
+#                    built app for isolated deinits, which crash on iOS 26.0-26.3
+#                    (see scripts/check-isolated-deinits.sh).
+#   * intent-tests — the AppIntentsTesting UI suite. Informational at first
+#                    (continue-on-error) until it's proven stable on the runner;
+#                    flip `continue-on-error` to false to make it a hard gate.
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: "Lineup Builder.xcodeproj"
+  SCHEME: "Lineup Builder"
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27 (if present) and show version
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode_27.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_27.app
+          fi
+          xcodebuild -version
+          echo "Available schemes:"
+          xcodebuild -list -project "$PROJECT" || true
+
+      - name: Pick a simulator (iOS 27 preferred)
+        id: sim
+        run: |
+          set -euo pipefail
+          # The suite used to be gated to iOS 27 because it crashed on iOS 26
+          # runtimes. That crash was main-actor classes' synthesized ISOLATED
+          # deinits aborting in swift_task_deinitOnExecutorImpl on iOS 26.0-26.3,
+          # fixed 2026-09-25 with explicit nonisolated deinits, so any iOS
+          # runtime is fair game now. Prefer 27 (the 3.5 SDK target).
+          UDID=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices | to_entries[] | select(.key|test("iOS-27")) | .value[] | select(.name|test("iPhone"))][0].udid // empty')
+          if [ -z "$UDID" ]; then
+            UDID=$(xcrun simctl list devices available --json \
+              | jq -r '[.devices | to_entries[] | select(.key|test("iOS-")) ] | sort_by(.key) | reverse | [.[].value[] | select(.name|test("iPhone"))][0].udid // empty')
+          fi
+          if [ -z "$UDID" ]; then
+            echo "::error::No iPhone simulator available on this runner."
+            exit 1
+          fi
+          echo "Using simulator UDID: $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Swift Package dependencies
+        uses: actions/cache@v4
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Resolve packages
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath .spm
+
+      - name: Run unit suite (Lineup BuilderTests)
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -clonedSourcePackagesDirPath .spm \
+            -derivedDataPath DerivedData \
+            -only-testing:"Lineup BuilderTests" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults-unit.xcresult \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
+            2>&1 | tee xcodebuild-unit.log
+
+      # Tests only catch the iOS 26.0-26.3 isolated-deinit crash when they run
+      # on one of those runtimes, and runners don't carry them. The binary
+      # check catches a new main-actor class regardless of runtime.
+      - name: Check for isolated deinits
+        run: scripts/check-isolated-deinits.sh "DerivedData/Build/Products/Debug-iphonesimulator/Stack the Lineup.app"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: |
+            TestResults-unit.xcresult
+            xcodebuild-unit.log
+          if-no-files-found: ignore
+
+      # Runs last so the failing tests/assertions are the tail of the job log —
+      # otherwise the artifact-upload progress spam buries them past the log
+      # truncation window.
+      - name: Summarize failing tests
+        if: failure()
+        run: |
+          echo "----- Failing tests / assertions -----"
+          grep -E "Test case '.+' failed|error:|TEST FAILED|TEST EXECUTE FAILED|Testing failed:|Testing cancelled|xcodebuild: error|never began executing|Unable to boot|Failed to" xcodebuild-unit.log \
+            | sed -E 's/^[0-9T:.-]+Z[[:space:]]*//' | sort -u | tail -100 || true
+          echo "----- tail of build/test log (incl. stderr) -----"
+          tail -40 xcodebuild-unit.log || true
+
+  intent-tests:
+    name: AppIntentsTesting (informational)
+    runs-on: macos-latest
+    # AppIntentsTesting launches the app out-of-process and needs an iOS 27
+    # simulator; keep it non-blocking until it's confirmed green on the runner,
+    # then set this to false to make it a required check.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27 (if present) and show version
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode_27.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_27.app
+          fi
+          xcodebuild -version
+
+      - name: Pick an iOS 27 simulator (required for this suite)
+        id: sim
+        run: |
+          set -euo pipefail
+          # STLAppIntentsTests is @available(iOS 27.0, *) — it needs a 27 runtime.
+          UDID=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices | to_entries[] | select(.key|test("iOS-27")) | .value[] | select(.name|test("iPhone"))][0].udid // empty')
+          if [ -z "$UDID" ]; then
+            echo "::warning::No iOS 27 iPhone runtime on this runner — the AppIntentsTesting suite cannot run here."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Using simulator UDID: $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Swift Package dependencies
+        uses: actions/cache@v4
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Run AppIntentsTesting suite (scoped)
+        if: steps.sim.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # Scoped to STLAppIntentsTests to avoid the UI target's known full-run hang.
+          xcodebuild test \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -clonedSourcePackagesDirPath .spm \
+            -only-testing:"Lineup BuilderUITests/STLAppIntentsTests" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults-intents.xcresult \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
+            2>&1 | tee xcodebuild-intents.log
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intent-test-results
+          path: |
+            TestResults-intents.xcresult
+            xcodebuild-intents.log
+          if-no-files-found: ignore
+
+      - name: Summarize failing tests
+        if: failure()
+        run: |
+          echo "----- Failing tests / assertions -----"
+          grep -E "Test case '.+' failed|error:|TEST FAILED|TEST EXECUTE FAILED|Testing failed:|Testing cancelled|xcodebuild: error|never began executing|Unable to boot|Failed to" xcodebuild-intents.log \
+            | sed -E 's/^[0-9T:.-]+Z[[:space:]]*//' | sort -u | tail -100 || true
+          echo "----- tail of build/test log (incl. stderr) -----"
+          tail -40 xcodebuild-intents.log || true

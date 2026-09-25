@@ -43,6 +43,9 @@ struct ShareInviteSheet: UIViewControllerRepresentable {
 // icloud.com/shares/... links.
 
 private final class ShareLinkItem: NSObject, UIActivityItemSource {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
 
     private let url: URL
     private let teamName: String

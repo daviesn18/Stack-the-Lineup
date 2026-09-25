@@ -11,7 +11,7 @@ import SwiftUI
 // the same way Spotlight is: the coach who asks this at a fence and gets a
 // straight answer is the one who later finds out what Auto-Fill does.
 //
-// `openAppWhenRun = false`, which fixes how failure has to work — nothing comes
+// `supportedModes` is `.background`, which fixes how failure has to work — nothing comes
 // forward to explain itself, so a thrown `localizedStringResource` IS the whole
 // answer. Note the split that follows from it: this intent throws only when it
 // can't tell *who* the coach is asking about (no such team, no such player),
@@ -37,7 +37,7 @@ struct FairPlayRuleIntent: AppIntent {
     )
 
     /// Answers in place. Nothing here mutates anything.
-    static let openAppWhenRun = false
+    static var supportedModes: IntentModes { .background }
 
     @Parameter(
         title: "Rule",

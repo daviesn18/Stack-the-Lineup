@@ -97,6 +97,10 @@ nonisolated struct AutoFillOutcome {
 
 @MainActor
 final class AutoFillCoordinator: ObservableObject {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     /// True while the on-device parse is in flight. Drives the popover's
     /// "Reading your instructions…" spinner.

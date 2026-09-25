@@ -514,4 +514,39 @@ final class TeamRulesTests: XCTestCase {
                             "\(value) has no display representation")
         }
     }
+
+    // MARK: - Dialog shape (double-print guard)
+    //
+    // FairPlayRuleIntent returns IntentDialog(full: spokenSummary, supporting:
+    // shortSummary) next to a snippet table. `full` is the voice-only answer and
+    // carries the numbers; `supporting` rides beside the on-screen table, which
+    // already shows those numbers. If `supporting` restates them, Spotlight
+    // prints every value twice (the tipkit/dialog double-print bug the ticket
+    // calls out). These pin the two summaries as distinct, with the numbers only
+    // in the spoken one.
+
+    func testSupportingSummaryDoesNotRepeatTheNumbersTheSnippetShows() {
+        var team = bareTeam()
+        team.fairPlayConfig.minimumInfieldInnings = 2
+
+        let answer = TeamRulesBuilder.answer(topic: .infieldMinimum, team: team)
+
+        XCTAssertFalse(answer.lines.isEmpty, "precondition: this answer has table rows")
+        XCTAssertTrue(containsDigit(answer.spokenSummary),
+                      "the spoken/full answer should carry the number: \(answer.spokenSummary)")
+        XCTAssertFalse(containsDigit(answer.shortSummary),
+                       "the supporting summary must not restate the number the snippet shows: \(answer.shortSummary)")
+        XCTAssertNotEqual(answer.spokenSummary, answer.shortSummary,
+                          "full and supporting must differ, or the dialog prints the same text twice")
+    }
+
+    func testDeferredAnswerUsesTheSameCaveatForBothSummaries() {
+        // When nothing can be quoted the caveat IS the answer, and there's no
+        // table to sit beside — so here the two summaries are allowed to match.
+        let team = bareTeam() // every rule off
+        let answer = TeamRulesBuilder.answer(topic: .overview, team: team)
+
+        XCTAssertTrue(answer.isDeferred, "precondition: nothing configured, so this defers")
+        XCTAssertEqual(answer.spokenSummary, answer.shortSummary)
+    }
 }

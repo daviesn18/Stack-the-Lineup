@@ -22,6 +22,29 @@ struct WhatsNewContent {
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
         WhatsNewContent(
+            version: "3.5",
+            features: [
+                WhatsNewFeature(
+                    icon: "figure.baseball",
+                    iconColor: .orange,
+                    title: "Hitting Archetypes",
+                    description: "Give each hitter a quick scouting card: Power, Gap, or Singles, plus their speed and on-base rating. Set it in the player form under Hitting Archetype.\n\nHitting Archetypes are a Pro feature."
+                ),
+                WhatsNewFeature(
+                    icon: "bolt.fill",
+                    iconColor: .green,
+                    title: "Auto-Fill Respects Rest Days",
+                    description: "With pitching rules on, Auto-Fill won't put a pitcher who still needs rest on the mound. It checks against the game's date, so lineups built ahead of time are right too.\n\nAnd every new game now starts with the whole team marked present."
+                ),
+                WhatsNewFeature(
+                    icon: "doc.text.magnifyingglass",
+                    iconColor: .blue,
+                    title: "Team Files Preview",
+                    description: "Tap a shared team file in Messages or Files and you'll see the team, not a blank page. To bring it in, tap Share, then Copy to Stack the Lineup."
+                )
+            ]
+        ),
+        WhatsNewContent(
             version: "3.4",
             features: [
                 WhatsNewFeature(

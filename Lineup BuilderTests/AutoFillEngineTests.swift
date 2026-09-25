@@ -542,4 +542,152 @@ final class AutoFillEngineTests: XCTestCase {
         XCTAssertTrue(fill.unfilledSlots.contains { $0.position == .pitcher },
             "Pitcher should be left unfilled rather than overriding the bench instruction")
     }
+    // MARK: - Pitch rest is a hard rule
+    //
+    // A pitcher the pitch count rules bar (owes rest days, or has no league
+    // age) must never be auto-placed at P, whichever pass would place them.
+
+    /// Pitching rules on with the Little League preset.
+    private func pitchingRules() -> PitchingConfig {
+        var pc = PitchingConfig(rulesEnabled: true)
+        pc.applyLittleLeaguePreset()
+        return pc
+    }
+
+    /// A log the day before `gameDate` where `player` threw `pitches`.
+    private func pitchLog(_ player: Player, pitches: Int, dayBefore gameDate: Date) -> GameLog {
+        GameLog(
+            gameDate: Calendar.current.date(byAdding: .day, value: -1, to: gameDate)!,
+            opponent: "Eagles",
+            inningsPlayed: 6,
+            battingOrder: [player.id],
+            innings: [],
+            playerSnapshot: [PlayerSnapshot(from: player)],
+            pitchCounts: [player.id.uuidString: pitches]
+        )
+    }
+
+    /// Eight players tagged Never for pitcher plus the given pitcher-eligible
+    /// players, with the Never tags in the preferences argument the engine reads.
+    private func rosterWithPitchers(_ pitchers: [Player]) -> (players: [Player], prefs: [UUID: [FieldPosition: PositionPreferenceTier]]) {
+        let others = (1...8).map { Player(firstName: "O\($0)", lastName: "Test", number: "0", leagueAge: 10) }
+        let prefs = Dictionary(uniqueKeysWithValues:
+            others.map { ($0.id, [FieldPosition.pitcher: PositionPreferenceTier.never]) })
+        return (others + pitchers, prefs)
+    }
+
+    func testRestingPitcherIsNeverAutoAssigned() {
+        let lineup = makeLineup(innings: 6)
+        // 60 pitches yesterday at league age 10 owes 3 rest days.
+        let resting = Player(firstName: "Rest", lastName: "Test", number: "0", leagueAge: 10)
+        let fresh = Player(firstName: "Fresh", lastName: "Test", number: "0", leagueAge: 10)
+        let (players, prefs) = rosterWithPitchers([resting, fresh])
+
+        for _ in 0..<50 {
+            let fill = AutoFillEngine.fillGame(
+                in: lineup, players: players, preferences: prefs,
+                pitchingConfig: pitchingRules(),
+                gameLogs: [pitchLog(resting, pitches: 60, dayBefore: lineup.gameDate)]
+            )
+            for inning in 0..<6 {
+                XCTAssertNotEqual(position(for: resting, inning: inning, in: fill.lineup), .pitcher,
+                    "A pitcher who owes rest days must never be auto-assigned P")
+            }
+        }
+    }
+
+    func testUnknownAgePitcherIsNeverAutoAssigned() {
+        let noAge = Player(firstName: "NoAge", lastName: "Test", number: "0")
+        let fresh = Player(firstName: "Fresh", lastName: "Test", number: "0", leagueAge: 10)
+        let (players, prefs) = rosterWithPitchers([noAge, fresh])
+
+        for _ in 0..<50 {
+            let fill = AutoFillEngine.fillGame(
+                in: makeLineup(innings: 6), players: players, preferences: prefs,
+                pitchingConfig: pitchingRules()
+            )
+            for inning in 0..<6 {
+                XCTAssertNotEqual(position(for: noAge, inning: inning, in: fill.lineup), .pitcher,
+                    "With pitching rules on, a player with no league age is blocked, matching the grid")
+            }
+        }
+    }
+
+    func testAllPitchersRestingReportsPitchersResting() {
+        let lineup = makeLineup()
+        let resting = Player(firstName: "Rest", lastName: "Test", number: "0", leagueAge: 10)
+        let (players, prefs) = rosterWithPitchers([resting])
+
+        let fill = AutoFillEngine.fillInning(
+            0, in: lineup, players: players, preferences: prefs,
+            pitchingConfig: pitchingRules(),
+            gameLogs: [pitchLog(resting, pitches: 60, dayBefore: lineup.gameDate)]
+        )
+
+        XCTAssertNotEqual(position(for: resting, inning: 0, in: fill.lineup), .pitcher)
+        XCTAssertEqual(fill.unfilledSlots.first { $0.position == .pitcher }?.reason, .pitchersResting)
+        XCTAssertTrue(fill.incompleteMessage(multiInning: false)?.contains("rest days") == true)
+    }
+
+    func testRestIsMeasuredFromGameDateNotToday() {
+        // Threw 60 pitches ten days before today (long rested by today), but
+        // the lineup is for a game the day after that outing. On game day he
+        // still owes rest, so Auto-Fill must hold him off the mound.
+        let tenDaysAgo = Calendar.current.date(byAdding: .day, value: -10, to: Date())!
+        var lineup = makeLineup()
+        lineup.gameDate = Calendar.current.date(byAdding: .day, value: 1, to: tenDaysAgo)!
+        let resting = Player(firstName: "Rest", lastName: "Test", number: "0", leagueAge: 10)
+        let (players, prefs) = rosterWithPitchers([resting])
+
+        let fill = AutoFillEngine.fillInning(
+            0, in: lineup, players: players, preferences: prefs,
+            pitchingConfig: pitchingRules(),
+            gameLogs: [pitchLog(resting, pitches: 60, dayBefore: lineup.gameDate)]
+        )
+
+        XCTAssertNotEqual(position(for: resting, inning: 0, in: fill.lineup), .pitcher,
+            "Rest must be checked against the lineup's game date, not today")
+    }
+
+    func testExplicitAssignOfRestingPitcherIsRejected() {
+        let lineup = makeLineup()
+        let resting = Player(firstName: "Rest", lastName: "Test", number: "0", leagueAge: 10)
+        let (players, prefs) = rosterWithPitchers([resting])
+        let constraints = AutoFillConstraintSet(playerConstraints: [
+            AutoFillPlayerConstraint(playerID: resting.id, target: .position(.pitcher), inningRange: 0...0, intent: .assign)
+        ])
+
+        let fill = AutoFillEngine.fillInning(
+            0, in: lineup, players: players, preferences: prefs,
+            pitchingConfig: pitchingRules(),
+            gameLogs: [pitchLog(resting, pitches: 60, dayBefore: lineup.gameDate)],
+            constraints: constraints
+        )
+
+        XCTAssertNotEqual(position(for: resting, inning: 0, in: fill.lineup), .pitcher)
+        XCTAssertTrue(fill.constraintRejections.contains { $0.playerID == resting.id },
+            "An explicit \"X pitches\" for a resting pitcher is rejected, not honored")
+    }
+
+    // MARK: - Zone avoids hold in the pitcher force-fill
+
+    func testInfieldAvoidKeepsOnlyPitcherOffTheMound() {
+        // Eli is the only pitcher-eligible player and was told to stay out of
+        // the infield. The force-fill must leave P open rather than put him there.
+        let eli = makePlayer("Eli")
+        let (players, prefs) = rosterWithPitchers([eli])
+        let constraints = AutoFillConstraintSet(playerConstraints: [
+            AutoFillPlayerConstraint(playerID: eli.id, target: .infield, inningRange: 0...0, intent: .avoid)
+        ])
+
+        for _ in 0..<50 {
+            let fill = AutoFillEngine.fillInning(
+                0, in: makeLineup(), players: players, preferences: prefs, constraints: constraints
+            )
+            let eliPos = position(for: eli, inning: 0, in: fill.lineup)
+            XCTAssertNotEqual(eliPos, .pitcher, "An infield avoid must also keep the player off the mound")
+            XCTAssertFalse(eliPos?.isInfield == true, "The infield avoid is kept")
+            XCTAssertEqual(fill.unfilledSlots.first { $0.position == .pitcher }?.reason, .avoidInstructions)
+        }
+    }
 }

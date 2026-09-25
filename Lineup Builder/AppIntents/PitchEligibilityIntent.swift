@@ -6,7 +6,7 @@ import SwiftUI
 //
 // "Can Bobby pitch on Saturday?"
 //
-// Free and `openAppWhenRun = false`, matching FairPlayRuleIntent — Pitching
+// Free and `supportedModes` is `.background`, matching FairPlayRuleIntent — Pitching
 // Rules isn't Pro-gated in the app, so its answers aren't either.
 //
 // This is the one intent where a wrong answer has a consequence off the phone,
@@ -26,7 +26,7 @@ struct PitchEligibilityIntent: AppIntent {
     )
 
     /// Answers in place. Nothing here mutates anything.
-    static let openAppWhenRun = false
+    static var supportedModes: IntentModes { .background }
 
     @Parameter(
         title: "Player",

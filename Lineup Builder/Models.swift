@@ -409,6 +409,65 @@ nonisolated enum PositionPreferenceTier: String, Codable, CaseIterable, Sendable
     }
 }
 
+// MARK: - Hitting Archetype
+
+/// How a hitter drives the ball. Captured per hitter; intended to inform
+/// batting-order automation in a later release (no consumer reads it yet).
+nonisolated enum HittingStyle: String, Codable, CaseIterable, Sendable {
+    case power   = "Power"
+    case gap     = "Gap"
+    case singles = "Singles"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+/// A hitter's baserunning speed tier.
+nonisolated enum SpeedRating: String, Codable, CaseIterable, Sendable {
+    case fast   = "Fast"
+    case medium = "Medium"
+    case slow   = "Slow"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+/// A hitter's on-base tendency (OBP).
+nonisolated enum OnBaseRating: String, Codable, CaseIterable, Sendable {
+    case high   = "High"
+    case medium = "Medium"
+    case low    = "Low"
+
+    nonisolated var displayName: String { rawValue }
+}
+
+/// The three archetype axes a coach can tag per hitter. Each is independently
+/// optional — a coach sets only what they know. Nil throughout means "not tagged".
+/// Kept as a struct (rather than three loose fields on Player) so a future
+/// batting-order engine can take one value; this release only captures the data.
+nonisolated struct HittingArchetype: Codable, Equatable, Sendable {
+    var hitting: HittingStyle?
+    var speed: SpeedRating?
+    var onBase: OnBaseRating?
+
+    nonisolated var isEmpty: Bool { hitting == nil && speed == nil && onBase == nil }
+
+    init(hitting: HittingStyle? = nil, speed: SpeedRating? = nil, onBase: OnBaseRating? = nil) {
+        self.hitting = hitting
+        self.speed = speed
+        self.onBase = onBase
+    }
+
+    // Lenient decode: an unknown or renamed raw value on any axis decodes as nil
+    // for that axis rather than throwing and taking the whole Player down with it
+    // (mirrors PositionPreferenceTier's defensive decode). encode(to:) stays
+    // synthesized.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hitting = (try? c.decodeIfPresent(HittingStyle.self, forKey: .hitting)) ?? nil
+        speed   = (try? c.decodeIfPresent(SpeedRating.self,  forKey: .speed))   ?? nil
+        onBase  = (try? c.decodeIfPresent(OnBaseRating.self, forKey: .onBase))  ?? nil
+    }
+}
+
 // MARK: - Player
 
 nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
@@ -418,6 +477,7 @@ nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
     var number: String
     var leagueAge: Int? = nil
     var positionPreferences: [FieldPosition: PositionPreferenceTier] = [:]
+    var hittingArchetype: HittingArchetype? = nil
 
     nonisolated var displayName: String { "\(firstName) \(lastName)" }
     nonisolated var displayNameWithNumber: String {
@@ -432,13 +492,15 @@ nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
     // suppresses the compiler-synthesized memberwise initializer.
     init(id: UUID = UUID(), firstName: String, lastName: String, number: String,
          leagueAge: Int? = nil,
-         positionPreferences: [FieldPosition: PositionPreferenceTier] = [:]) {
+         positionPreferences: [FieldPosition: PositionPreferenceTier] = [:],
+         hittingArchetype: HittingArchetype? = nil) {
         self.id = id
         self.firstName = firstName
         self.lastName = lastName
         self.number = number
         self.leagueAge = leagueAge
         self.positionPreferences = positionPreferences
+        self.hittingArchetype = hittingArchetype
     }
 
     // Custom decode: if positionPreferences fails for any reason (e.g. schema
@@ -455,6 +517,10 @@ nonisolated struct Player: Identifiable, Codable, Equatable, Sendable {
             [FieldPosition: PositionPreferenceTier].self,
             forKey: .positionPreferences
         )) ?? [:]
+        hittingArchetype = (try? container.decodeIfPresent(
+            HittingArchetype.self,
+            forKey: .hittingArchetype
+        )) ?? nil
     }
 }
 
@@ -1125,6 +1191,13 @@ nonisolated struct Team: Identifiable, Codable {
     /// working lineup isn't tied to a scheduled game (the legacy single-lineup
     /// path — coaches who don't sync a schedule stay here permanently).
     var currentGameID: UUID? = nil
+    /// Wall-clock time of the last local content edit, stamped in `save()`. Rides
+    /// the JSON blob (and therefore CloudKit), and is what `mergeCloudKitChanges`
+    /// compares to avoid stomping a locally-newer copy with a stale server fetch
+    /// whose own push is still debounced. Legacy blobs decode to `.distantPast`,
+    /// so a first edit always wins over a pre-field copy; ties resolve to the
+    /// server, preserving the prior CloudKit-authoritative behavior.
+    var updatedAt: Date = Date()
 
     var color: Color {
         get { Color(hex: colorHex) ?? .blue }
@@ -1153,7 +1226,8 @@ nonisolated struct Team: Identifiable, Codable {
         lineupTemplates: [LineupTemplate] = [],
         defaultTemplateID: UUID? = nil,
         gameLineups: [UUID: Lineup] = [:],
-        currentGameID: UUID? = nil
+        currentGameID: UUID? = nil,
+        updatedAt: Date = Date()
     ) {
         self.id = id
         self.name = name
@@ -1175,6 +1249,7 @@ nonisolated struct Team: Identifiable, Codable {
         self.defaultTemplateID = defaultTemplateID
         self.gameLineups = gameLineups
         self.currentGameID = currentGameID
+        self.updatedAt = updatedAt
     }
 
     // Custom decode: gameInningCount is new in v2.3 — older Team blobs won't
@@ -1216,6 +1291,10 @@ nonisolated struct Team: Identifiable, Codable {
         // identical to pre-upgrade behavior.
         gameLineups              = (try? c.decode([UUID: Lineup].self,   forKey: .gameLineups))             ?? [:]
         currentGameID            = try? c.decode(UUID.self,              forKey: .currentGameID)
+        // updatedAt is new in v3.5 — older blobs lack it. Decode to .distantPast
+        // so a pre-field copy never wins a recency comparison against a stamped
+        // local edit; a team's first save() stamps a real Date.
+        updatedAt                = (try? c.decode(Date.self,             forKey: .updatedAt))               ?? .distantPast
     }
 }
 
@@ -1255,6 +1334,10 @@ enum PendingRosterImport {
 // closes that window for the ordinary case.
 @MainActor
 final class CloudPushDebouncer {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     private var dirty: Set<UUID> = []
     private var timer: Task<Void, Never>?
@@ -1291,6 +1374,9 @@ final class CloudPushDebouncer {
     /// For tests and diagnostics: are there un-flushed dirty teams?
     var hasPendingWork: Bool { !dirty.isEmpty }
 
+    /// For tests: which teams are waiting to be pushed.
+    var pendingTeamIDs: Set<UUID> { dirty }
+
     private func fire() {
         timer = nil
         guard !dirty.isEmpty else { return }
@@ -1301,6 +1387,10 @@ final class CloudPushDebouncer {
 }
 
 class LineupStore: ObservableObject {
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
 
     // MARK: - Published State
     @Published var teams: [Team] = []
@@ -1337,6 +1427,18 @@ class LineupStore: ObservableObject {
         didSet {
             guard receivedShareRecordNames != oldValue else { return }
             TeamStorage.saveReceivedShares(receivedShareRecordNames)
+        }
+    }
+
+    /// Team record names whose CloudKit deletion hasn't been confirmed yet.
+    /// `deleteTeam` enqueues here and `retryPendingRecordDeletions()` drains it on
+    /// every sync until CloudKit confirms each record is gone — the reliable
+    /// replacement for the old fire-and-forget delete that leaked orphan records.
+    /// Persisted so the retry survives relaunch — see `TeamStorage.pendingDeletionsKey`.
+    var pendingRecordDeletions: Set<String> = TeamStorage.loadPendingDeletions() {
+        didSet {
+            guard pendingRecordDeletions != oldValue else { return }
+            TeamStorage.savePendingDeletions(pendingRecordDeletions)
         }
     }
 
@@ -1410,21 +1512,43 @@ class LineupStore: ObservableObject {
 
     // MARK: - Persistence
 
-    func save() {
+    /// Persists every team locally and pushes the one that changed.
+    ///
+    /// - Parameter changedTeamID: the team this edit touched. Defaults to the
+    ///   active team, which is what almost every mutator edits. Callers that edit
+    ///   a team by id (Edit Team, per-team rules) MUST pass it: before they did,
+    ///   editing a non-active team stamped and pushed the active one instead, so
+    ///   the edit never left the device (a renamed team stayed renamed on one
+    ///   device only) and an untouched team looked newer than it was.
+    func save(changedTeamID: UUID? = nil) {
+        let changedID = changedTeamID ?? activeTeamID
+
+        // Stamp the edited team's modified time before persisting, so the local
+        // blob (and the eventual CloudKit push) carries it. Only the team that
+        // changed is stamped: stamping every team would make an untouched team
+        // look newer than a genuine remote edit and wrongly skip that edit in
+        // mergeCloudKitChanges. Metadata-only writes go through saveLocalOnly()
+        // directly and correctly do NOT bump updatedAt.
+        if let changedID, let idx = teams.firstIndex(where: { $0.id == changedID }) {
+            teams[idx].updatedAt = Date()
+        }
+
         // Local write is immediate and unconditional — it is the durability
         // guarantee. Only the CloudKit push is coalesced (see below), so a burst
         // of position drags produces one upload instead of ~70 without ever
         // delaying the on-disk write.
         saveLocalOnly()
 
-        // Debounce the CloudKit push. Only the active team is ever mutated, so
-        // it is the only one that needs pushing here; the debouncer remembers it
-        // across a team switch and re-reads its live state at fire time. The
-        // read-only guard is re-checked in `pushDirtyTeamsToCloud` — a
+        // Debounce the CloudKit push of the changed team; the debouncer
+        // remembers it across a team switch and re-reads its live state at fire
+        // time. The read-only guard is re-checked in `pushDirtyTeamsToCloud` — a
         // permission change between scheduling and firing is honored there.
-        guard let activeTeamID else { return }
-        cloudPushDebouncer.schedule(activeTeamID)
+        guard let changedID else { return }
+        cloudPushDebouncer.schedule(changedID)
     }
+
+    /// For tests: teams waiting for their debounced CloudKit push.
+    var pendingCloudPushIDs: Set<UUID> { cloudPushDebouncer.pendingTeamIDs }
 
     /// Uploads the current state of each dirty team to CloudKit. Runs on the
     /// main actor from the debouncer's trailing edge (or an explicit flush).
@@ -1451,6 +1575,7 @@ class LineupStore: ObservableObject {
                 guard let self else { return }
                 do {
                     let recordName = try await CloudKitManager.shared.saveTeam(team, useSharedDB: useSharedDB)
+                    Log.sync.notice("Pushed team \(team.id, privacy: .public) (\(useSharedDB ? "shared" : "private", privacy: .public) DB) updatedAt \(team.updatedAt.timeIntervalSince1970, privacy: .public)")
                     if team.ckRecordName == nil {
                         await MainActor.run {
                             if let idx = self.teams.firstIndex(where: { $0.id == team.id }) {
@@ -1716,7 +1841,11 @@ class LineupStore: ObservableObject {
         }
     }
 
-    @objc private func iCloudDidUpdate(_ notification: Notification) {
+    /// Nonisolated because iCloud posts didChangeExternallyNotification on a
+    /// background queue. As a main-actor method, Swift 6 checked the thread on
+    /// entry and trapped (_swift_task_checkIsolatedSwift) before the hop below
+    /// could run: the "open a team on iPhone and iPad at once" crash in 3.4.
+    @objc nonisolated private func iCloudDidUpdate(_ notification: Notification) {
         DispatchQueue.main.async { self.applyStoredData() }
     }
 
@@ -1772,6 +1901,30 @@ class LineupStore: ObservableObject {
                 sharedFetchSucceeded: sharedFetchSucceeded
             )
         }
+
+        // Drive any not-yet-confirmed team deletion to completion. A delete that
+        // missed on its first attempt (offline/throttled) is retried here on
+        // every sync until the server record is actually gone — this is what
+        // stops orphan records from accumulating and resurrecting on a fresh
+        // install.
+        await retryPendingRecordDeletions()
+    }
+
+    /// Whether a server copy fetched from CloudKit should replace the local one.
+    ///
+    /// The merge is otherwise a blind wholesale overwrite, which can stomp a local
+    /// edit whose own CloudKit push is still debounced — the race that broke Siri's
+    /// Fill Lineup and that any locally-newer lineup edited around a foreground
+    /// fetch is exposed to. Compare `updatedAt`: take the server copy unless the
+    /// local copy is strictly newer (ties resolve to the server, keeping the prior
+    /// CloudKit-authoritative behavior).
+    ///
+    /// Read-only shared teams are never edited locally, so their local copy can
+    /// never legitimately be newer — always take the owner's copy for them, so a
+    /// clock-skew fluke can't freeze a received team on a stale copy.
+    nonisolated static func shouldApplyServerTeam(local: Team, server: Team) -> Bool {
+        if local.isReadOnly { return true }
+        return server.updatedAt >= local.updatedAt
     }
 
     @MainActor
@@ -1787,18 +1940,28 @@ class LineupStore: ObservableObject {
         // server copy, because the server blob always carries the owner's name.
         for serverTeam in changes.modifiedTeams {
             if let idx = localIndex(for: serverTeam) {
+                guard Self.shouldApplyServerTeam(local: teams[idx], server: serverTeam) else {
+                    // Local copy is newer than this fetched server copy — the push
+                    // carrying the local edit is still debounced. Keep local and
+                    // re-schedule its push rather than stomping the coach's edit.
+                    Log.sync.notice("Merge kept local team \(serverTeam.id, privacy: .public): local updatedAt \(self.teams[idx].updatedAt.timeIntervalSince1970, privacy: .public) > server \(serverTeam.updatedAt.timeIntervalSince1970, privacy: .public)")
+                    cloudPushDebouncer.schedule(teams[idx].id)
+                    continue
+                }
                 var updated = serverTeam
                 updated.coachName = teams[idx].coachName
                 teams[idx] = updated
+                Log.sync.notice("Merge applied server team \(serverTeam.id, privacy: .public) updatedAt \(serverTeam.updatedAt.timeIntervalSince1970, privacy: .public)")
             } else {
                 // No local match. Before this check that meant "new team, add
                 // it" — including on a fresh install, where nothing matches and
                 // every record the coach ever deleted came back.
                 guard !tombstones.blocks(teamID: serverTeam.id, recordName: serverTeam.ckRecordName) else {
-                    Log.sync.info("Ignored a server team this device deleted")
+                    Log.sync.notice("Merge ignored server team \(serverTeam.id, privacy: .public): deleted on this device")
                     continue
                 }
                 teams.append(serverTeam)
+                Log.sync.notice("Merge added server team \(serverTeam.id, privacy: .public)")
             }
             didChange = true
         }
@@ -1844,6 +2007,15 @@ class LineupStore: ObservableObject {
         // stored in the JSON blob so we must stamp it here every time.
         for sharedTeam in sharedTeams {
             if let idx = localIndex(for: sharedTeam) {
+                guard Self.shouldApplyServerTeam(local: teams[idx], server: sharedTeam) else {
+                    // A read-write participant edited this team locally and that
+                    // edit is newer than the copy just fetched. Keep it and let the
+                    // debounced shared-DB push carry it up (read-only teams never
+                    // reach here — shouldApplyServerTeam always applies for them).
+                    Log.sync.info("Kept a locally-newer shared team over a stale CloudKit copy")
+                    cloudPushDebouncer.schedule(teams[idx].id)
+                    continue
+                }
                 let localCoachName = teams[idx].coachName
                 var updated = sharedTeam
                 updated.coachName = localCoachName
@@ -2101,6 +2273,20 @@ class LineupStore: ObservableObject {
         }
 
         clearPositions()
+        // Absences belong to the game just played; the next game starts with
+        // everyone present. Cleared before the template is applied so a player
+        // who missed the last game still gets their standing assignments. (Once
+        // this runs, applyScheduledGame's ad-hoc stamp path only ever carries
+        // absences the coach set on the new lineup, which is what they want.)
+        // Marking a player absent dropped them from the batting order, so
+        // returning players go back at the bottom, as toggleAbsent does. The
+        // order of everyone who played is left alone.
+        let returning = activeTeam.players.filter {
+            activeTeam.lineup.absentPlayerIDs.contains($0.id)
+                && !activeTeam.lineup.battingOrder.contains($0.id)
+        }
+        activeTeam.lineup.battingOrder.append(contentsOf: returning.map(\.id))
+        activeTeam.lineup.absentPlayerIDs = []
         // Archiving is the app's only "new game starts now" moment, so this is
         // where a default template earns its keep — the next game opens with
         // the coach's standing assignments already in the grid.
@@ -2310,7 +2496,7 @@ class LineupStore: ObservableObject {
             "outfielderCount": "\(config.outfielderCount)",
             "minimumFieldingInnings": "\(config.minimumFieldingInnings)"
         ])
-        save()
+        save(changedTeamID: teamID)
     }
 
     /// Updates the pitching config for a specific team. Scoped to teamID so
@@ -2323,7 +2509,7 @@ class LineupStore: ObservableObject {
             "weeklyLimitEnabled": "\(config.weeklyLimitEnabled)",
             "rollingWindowType": config.rollingWindowType.rawValue
         ])
-        save()
+        save(changedTeamID: teamID)
     }
 
     /// Saves pitch counts to a specific game log. Merges with any existing counts
@@ -2408,7 +2594,9 @@ class LineupStore: ObservableObject {
     func setCoachName(_ coachName: String, teamID: UUID) {
         guard let idx = teams.firstIndex(where: { $0.id == teamID }) else { return }
         teams[idx].coachName = coachName
-        save()
+        // Local-only: no push, and no updatedAt bump that would make this team
+        // look newer than a real remote edit.
+        saveLocalOnly()
     }
 
     /// True when `coachName` tells you nothing about who the coach is.
@@ -2456,7 +2644,7 @@ class LineupStore: ObservableObject {
         teams[idx].color = color
         teams[idx].coachName = coachName
         applyGameInningCount(gameInningCount, at: idx)
-        save()
+        save(changedTeamID: id)
     }
 
     // MARK: - Schedule Management
@@ -3016,6 +3204,26 @@ class LineupStore: ObservableObject {
         return recordName
     }
 
+    /// Drives every unconfirmed team-record deletion to completion, clearing each
+    /// the moment CloudKit confirms it — `deleteTeam(recordName:)` treats an
+    /// already-gone record (`unknownItem`) as success, so a confirmed delete and
+    /// an already-deleted record both clear the entry. A record that still fails
+    /// (offline/throttled) stays queued and is retried on the next sync. Called
+    /// right after a delete and from `fetchCloudKitChanges`, so a missed delete
+    /// can no longer leak an orphan the way fire-and-forget did.
+    @MainActor
+    func retryPendingRecordDeletions() async {
+        guard !pendingRecordDeletions.isEmpty else { return }
+        for recordName in pendingRecordDeletions {
+            do {
+                try await CloudKitManager.shared.deleteTeam(recordName: recordName)
+                pendingRecordDeletions.remove(recordName)
+            } catch {
+                Log.sync.error("Pending team-record deletion still failing, will retry next sync: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     func deleteTeam(id: UUID) {
         guard teams.count > 1 else { return }
         guard let team = teams.first(where: { $0.id == id }) else { return }
@@ -3044,16 +3252,14 @@ class LineupStore: ObservableObject {
         }
 
         if let recordToDelete {
-            // Fire-and-forget: the local delete has already happened, and the
-            // tombstone covers us if this never lands.
-            Task {
-                do {
-                    try await CloudKitManager.shared.deleteTeam(recordName: recordToDelete)
-                    Log.sync.info("Deleted team record from CloudKit")
-                } catch {
-                    Log.sync.error("Team record delete failed, tombstone holds: \(error.localizedDescription, privacy: .public)")
-                }
-            }
+            // Enqueue for reliable deletion rather than fire-and-forget. The
+            // local delete already happened and the tombstone blocks re-add on
+            // this device, but the *server* record must actually go: a delete
+            // that missed (offline/throttled) used to leak an orphan that a fresh
+            // install elsewhere would resurrect. retryPendingRecordDeletions
+            // drives it to completion here and on every subsequent sync.
+            pendingRecordDeletions.insert(recordToDelete)
+            Task { await retryPendingRecordDeletions() }
         }
 
         // Drop this device's push token for the team we just left. Without it the

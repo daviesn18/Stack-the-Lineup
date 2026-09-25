@@ -70,6 +70,21 @@ enum DiagnosticsReport {
         lines.append("Pending share revocations: \(store.pendingShareRevocations.count)")
         lines.append("Active team id: \(store.activeTeamID?.uuidString ?? "none")")
 
+        // The most recent share acceptance. This is the field that turns an
+        // assistant's "I tapped Join and nothing happened" from a guess into a
+        // fact: a FAILED line with a CKError-derived reason means the accept never
+        // took (so the received-share ledger above will be empty for good reason),
+        // while an "ok" line means the accept worked and any missing team is a
+        // surfacing problem, not an acceptance one. detail is name-free.
+        if let accept = TeamStorage.loadLastShareAccept() {
+            let when   = ISO8601DateFormatter().string(from: accept.at)
+            let status = accept.succeeded ? "ok" : "FAILED — \(accept.detail)"
+            let root   = accept.rootRecordName.map { " root \($0)" } ?? ""
+            lines.append("Last share accept: \(status) at \(when)\(root)")
+        } else {
+            lines.append("Last share accept: none recorded")
+        }
+
         return lines.joined(separator: "\n")
     }
 
@@ -104,7 +119,12 @@ enum DiagnosticsReport {
             let joined = info.acceptedCount
             let total  = info.participants.count
             let url    = info.url != nil ? "yes" : "none"
-            return "share: shared   link: \(info.linkPermission.rawValue)   joined: \(joined)/\(total)   url: \(url)"
+            let base   = "share: shared   link: \(info.linkPermission.rawValue)   joined: \(joined)/\(total)   url: \(url)"
+            // A public link (the Messages "share link" flow) grants access through
+            // the public permission without adding a participant, so joined/total
+            // stays 0/0 even when coaches have joined. Say so, or the count reads
+            // as "nobody accepted" when the share is actually working.
+            return info.isPublicLink ? base + "   (public link — joiners not counted here)" : base
         case .participant:
             return "share: participant   myPermission: \(info.myPermission.rawValue)"
         }

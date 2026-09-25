@@ -173,6 +173,22 @@ enum AutoFillNLParseError: Error {
 /// correct.
 @MainActor
 final class AutoFillNLConstraintService {
+    /// Explicitly nonisolated to dodge a runtime crash, not for cleanup: the
+    /// body is empty and deallocation still releases every stored property.
+    ///
+    /// Under this project's MainActor-default concurrency settings the compiler
+    /// synthesizes an ISOLATED deinit for a main-actor class, and deallocation
+    /// then runs through `swift_task_deinitOnExecutorImpl`. On the iOS 26.0-26.3
+    /// runtime that path aborts in libmalloc ("pointer being freed was not
+    /// allocated", from `TaskLocal::StopLookupScope`), taking down the app. It
+    /// fires whenever an instance is released, so every Auto-Fill popover close
+    /// crashed on those versions. Verified 2026-09-25: reproduces on the iOS
+    /// 26.2 simulator, not on 26.4, 26.5 or 27.0. The same fix covers every
+    /// main-actor class the app releases (grep "iOS 26.0-26.3 isolated-deinit"),
+    /// and AppRouter has had it since 3.7. Keep it until the deployment floor
+    /// moves past 26.3.
+    nonisolated deinit {}
+
 
     private let activePlayers: [Player]
     private let inningCount: Int

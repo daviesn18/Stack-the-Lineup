@@ -351,7 +351,7 @@ struct AutoFillConstraintsTip: Tip {
 struct AskSiriTip: Tip {
     var title: Text { tourTitle("Or just ask") }
     var message: Text? {
-        Text("\"Hey Siri, fill my lineup in Stack the Lineup.\" Siri can also recap your last game and check whether a pitcher is rested. The full list is in Settings.")
+        Text("\"Hey Siri, how did we do in Stack the Lineup?\" Siri can recap your last game, read back your fair play rules, and check whether a pitcher is rested. The full list is in Settings.")
     }
     var image: Image? { Image(systemName: "mic.fill") }
     var actions: [Action] { doneAction }

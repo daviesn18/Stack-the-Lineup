@@ -66,6 +66,14 @@ nonisolated struct PlayerEntity: AppEntity, IndexedEntity, URLRepresentableEntit
     static var urlRepresentation: URLRepresentation { "stackthelineup://player/\(.id)" }
 
     // MARK: - IndexedEntity
+    //
+    // iOS 27 note (v3.5 P2 investigation): this hand-built attributeSet is the
+    // *classic* Spotlight index path. iOS 27's semantic-index adoption is exposed
+    // as `@Property(indexingKey: \CSSearchableItemAttributeSet.…)`, which would
+    // require converting the fields below to @Property wrappers — a refactor of
+    // this shipping entity. Deliberately NOT done: whether the classic path
+    // already feeds the 27 semantic index is a device question, gated in
+    // V3.5_P1_DEVICE_TEST_CHECKLIST.md §6 before any refactor.
 
     /// Spotlight matches the query against keywords as well as the title, so this
     /// is what makes "12", "number 12" and "Tigers" find a player whose displayed

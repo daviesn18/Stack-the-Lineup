@@ -287,4 +287,41 @@ final class PitchEligibilityAnswerTests: XCTestCase {
         XCTAssertTrue(answer.spokenSummary.contains("only 1 more pitch —"), answer.spokenSummary)
         XCTAssertFalse(answer.spokenSummary.contains("1 more pitches"), answer.spokenSummary)
     }
+
+    // MARK: - Dialog shape (double-print guard)
+    //
+    // PitchEligibilityIntent returns IntentDialog(full: spokenSummary,
+    // supporting: shortSummary) beside a snippet that already shows the verdict
+    // and pitch count. As with FairPlay, `supporting` must not restate the
+    // numbers the snippet carries, or the on-screen dialog prints them twice.
+
+    func testAnsweredVerdictSupportingSummaryDropsTheNumbers() {
+        // A genuinely-rested player yields a `.clear` verdict whose spoken answer
+        // quotes the limit; the supporting line must not.
+        var subject = team()
+        let bobby = player()
+        subject.players = [bobby]
+
+        let answer = PitchEligibilityAnswerBuilder.answer(player: bobby, team: subject)
+
+        XCTAssertTrue(containsDigit(answer.spokenSummary),
+                      "the spoken/full answer should carry the pitch limit: \(answer.spokenSummary)")
+        XCTAssertFalse(containsDigit(answer.shortSummary),
+                       "the supporting summary must not restate the number the snippet shows: \(answer.shortSummary)")
+        XCTAssertNotEqual(answer.spokenSummary, answer.shortSummary)
+    }
+
+    func testNotTrackedVerdictSpeaksTheSameLineBothWays() {
+        // With nothing to track there is no snippet table to sit beside, so the
+        // full and supporting summaries are deliberately identical (see the
+        // shortSummary comment: .notTracked returns spokenSummary).
+        let subject = team(rulesEnabled: false)
+        let bobby = player()
+        var withPlayer = subject
+        withPlayer.players = [bobby]
+
+        let answer = PitchEligibilityAnswerBuilder.answer(player: bobby, team: withPlayer)
+
+        XCTAssertEqual(answer.spokenSummary, answer.shortSummary)
+    }
 }

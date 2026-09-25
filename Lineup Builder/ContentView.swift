@@ -29,6 +29,16 @@ struct ContentView: View {
         let message: String
     }
 
+    // A CloudKit share invitation that failed to accept. Surfaced so a coach who
+    // tapped "Join" and got nothing isn't left guessing — SceneDelegate records
+    // the failure and ContentView presents it here.
+    @State private var shareAcceptError: ShareAcceptErrorWrapper? = nil
+
+    private struct ShareAcceptErrorWrapper: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+
     // Share-sheet roster import flow
     @State private var showingImportTeamPicker = false
     @State private var showingImportTeamForm = false
@@ -242,6 +252,13 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .alert(item: $shareAcceptError) { wrapper in
+            Alert(
+                title: Text("Couldn't Join Team"),
+                message: Text(wrapper.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
         .onOpenURL { url in
             // App/widget/Spotlight/Siri deep links route; everything else is a
             // shared file that still goes down the import paths.
@@ -305,7 +322,15 @@ struct ContentView: View {
                 // appear before the CloudKit incremental fetch completes.
                 store.load()
                 // Pull CloudKit changes (owned + shared teams) concurrently.
-                Task { await store.fetchCloudKitChanges() }
+                // The incremental merge overwrites the active team wholesale
+                // (mergeCloudKitChanges), so a server copy that predates a just-
+                // staged Auto-Fill can stomp it — the fill's own push is
+                // debounced and may not have uploaded yet. Re-assert the fill
+                // after the merge to repair that.
+                Task {
+                    await store.fetchCloudKitChanges()
+                    consumePendingFill(reassert: true)
+                }
                 // Write this device's APNs token for every team, if one arrived
                 // before there was a view to receive it. On a cold launch that
                 // is the normal case, not the edge case — see backlog 1.9.
@@ -340,6 +365,11 @@ struct ContentView: View {
             // the race handles it and the other finds nothing.
             handleShareAcceptanceIfPending()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAcceptFailed)) { _ in
+            // Same drain contract as acceptance: the stored value is the source
+            // of truth, so this and the cold-launch .task can't double-alert.
+            handleShareAcceptFailureIfPending()
+        }
         .task {
             // The cold-launch half. Tapping an invite when the app isn't running
             // delivers the accept callback before this view subscribes above, so
@@ -347,6 +377,9 @@ struct ContentView: View {
             // silently in the background at the next ordinary sync — which is
             // exactly what it did.
             handleShareAcceptanceIfPending()
+            // A failed accept races the first render the same way; drain it here
+            // too so a cold-launch failure still reaches the coach.
+            handleShareAcceptFailureIfPending()
         }
     }
 
@@ -368,6 +401,14 @@ struct ContentView: View {
 
         let teamIDsBefore = Set(store.teams.map { $0.id })
         joinSharedTeam(rootRecordName: accepted.rootRecordName, teamIDsBefore: teamIDsBefore)
+    }
+
+    /// Tells the coach a share invitation failed to accept. Drains the same
+    /// stored value the notification and the cold-launch `.task` both feed, so a
+    /// single failure produces a single alert.
+    private func handleShareAcceptFailureIfPending() {
+        guard let message = PendingShareAcceptFailure.take() else { return }
+        shareAcceptError = ShareAcceptErrorWrapper(message: message)
     }
 
     /// Polls CloudKit until the just-accepted team lands, then foregrounds it and
@@ -583,13 +624,31 @@ struct ContentView: View {
     /// because "fill the Tigers lineup" shouldn't land on another roster, and
     /// because save() only pushes the *active* team to CloudKit, so mutating an
     /// inactive one would persist locally and never sync.
-    private func consumePendingFill() {
-        guard let pending = router.pendingFill,
-              pending.nonce != lastHandledFillNonce else { return }
-        // A fill computed an hour ago would overwrite whatever the coach has
-        // edited since. Same first-drain-only guard as consumePendingRoute().
-        guard lastHandledFillNonce != nil || pending.isFresh else { return }
-        guard store.teams.contains(where: { $0.id == pending.teamID }) else { return }
+    ///
+    /// Two entry points: the normal drain (onAppear / a `pendingFill` change)
+    /// and a re-assert from the scenePhase `.active` handler after a CloudKit
+    /// merge. Gated on freshness rather than a permanent "already handled"
+    /// latch: a foreground CloudKit fetch can overwrite the active team wholesale
+    /// (mergeCloudKitChanges), and because the fill's own push is debounced a
+    /// server copy that predates the fill can land first and stomp it. The
+    /// re-assert re-applies the fill the normal path already latched; past the
+    /// 60s freshness window we stop, so a fill can't resurrect over a later edit
+    /// — the same bound `consumePendingRoute` uses.
+    ///
+    /// Residual edge: a coach edit made in the seconds between the fill and the
+    /// merge completing can be reverted by the re-assert. It restores the exact
+    /// lineup the coach asked Siri for, not arbitrary data.
+    ///
+    /// The proper source fix has since landed: `Team.updatedAt` + the recency
+    /// guard in `mergeCloudKitChanges` (`shouldApplyServerTeam`) now stop a stale
+    /// server copy from stomping a locally-newer team at all. This re-assert is
+    /// kept as belt-and-suspenders for the staged-fill nonce path.
+    private func consumePendingFill(reassert: Bool = false) {
+        guard let pending = router.pendingFill, pending.isFresh,
+              store.teams.contains(where: { $0.id == pending.teamID }) else { return }
+        // The normal path applies each fill once; only the post-merge re-assert
+        // re-applies one it has already handled.
+        if pending.nonce == lastHandledFillNonce && !reassert { return }
         lastHandledFillNonce = pending.nonce
 
         if pending.teamID != store.activeTeamID {
