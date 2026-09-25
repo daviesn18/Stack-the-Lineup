@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import os
 
 // MARK: - Share Value Types
 //
@@ -230,8 +231,18 @@ actor CloudKitManager {
     
     // UserDefaults keys
     private let migrationKey   = "hasCompletedCloudKitMigration"
+    /// Debug builds talk to the CloudKit Development database, TestFlight and App
+    /// Store builds to Production, but they share this app's UserDefaults. A
+    /// Production token handed to Development (or back) isn't rejected: the
+    /// fetch just reports no changes, forever. That silently stopped an iPad
+    /// that had run an App Store build from ever receiving another device's
+    /// edits once it ran a Debug build. Separate keys keep the two apart.
+    #if DEBUG
+    private let changeTokenKey = "ckZoneChangeToken_STLTeams_debug"
+    #else
     private let changeTokenKey = "ckZoneChangeToken_STLTeams"
-    
+    #endif
+
     // MARK: - CloudKit Handles
     // nonisolated — computed from constants only, callable from any context.
     
@@ -409,6 +420,7 @@ actor CloudKitManager {
                 recordCache[saved.recordID.recordName] = saved
             } else {
                 // Server is newer — cache it. LineupStore picks up the data on fetchChanges.
+                Log.sync.notice("Push skipped for \(record.recordID.recordName, privacy: .public): server copy is newer (server \(serverModifiedAt.timeIntervalSince1970, privacy: .public) >= local \(localModifiedAt.timeIntervalSince1970, privacy: .public))")
                 recordCache[serverRecord.recordID.recordName] = serverRecord
             }
             
@@ -500,6 +512,7 @@ actor CloudKitManager {
             )
         }
         
+        Log.sync.notice("Private fetch starting (\(token == nil ? "full, no change token" : "incremental", privacy: .public))")
         var moreComing = true
         while moreComing {
             let batch = try await fetchBatch(since: token)
@@ -517,6 +530,7 @@ actor CloudKitManager {
             UserDefaults.standard.set(tokenData, forKey: changeTokenKey)
         }
         
+        Log.sync.notice("Private fetch done: \(allModified.count, privacy: .public) teams [\(allModified.map { $0.id.uuidString.prefix(8) }.joined(separator: ", "), privacy: .public)], \(allDeleted.count, privacy: .public) deletions")
         return FetchChangesResult(modifiedTeams: allModified, deletedRecordNames: allDeleted)
     }
     
@@ -590,7 +604,14 @@ actor CloudKitManager {
         let jsonKey = self.jsonField
         let teams: [Team] = await MainActor.run {
             rawResult.rawRecords.compactMap { record in
-                try? CloudKitManager.decodeTeam(from: record, jsonField: jsonKey)
+                do {
+                    return try CloudKitManager.decodeTeam(from: record, jsonField: jsonKey)
+                } catch {
+                    // Dropped records used to vanish silently while the change
+                    // token moved past them, so the team never arrived again.
+                    Log.sync.error("Couldn't decode team record \(record.recordID.recordName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    return nil
+                }
             }
         }
         

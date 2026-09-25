@@ -1575,6 +1575,7 @@ class LineupStore: ObservableObject {
                 guard let self else { return }
                 do {
                     let recordName = try await CloudKitManager.shared.saveTeam(team, useSharedDB: useSharedDB)
+                    Log.sync.notice("Pushed team \(team.id, privacy: .public) (\(useSharedDB ? "shared" : "private", privacy: .public) DB) updatedAt \(team.updatedAt.timeIntervalSince1970, privacy: .public)")
                     if team.ckRecordName == nil {
                         await MainActor.run {
                             if let idx = self.teams.firstIndex(where: { $0.id == team.id }) {
@@ -1943,22 +1944,24 @@ class LineupStore: ObservableObject {
                     // Local copy is newer than this fetched server copy — the push
                     // carrying the local edit is still debounced. Keep local and
                     // re-schedule its push rather than stomping the coach's edit.
-                    Log.sync.info("Kept a locally-newer team over a stale CloudKit copy")
+                    Log.sync.notice("Merge kept local team \(serverTeam.id, privacy: .public): local updatedAt \(self.teams[idx].updatedAt.timeIntervalSince1970, privacy: .public) > server \(serverTeam.updatedAt.timeIntervalSince1970, privacy: .public)")
                     cloudPushDebouncer.schedule(teams[idx].id)
                     continue
                 }
                 var updated = serverTeam
                 updated.coachName = teams[idx].coachName
                 teams[idx] = updated
+                Log.sync.notice("Merge applied server team \(serverTeam.id, privacy: .public) updatedAt \(serverTeam.updatedAt.timeIntervalSince1970, privacy: .public)")
             } else {
                 // No local match. Before this check that meant "new team, add
                 // it" — including on a fresh install, where nothing matches and
                 // every record the coach ever deleted came back.
                 guard !tombstones.blocks(teamID: serverTeam.id, recordName: serverTeam.ckRecordName) else {
-                    Log.sync.info("Ignored a server team this device deleted")
+                    Log.sync.notice("Merge ignored server team \(serverTeam.id, privacy: .public): deleted on this device")
                     continue
                 }
                 teams.append(serverTeam)
+                Log.sync.notice("Merge added server team \(serverTeam.id, privacy: .public)")
             }
             didChange = true
         }
