@@ -3,12 +3,13 @@
 // Import menu (paste a list, or a GameChanger roster CSV). Team-level only:
 // attendance lives on each game.
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { isInfield, type FieldPosition, type Player, type PositionPreferenceTier } from '@/core/model';
 import { matchKey, parseRosterCsv, ROSTER_CSV_ERRORS, type ImportedPlayer } from '@/core/rosterCsv';
 import { useTeam } from '@/data/teamStore';
 
+import { Field, Input } from './controls';
 import { seasonTotals } from './HistoryScreen';
 import { Icon } from './Icon';
 import { parseRosterList } from './rosterList';
@@ -479,22 +480,6 @@ export function PlayerPanel() {
         </footer>
       </aside>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: SUB }}>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Input({ value, onChange, width, numeric, autoFocus }: { value: string; onChange(v: string): void; width?: number; numeric?: boolean; autoFocus?: boolean }) {
-  return (
-    <input value={value} onChange={(e) => onChange(e.target.value)} inputMode={numeric ? 'numeric' : undefined} autoFocus={autoFocus} className="field"
-      style={{ width: width ?? '100%', height: 36, borderRadius: 8, border: `1px solid ${BORDER2}`, padding: '0 10px', fontSize: 15, outline: 'none' }} />
   );
 }
 

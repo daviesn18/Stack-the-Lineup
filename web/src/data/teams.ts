@@ -1,7 +1,7 @@
 // Team list and .stlteam import against Supabase.
 
 import { parseStlTeam, TeamImportError } from '../core/stlteam';
-import type { Team } from '../core/model';
+import { defaultFairPlayConfig, defaultPitchingConfig, emptyLineup, type Team } from '../core/model';
 import { supabase } from './supabase';
 import { asSeparateCopy, toImportPayload, type ImportPayload } from './teamPayload';
 
@@ -10,6 +10,9 @@ export interface TeamSummary {
   name: string;
   colorHex: string;
   playerCount: number;
+  archivedGames: number;
+  /** The open lineup's game, when it has an opponent. */
+  nextGame: { opponent: string; gameDate: Date } | null;
 }
 
 /** Postgres returns uuids lower-case; the app (like iOS) works in upper-case. */
@@ -18,9 +21,10 @@ export const upperId = (id: string) => id.toUpperCase();
 export async function listTeams(): Promise<TeamSummary[]> {
   const { data, error } = await supabase
     .from('teams')
-    .select('id, name, color_hex, players(count)')
+    .select('id, name, color_hex, players(count), game_logs(count), current:lineups!teams_current_lineup_fk(opponent, game_date)')
     .is('deleted_at', null)
     .is('players.deleted_at', null)
+    .is('game_logs.deleted_at', null)
     .order('name');
   if (error) throw new Error(error.message);
   return (data ?? []).map((t) => ({
@@ -28,7 +32,14 @@ export async function listTeams(): Promise<TeamSummary[]> {
     name: t.name,
     colorHex: t.color_hex,
     playerCount: (t.players as unknown as { count: number }[])[0]?.count ?? 0,
+    archivedGames: (t.game_logs as unknown as { count: number }[])[0]?.count ?? 0,
+    nextGame: nextGameOf(t.current as unknown),
   }));
+}
+
+function nextGameOf(row: unknown): TeamSummary['nextGame'] {
+  const l = (Array.isArray(row) ? row[0] : row) as { opponent: string; game_date: string } | null | undefined;
+  return l?.opponent ? { opponent: l.opponent, gameDate: new Date(l.game_date) } : null;
 }
 
 export interface ImportPreview {
@@ -71,3 +82,14 @@ export async function importTeam(
 }
 
 export { TeamImportError };
+
+/** A new, empty team: no players yet, default rules. Written through the same import_team function. */
+export async function createTeam(fields: { name: string; coachName: string; colorHex: string; gameInningCount: number }): Promise<ImportOutcome> {
+  const team: Team = {
+    id: crypto.randomUUID().toUpperCase(), name: fields.name.trim(), colorHex: fields.colorHex, coachName: fields.coachName.trim(),
+    gameInningCount: fields.gameInningCount, players: [], lineup: emptyLineup(fields.gameInningCount), gameLogs: [],
+    createdAt: new Date(), scheduledGames: [], fairPlayConfig: defaultFairPlayConfig(), pitchingConfig: defaultPitchingConfig(),
+    lineupTemplates: [], gameLineups: {},
+  };
+  return importTeam(toImportPayload(team).payload);
+}

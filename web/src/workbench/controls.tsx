@@ -7,6 +7,7 @@ import { useEffect, type CSSProperties, type ReactNode } from 'react';
 
 import { Icon } from './Icon';
 import { BORDER, BORDER2, Kbd, SUB } from './Shell';
+import { TEAM_COLORS } from './teamSettings';
 import { C } from './theme';
 
 export const CANVAS = '#F2F2F7';
@@ -206,6 +207,65 @@ export function Dialog({ title, subtitle, onClose, width = 560, footer, children
           {footer}
         </footer>
       </div>
+    </div>
+  );
+}
+
+/** A labeled field for forms in panels and dialogs: small caps label above the input. */
+export function Field({ label, children, aside }: { label: string; children: ReactNode; aside?: ReactNode }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: SUB }}>{label}</span>
+        {aside && <span style={{ marginLeft: 'auto' }}>{aside}</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+export function Input({ value, onChange, width, numeric, autoFocus, type = 'text', autoComplete, height = 36 }: {
+  value: string; onChange(v: string): void; width?: number; numeric?: boolean; autoFocus?: boolean;
+  type?: 'text' | 'email' | 'password'; autoComplete?: string; height?: number;
+}) {
+  return (
+    <input value={value} onChange={(e) => onChange(e.target.value)} inputMode={numeric ? 'numeric' : undefined} autoFocus={autoFocus}
+      type={type} autoComplete={autoComplete} autoCapitalize={type === 'email' ? 'none' : undefined} spellCheck={type === 'text' ? undefined : false}
+      className="field"
+      style={{ width: width ?? '100%', height, borderRadius: 8, border: `1px solid ${BORDER2}`, padding: '0 10px', fontSize: 15, outline: 'none', background: '#fff' }} />
+  );
+}
+
+/** The team color swatches; a color from outside the set shows as an extra, selected swatch. */
+export function ColorSwatches({ value, onChange }: { value: string; onChange(hex: string): void }) {
+  const custom = !TEAM_COLORS.some(([, hex]) => hex === value);
+  return (
+    <div role="radiogroup" aria-label="Team color" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+      {(custom ? [...TEAM_COLORS, ['Custom', value] as [string, string]] : TEAM_COLORS).map(([name, hex]) => {
+        const on = hex === value;
+        return (
+          <button type="button" key={name} role="radio" aria-checked={on} aria-label={name} title={name} onClick={() => onChange(hex)}
+            style={{ width: 28, height: 28, borderRadius: 14, background: `#${hex}`, transition: 'box-shadow .15s ease',
+              boxShadow: on ? `0 0 0 2px #fff, 0 0 0 4px #${hex}` : 'inset 0 0 0 1px rgba(0,0,0,0.08)' }} />
+        );
+      })}
+    </div>
+  );
+}
+
+/** Innings per game, 3 to 9, as a segmented row with a solid blue selection. */
+export function GameLength({ value, onChange }: { value: number; onChange(n: number): void }) {
+  return (
+    <div role="radiogroup" aria-label="Game length" style={{ display: 'flex', padding: 2, borderRadius: 8, background: CANVAS }}>
+      {[3, 4, 5, 6, 7, 8, 9].map((n) => {
+        const on = n === value;
+        return (
+          <button type="button" key={n} role="radio" aria-checked={on} aria-label={`${n} innings`} onClick={() => onChange(n)}
+            className="num" style={{ width: 34, height: 28, borderRadius: 6, fontSize: 14, textAlign: 'center', fontWeight: on ? 600 : 400, background: on ? C.blue : 'transparent', color: on ? '#fff' : C.label }}>
+            {n}
+          </button>
+        );
+      })}
     </div>
   );
 }

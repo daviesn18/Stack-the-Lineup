@@ -12,7 +12,7 @@ import { useTeam } from '@/data/teamStore';
 
 import { Icon } from './Icon';
 import {
-  CANVAS, Fade, Group, HAIR, HeaderButton, Heading, Master, NumInput, Row, Seg, Stepper, TextInput, Toggle,
+  CANVAS, ColorSwatches, Fade, GameLength, Group, HAIR, HeaderButton, Heading, Master, NumInput, Row, Seg, Stepper, TextInput, Toggle,
 } from './controls';
 import { PageHeader, SUB } from './Shell';
 import { useWorkbench } from './state';
@@ -24,11 +24,6 @@ import { C } from './theme';
 
 type Section = 'team' | 'fair' | 'pitch';
 
-const SWATCHES: [string, string][] = [
-  ['Red', 'FF3B30'], ['Orange', 'FF9500'], ['Yellow', 'FFCC00'], ['Green', '34C759'], ['Teal', '30B0C7'], ['Blue', '007AFF'],
-  ['Indigo', '5856D6'], ['Purple', 'AF52DE'], ['Pink', 'FF2D55'], ['Brown', 'A2845E'], ['Gray', '8E8E93'], ['Black', '000000'],
-  ['Navy', '1B2C5D'],
-];
 const INFIELD = new Set<FieldPosition>(['P', 'C', '1B', '2B', 'SS', '3B']);
 const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'}`;
 
@@ -128,7 +123,6 @@ type SectionProps = { d: SettingsDraft; set(p: Partial<SettingsDraft>): void };
 // MARK: - Team
 
 function TeamSection({ d, set }: SectionProps) {
-  const custom = !SWATCHES.some(([, hex]) => hex === d.color);
   return (
     <>
       <Heading title="Team" sub="Name, color and how long your games run." />
@@ -136,32 +130,12 @@ function TeamSection({ d, set }: SectionProps) {
         <Row label="Team name"><TextInput value={d.name} onChange={(name) => set({ name })} placeholder="e.g. Mudcats 10U" label="Team name" /></Row>
         <Row label="Your name" help="Shows who finalized the lineup."><TextInput value={d.coach} onChange={(coach) => set({ coach })} placeholder="Coach name" label="Your name" /></Row>
         <Row label="Team color" help="Used in the team menu and on the Coaches Guide." stacked>
-          <div role="radiogroup" aria-label="Team color" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
-            {(custom ? [...SWATCHES, ['Custom', d.color] as [string, string]] : SWATCHES).map(([name, hex]) => {
-              const on = hex === d.color;
-              return (
-                <button key={name} role="radio" aria-checked={on} aria-label={name} title={name} onClick={() => set({ color: hex })}
-                  style={{ width: 28, height: 28, borderRadius: 14, background: `#${hex}`, transition: 'box-shadow .15s ease',
-                    boxShadow: on ? `0 0 0 2px #fff, 0 0 0 4px #${hex}` : 'inset 0 0 0 1px rgba(0,0,0,0.08)' }} />
-              );
-            })}
-          </div>
+          <div style={{ marginTop: 12 }}><ColorSwatches value={d.color} onChange={(color) => set({ color })} /></div>
         </Row>
       </Group>
       <Group label="Games">
         <Row label="Game length" help="Changes the lineup you're building now. Archived games keep their original inning count.">
-          <div role="radiogroup" aria-label="Game length" style={{ display: 'flex', padding: 2, borderRadius: 8, background: CANVAS }}>
-            {[3, 4, 5, 6, 7, 8, 9].map((n) => {
-              const on = n === d.gameLen;
-              return (
-                <button key={n} role="radio" aria-checked={on} aria-label={`${n} innings`}
-                  onClick={() => set({ gameLen: n, fair: clampToGame(d.fair, n) })}
-                  className="num" style={{ width: 34, height: 28, borderRadius: 6, fontSize: 14, textAlign: 'center', fontWeight: on ? 600 : 400, background: on ? C.blue : 'transparent', color: on ? '#fff' : C.label }}>
-                  {n}
-                </button>
-              );
-            })}
-          </div>
+          <GameLength value={d.gameLen} onChange={(n) => set({ gameLen: n, fair: clampToGame(d.fair, n) })} />
         </Row>
       </Group>
     </>

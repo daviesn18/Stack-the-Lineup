@@ -6,6 +6,13 @@ import { defaultFairPlayConfig, type FairPlayConfig, type PitchingAgeBracket, ty
 import { bracketFor, LITTLE_LEAGUE_PRESET } from '@/core/pitching';
 import type { TeamInfo } from '@/data/teamStore';
 
+/** The team color choices, name and hex (upper case, no #). Navy is the default. */
+export const TEAM_COLORS: [string, string][] = [
+  ['Red', 'FF3B30'], ['Orange', 'FF9500'], ['Yellow', 'FFCC00'], ['Green', '34C759'], ['Teal', '30B0C7'], ['Blue', '007AFF'],
+  ['Indigo', '5856D6'], ['Purple', 'AF52DE'], ['Pink', 'FF2D55'], ['Brown', 'A2845E'], ['Gray', '8E8E93'], ['Black', '000000'],
+  ['Navy', '1B2C5D'],
+];
+
 export const BRACKETS: PitchingAgeBracket[] = ['7-8', '9-10', '11-12', '13-14', '15-16'];
 
 /** The fair-play fields that pausing turns off. Positions (P, C, outfielders) stay as they are. */

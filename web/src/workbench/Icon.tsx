@@ -4,8 +4,8 @@
 import type { CSSProperties } from 'react';
 
 import {
-  Archive, ArrowRight, Calendar, Check, CalendarPlus, ChevronDown, ChevronRight, CircleCheck, CircleMinus, CirclePlus, Diamond, Download,
-  FileText, GripVertical, History, Info, ListOrdered, PersonStanding, Settings, Share, ShieldCheck, TriangleAlert, UserPlus, Users, Zap,
+  Archive, ArrowRight, Calendar, Check, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleMinus, CirclePlus, Diamond, Download,
+  FileText, GripVertical, History, Info, ListOrdered, PersonStanding, Plus, Settings, Share, ShieldCheck, TriangleAlert, UserPlus, Users, Zap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -27,6 +27,8 @@ const MAP: Record<string, LucideIcon> = {
   'person.badge.plus': UserPlus,
   'chevron.down': ChevronDown,
   'chevron.right': ChevronRight,
+  'chevron.left': ChevronLeft,
+  plus: Plus,
   'bolt.fill': Zap,
   'checkmark.shield.fill': ShieldCheck,
   'exclamationmark.triangle.fill': TriangleAlert,
