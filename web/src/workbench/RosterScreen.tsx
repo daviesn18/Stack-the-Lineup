@@ -191,7 +191,7 @@ function PrefsMatrix({ players }: { players: Player[] }) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: SUB }}>Click a cell to cycle Strength, Capable, Emergency, Never. Auto-Fill uses these for every game.</span>
+        <span style={{ fontSize: 13, color: SUB }}>Click a cell to cycle Strength, Capable, Emergency, Never. Auto-Fill uses these to fill positions.</span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>{TIER_ORDER.map((t) => <TierPill key={t} tier={t}>{t}</TierPill>)}</span>
       </div>
       <div style={{ borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
@@ -265,7 +265,7 @@ function ImportMenu({ onClose, onPaste, onCsv }: { onClose(): void; onPaste(): v
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
       <div role="menu" className="pop" style={{ position: 'absolute', top: 38, right: 0, zIndex: 21, width: 290, background: 'rgba(255,255,255,0.98)', borderRadius: 10, padding: 5, boxShadow: '0 10px 30px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.14)' }}>
         {item('doc.text', 'Paste a list of names', 'One player per line', onPaste)}
-        {item('square.and.arrow.down', 'Import from GameChanger', 'Upload the roster CSV export', onCsv)}
+        {item('square.and.arrow.down', 'Import from GameChanger', 'Upload the roster CSV', onCsv)}
       </div>
     </>
   );
@@ -293,7 +293,7 @@ function PasteList({ onClose }: { onClose(): void }) {
           {parsed.length ? `Add ${parsed.length} ${parsed.length === 1 ? 'player' : 'players'}` : 'Add'}
         </PillButton>
       </span>}>
-      <p style={{ margin: '0 0 8px', fontSize: 13, color: SUB }}>One player per line, with a jersey number if you like: &quot;Jake Rivera 4&quot;.</p>
+      <p style={{ margin: '0 0 8px', fontSize: 13, color: SUB }}>One player per line, with a jersey number, e.g. &quot;Jake Rivera 4&quot;.</p>
       <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={10} aria-label="Players, one per line"
         style={{ width: '100%', borderRadius: 8, border: `1px solid ${BORDER2}`, padding: 10, fontSize: 15, lineHeight: '21px', resize: 'vertical', outline: 'none' }} />
     </Modal>

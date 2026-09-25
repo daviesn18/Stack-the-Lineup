@@ -127,7 +127,7 @@ function NewTeamDialog({ onClose, onCreated }: { onClose(): void; onCreated(id: 
   };
 
   return (
-    <Dialog title="New team" subtitle="You can change all of this later in Team settings." onClose={onClose} width={600}
+    <Dialog title="New team" subtitle="You can make changes in Team settings." onClose={onClose} width={600}
       footer={<span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
         <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
         <PrimaryButton height={32} onClick={create} disabled={!ready}>{busy ? 'Creating…' : 'Create team'}</PrimaryButton>
@@ -135,13 +135,13 @@ function NewTeamDialog({ onClose, onCreated }: { onClose(): void; onCreated(id: 
       <form onSubmit={(e) => { e.preventDefault(); void create(); }} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         <Group label="Team">
           <Row label="Team name"><TextInput value={name} onChange={setName} placeholder="e.g. Mudcats 10U" label="Team name" autoFocus width={260} /></Row>
-          <Row label="Your name" help="Shows who finalized the lineup."><TextInput value={coach} onChange={setCoach} placeholder="Coach name" label="Your name" width={260} /></Row>
+          <Row label="Your name" help="See who finalized the lineup."><TextInput value={coach} onChange={setCoach} placeholder="Coach name" label="Your name" width={260} /></Row>
           <Row label="Team color" stacked><div style={{ marginTop: 12 }}><ColorSwatches value={color} onChange={setColor} /></div></Row>
           <Row label="Game length" help="Innings in a regular game."><GameLength value={innings} onChange={setInnings} /></Row>
         </Group>
         {error && <Note kind="error">{error}</Note>}
         <p style={{ margin: '-8px 4px 0', fontSize: 13, color: SUB, lineHeight: 1.45 }}>
-          Fair play starts on the usual rules: no back-to-back bench, 4 innings in the field, 1 infield and 1 outfield. Add players next, on the Roster page.
+          Fair play starts with: no back-to-back bench, 4 innings in the field, 1 infield and 1 outfield. Add players next, on the Roster page.
         </p>
         <button type="submit" hidden />
       </form>
@@ -198,7 +198,7 @@ export function ImportPage() {
       </button>
       <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: '-0.015em' }}>Import a team from iPhone</h1>
       <p style={{ margin: '6px 0 24px', fontSize: 14, lineHeight: 1.5, color: SUB }}>
-        Bring over the roster, rules, schedule, templates and game history. The web keeps its own copy, so later changes on your iPhone won&apos;t sync here.
+        Bring over the roster, rules, schedule, templates and game history. The web will not sync with iPhone until a future update.
       </p>
 
       <input ref={fileInput} type="file" accept=".stlteam" hidden onChange={(e) => { void read(e.target.files?.[0]); e.target.value = ''; }} />
@@ -254,10 +254,10 @@ export function ImportPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 20px 20px' }}>
               {preview.notes.map((n) => <Note key={n} kind="warn">{n}</Note>)}
               {conflict === 'alreadyYours' && (
-                <Note kind="warn">You already have this team here. Replacing it deletes the web copy, including every change made on the web, and puts this file in its place.</Note>
+                <Note kind="warn">You already have this team here. Replacing it deletes everything and puts this file in its place.</Note>
               )}
               {conflict === 'ownedElsewhere' && (
-                <Note kind="warn">Another coach already imported this team, probably a shared team on iPhone. You can import your own copy; the two won&apos;t be linked.</Note>
+                <Note kind="warn">Another coach already imported this team. Continue to create a new, standalone team.</Note>
               )}
             </div>
           )}

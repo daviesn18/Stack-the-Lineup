@@ -60,7 +60,7 @@ export function SignInPage() {
       )}
       {mode === 'reset' && (
         <form onSubmit={sendReset} style={FORM}>
-          <Heading title="Reset your password" sub="Enter your email and we'll send you a link to choose a new one." />
+          <Heading title="Reset your password" sub="Enter your email and we'll send you a link to choose a new password." />
           <Field label="Email"><Input type="email" value={email} onChange={setEmail} autoComplete="email" autoFocus height={40} /></Field>
           {error && <ErrorNote>{error}</ErrorNote>}
           <Submit busy={busy} disabled={!email.trim()}>Send reset link</Submit>
@@ -72,7 +72,7 @@ export function SignInPage() {
           <span style={{ width: 44, height: 44, borderRadius: 22, background: 'rgba(52,199,89,0.14)', display: 'grid', placeItems: 'center' }}>
             <Icon name="checkmark" size={22} color={C.green} />
           </span>
-          <Heading title="Check your email" sub={`If ${email.trim()} has an account, a reset link is on its way. It can take a minute to arrive.`} />
+          <Heading title="Check your email" sub={`If ${email.trim()} has an account, a reset link is on its way.`} />
           <LinkButton onClick={() => go('signIn')}>Back to sign in</LinkButton>
         </div>
       )}
@@ -103,7 +103,7 @@ export function SetPasswordPage() {
     <Frame>
       <form onSubmit={save} style={FORM}>
         <Heading title={invited ? 'Welcome! Choose a password' : 'Choose a new password'}
-          sub={email ? `You'll sign in with ${email} and this password.` : "You'll use it with your email to sign in."} />
+          sub={email ? `Sign in with ${email} and this password.` : "You'll use it with your email to sign in."} />
         <Field label="New password" aside={<span style={{ fontSize: 12, color: SUB }}>At least 8 characters</span>}>
           <Input type="password" value={password} onChange={setPassword} autoComplete="new-password" autoFocus height={40} />
         </Field>
@@ -124,13 +124,13 @@ function Frame({ children, footer }: { children: ReactNode; footer?: string }) {
       <aside className="auth-brand" style={{ flex: '0 0 44%', maxWidth: 560, background: `linear-gradient(160deg, ${NAVY} 0%, #14203F 100%)`, color: '#fff', padding: '40px 48px', flexDirection: 'column' }}>
         <Brand light />
         <div style={{ marginTop: 'auto', marginBottom: 'auto', paddingTop: 48 }}>
-          <h2 style={{ margin: 0, fontSize: 32, lineHeight: 1.15, fontWeight: 700, letterSpacing: '-0.02em' }}>Fair lineups, set before first pitch.</h2>
+          <h2 style={{ margin: 0, fontSize: 32, lineHeight: 1.15, fontWeight: 700, letterSpacing: '-0.02em' }}>Fair lineups in minutes.</h2>
           <p style={{ margin: '14px 0 32px', fontSize: 16, lineHeight: 1.5, color: 'rgba(255,255,255,0.72)', maxWidth: 400 }}>
-            Build the batting order and defense for every inning, check fair play, and print the Coaches Guide for the dugout.
+            Build the batting order and defense for every inning, check fair play, and print the Coaches Guide.
           </p>
-          <Feature icon="bolt.fill" title="Auto-Fill" text="Fills every inning around attendance and each player's positions." />
+          <Feature icon="bolt.fill" title="Auto-Fill" text="Fills every inning with players' positions." />
           <Feature icon="checkmark.shield.fill" title="Fair play checks" text="Bench time, infield and outfield minimums, and pitcher rest." />
-          <Feature icon="doc.richtext.fill" title="Coaches Guide" text="Every inning on one printed page." />
+          <Feature icon="doc.richtext.fill" title="Coaches Guide" text="Defensive assignments for every inning." />
         </div>
         <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>Also on iPhone and iPad.</div>
       </aside>

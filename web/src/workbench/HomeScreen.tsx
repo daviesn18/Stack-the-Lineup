@@ -73,7 +73,7 @@ export function HomeScreen() {
           <section style={card} aria-label="Bench innings this season">
             <CardTitle right={plural(w.gameLogs.length, 'game')}>Bench innings this season</CardTitle>
             <div style={{ fontSize: 13, color: SUB, marginTop: 2, marginBottom: 14 }}>Innings on the bench in archived games.</div>
-            {w.gameLogs.length === 0 ? <Empty>Archive a game and bench time starts adding up here.</Empty> : <BenchBars totals={totals} />}
+            {w.gameLogs.length === 0 ? <Empty>Archive a game and bench time accumulates.</Empty> : <BenchBars totals={totals} />}
           </section>
 
           <section style={card} aria-label="Schedule">
@@ -91,7 +91,7 @@ export function HomeScreen() {
 
           <section style={card} aria-label="Position coverage">
             <CardTitle>Position coverage</CardTitle>
-            <div style={{ fontSize: 13, color: SUB, marginTop: 2, marginBottom: 16 }}>How many players have played each spot this season.</div>
+            <div style={{ fontSize: 13, color: SUB, marginTop: 2, marginBottom: 16 }}>How many players have played each position this season.</div>
             {w.gameLogs.length === 0 ? <Empty>Coverage fills in as you archive games.</Empty> : <Coverage totals={totals} />}
           </section>
         </div>

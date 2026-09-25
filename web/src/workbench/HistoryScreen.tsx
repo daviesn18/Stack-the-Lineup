@@ -45,7 +45,7 @@ export function HistoryScreen() {
         <Segmented value={w.histView} onChange={w.setHistView} options={[['players', 'Players'], ['games', 'Games'], ['team', 'Team']]} />
         {empty ? (
           <div style={{ ...card, marginTop: 20, padding: '18px 16px', fontSize: 15, color: C.label2, lineHeight: '21px' }}>
-            No archived games yet. After a game, archive it and season stats start adding up here.
+            No archived games yet. After a game, archive it to start compiling your history.
           </div>
         ) : (
           <div style={{ marginTop: 20 }}>

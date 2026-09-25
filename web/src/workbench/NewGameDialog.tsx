@@ -69,7 +69,7 @@ export function NewGameDialog() {
   return (
     <Dialog title="New game" subtitle="Set up your next game" onClose={close} width={600}
       footer={<>
-        <span style={{ flex: 1, fontSize: 12, color: SUB, lineHeight: 1.4 }}>The batting order carries over. Everyone starts as present.</span>
+        <span style={{ flex: 1, fontSize: 12, color: SUB, lineHeight: 1.4 }}>The batting order carries over.</span>
         <SecondaryButton onClick={close}>Cancel</SecondaryButton>
         <PrimaryButton height={32} icon={archiving ? 'archivebox' : 'calendar.badge.plus'} onClick={start} disabled={!ready}
           title={!gameDate ? 'Pick a date and time' : tooMany.length ? `Pitch counts go up to ${MAX_PITCHES}` : undefined}>
@@ -79,7 +79,7 @@ export function NewGameDialog() {
       <form onSubmit={(e) => { e.preventDefault(); start(); }} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         <Group label="Next game">
           <Row label="Opponent"><TextInput value={opponent} onChange={setOpponent} placeholder="Who you're playing" label="Next opponent" width={240} autoFocus /></Row>
-          <Row label="Date and time" help="Sets which pitchers are rested, and prints on the lineup.">
+          <Row label="Date and time" help="Sets which pitchers are rested.">
             <DateTimeInputs date={date} time={time} onDate={setDate} onTime={setTime} />
           </Row>
         </Group>
@@ -100,7 +100,7 @@ export function NewGameDialog() {
                 <Row label="Innings played" help="Only innings played count toward season stats.">
                   <Stepper value={innings} min={1} max={l.innings.length} onChange={setInnings} label="Innings played" />
                 </Row>
-                <Row label="Pitch counts" stacked help="Pitches thrown today. They set each pitcher's rest days.">
+                <Row label="Pitch counts" stacked help="Pitches thrown today.">
                   <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column' }}>
                     {pitchers.length === 0 && <div style={{ fontSize: 13, color: SUB, padding: '6px 0' }}>Nobody pitched in this lineup. Add a pitcher to record a count.</div>}
                     {pitchers.map((id) => {

@@ -39,9 +39,9 @@ export function GameScreen() {
 
   const foot = {
     1: st.here === st.total ? 'Everyone is coming' : `${st.here} of ${st.total} coming. Auto-Fill will fill the open spots.`,
-    2: 'Order carries over to next week',
+    2: 'Batting order carries over to next week',
     3: !st.started ? 'Set positions, or let Auto-Fill do it' : st.fpOk ? `All ${n} innings pass fair play` : 'Fix the issues above, or continue anyway',
-    4: st.finalized ? 'Finalized. Print what you need for the dugout.' : 'Finalizing locks the lineup until you edit it',
+    4: st.finalized ? 'Finalized and ready to print.' : 'Finalizing locks the lineup. Any edit reopens it.',
   }[w.step];
 
   const next = () => {
@@ -129,7 +129,7 @@ function Attendance() {
   const people = [...w.active, ...w.players.filter((p) => absent.has(p.id))];
   return (
     <>
-      <StepTitle title="Who's coming?" hint="Click anyone who can't make it. Auto-Fill rebalances around them." />
+      <StepTitle title="Game attendance" hint="Click anyone who will be absent." />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
         {people.map((p) => {
           const out = absent.has(p.id);
@@ -187,7 +187,7 @@ function BattingOrder() {
 
   return (
     <>
-      <StepTitle title="Batting order" hint="Drag rows to reorder. The order carries over to the next game." />
+      <StepTitle title="Batting order" hint="Drag rows to reorder." />
       <div style={{ maxWidth: 600, borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
         {order.map((id, i) => {
           const p = w.byId.get(id)!;
@@ -242,8 +242,8 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void 
         ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
-        <ExportCard icon="doc.richtext.fill" title="Coaches Guide PDF" detail="Every inning on one page, for the dugout." onClick={() => print('coachesGuide')} />
-        <ExportCard icon="doc.text" title="Lineup card" detail="Batting order only, for the umpire." onClick={() => print('battingOrder')} />
+        <ExportCard icon="doc.richtext.fill" title="Coaches Guide PDF" detail="Defensive assignments for every inning." onClick={() => print('coachesGuide')} />
+        <ExportCard icon="doc.text" title="Lineup card" detail="Print the batting order." onClick={() => print('battingOrder')} />
       </div>
       {st.open > 0 && (
         <p style={{ fontSize: 13, color: C.orange, margin: '10px 2px 0' }}>
@@ -255,7 +255,7 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void 
           <Icon name="archivebox" size={20} color={C.teal} />
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>After the game</span>
-            <span style={{ display: 'block', fontSize: 13, color: SUB }}>Save it to season history with pitch counts, then set up the next one.</span>
+            <span style={{ display: 'block', fontSize: 13, color: SUB }}>Save it to season history with pitch counts.</span>
           </span>
           <SecondaryButton icon="calendar.badge.plus" onClick={() => w.setNewGameOpen(true)}>New game</SecondaryButton>
         </div>
@@ -298,7 +298,7 @@ function GameModal({ onClose }: { onClose(): void }) {
       <form onSubmit={(e) => { e.preventDefault(); save(); }}>
         <Group label="Game">
           <Row label="Opponent"><TextInput value={opponent} onChange={setOpponent} placeholder="Who you're playing" label="Opponent" autoFocus width={240} /></Row>
-          <Row label="Date and time" help="Sets which pitchers are rested, and prints on the lineup.">
+          <Row label="Date and time" help="Sets which pitchers are rested.">
             <DateTimeInputs date={date} time={time} onDate={setDate} onTime={setTime} />
           </Row>
         </Group>

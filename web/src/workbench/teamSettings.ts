@@ -184,7 +184,7 @@ export function tierCells(r: BracketRow): TierCell[] {
 export function draftProblems(d: SettingsDraft): string[] {
   const out: string[] = [];
   if (!d.name.trim()) out.push('Add a team name.');
-  if (d.pc && d.cap && !d.capN) out.push('Set the most pitches per week.');
+  if (d.pc && d.cap && !d.capN) out.push('Set the max pitches per week.');
   for (const r of d.brackets) {
     const label = `Ages ${r.bracket}`;
     if (!r.max) out.push(`${label} needs a daily max.`);

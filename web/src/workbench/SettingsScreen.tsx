@@ -125,10 +125,10 @@ type SectionProps = { d: SettingsDraft; set(p: Partial<SettingsDraft>): void };
 function TeamSection({ d, set }: SectionProps) {
   return (
     <>
-      <Heading title="Team" sub="Name, color and how long your games run." />
+      <Heading title="Team" sub="Name, color and length of games." />
       <Group label="Team info">
         <Row label="Team name"><TextInput value={d.name} onChange={(name) => set({ name })} placeholder="e.g. Mudcats 10U" label="Team name" /></Row>
-        <Row label="Your name" help="Shows who finalized the lineup."><TextInput value={d.coach} onChange={(coach) => set({ coach })} placeholder="Coach name" label="Your name" /></Row>
+        <Row label="Your name" help="See who finalized the lineup."><TextInput value={d.coach} onChange={(coach) => set({ coach })} placeholder="Coach name" label="Your name" /></Row>
         <Row label="Team color" help="Used in the team menu and on the Coaches Guide." stacked>
           <div style={{ marginTop: 12 }}><ColorSwatches value={d.color} onChange={(color) => set({ color })} /></div>
         </Row>
@@ -154,7 +154,7 @@ function FairSection({ d, set }: SectionProps) {
   return (
     <>
       <Heading title="Fair play" sub="The rules Auto-Fill follows and the lineup checks before you finalize." />
-      <Master label="Fair play rules" help="Turn off to pause every rule for this team. Your settings below are kept."
+      <Master label="Fair play rules" help="Turn off to pause every rule for this team. Your settings are retained."
         on={d.fp} onChange={() => set({ fp: !d.fp })} />
       <Fade on={d.fp}>
         <Group label="Positions">
@@ -257,7 +257,7 @@ function PitchSection({ d, set }: SectionProps) {
               <NumInput value={d.capN} onChange={(capN) => set({ capN })} label="Most pitches per week" width={80} />
             </Row>
             <Row label="Cap resets" help={d.capReset === 'Calendar Week'
-              ? 'Starts over every Monday, no matter when you last played.'
+              ? 'Starts over every Monday.'
               : 'Counts any 7 days in a row. A game last Tuesday drops off this Tuesday.'}>
               <Seg value={d.capReset} onChange={(capReset) => set({ capReset })} label="Cap resets"
                 options={[['Calendar Week', 'Every Monday'], ['Rolling 7 Days', 'Any 7 days']]} />

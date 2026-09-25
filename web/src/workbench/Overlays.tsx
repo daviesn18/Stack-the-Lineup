@@ -82,7 +82,7 @@ function Picker() {
         {rows.length === 0 && <div style={{ padding: '12px 14px', fontSize: 14, color: C.label2 }}>No one matches.</div>}
       </div>
       <div style={{ borderTop: C.hair, padding: '8px 14px', fontSize: 11, color: C.label2 }}>
-        Picking a player swaps them with whoever holds {pk.pos}.
+        Picking a player swaps them with whoever is currently at {pk.pos}.
       </div>
     </div>
   );

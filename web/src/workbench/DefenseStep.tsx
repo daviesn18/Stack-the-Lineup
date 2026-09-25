@@ -22,7 +22,7 @@ export function DefenseStep() {
   const hint = {
     field: `Click a position to pick a player. Drag to swap. Right-click for more. Keys 1-${Math.min(9, n)} switch innings.`,
     grid: 'Click a cell to pick a player. Drag names to swap or onto the bench. Right-click for more.',
-    pitching: 'Who is pitching, and whether your pitch count rules say they need rest.',
+    pitching: 'Who is pitching and who is ineligible.',
   }[w.defView];
   return (
     <>
@@ -74,7 +74,7 @@ function AutoFillExtras() {
           <summary style={{ color: C.blue, cursor: 'pointer', width: 'fit-content' }}>{w.prompt.trim() ? 'Auto-Fill instructions (set)' : 'Auto-Fill instructions'}</summary>
           <div style={{ marginTop: 8, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '8px 10px', maxWidth: 560 }}>
             <textarea value={w.prompt} onChange={(e) => w.setPrompt(e.target.value)} rows={3} aria-label="Auto-Fill instructions"
-              placeholder={'Optional, one per line:\nJake pitches innings 1 to 2\nkeep Nate off pitcher'}
+              placeholder={"Optional, one per line:\nJake pitches innings 1 to 2\ndon't have Connor catch"}
               style={{ width: '100%', border: 'none', outline: 'none', resize: 'vertical', fontSize: 14, lineHeight: '19px', background: 'transparent' }} />
             <div style={{ fontSize: 12, color: SUB }}>Auto-Fill follows these, fills open spots only, and keeps anything you&apos;ve set.</div>
           </div>
@@ -249,7 +249,7 @@ function BenchBox() {
         {list.map((p) => <BenchChip key={p.id} p={p} inning={w.inning} size="lg" />)}
         {list.length === 0 && <span style={{ fontSize: 13, color: SUB }}>Nobody</span>}
       </div>
-      <div style={{ fontSize: 12, lineHeight: '16px', color: C.label3, marginTop: 8 }}>Drag a player here to bench, or onto a position to swap</div>
+      <div style={{ fontSize: 12, lineHeight: '16px', color: C.label3, marginTop: 8 }}>Drag a player here to bench or onto a position to swap</div>
     </div>
   );
 }
@@ -404,8 +404,8 @@ function Pitching() {
       </div>
       <p style={{ fontSize: 13, color: SUB, marginTop: 10 }}>
         {rules
-          ? 'Rest is from your pitch count rules and the pitch counts in archived games, as of this game’s date.'
-          : 'Pitch count rules are off for this team, so rest isn’t tracked. Turn them on in Team settings.'}
+          ? 'Rest is informed by your pitch count rules and archived games.'
+          : 'Pitch count rules are turned off for this team. Turn them on in Team settings.'}
       </p>
     </div>
   );

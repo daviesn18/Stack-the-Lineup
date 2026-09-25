@@ -175,7 +175,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         lineup: unbench(lineup, short), players, config: team.fairPlayConfig, pitchingConfig: team.pitchingConfig, gameLogs,
       });
       setFillNotes(outcome.incompleteMessage || outcome.noticeMessage ? outcome : null);
-      if (outcome.filledCount === 0) { showToast('Nothing to fill: every spot is already set'); return; }
+      if (outcome.filledCount === 0) { showToast('Nothing to fill: every position is covered'); return; }
       const n = activePlayers(lineup, players).length;
       edit(() => outcome.lineup, `Filled ${lineup.innings.length} innings for ${n} players`);
     },

@@ -8,9 +8,9 @@
 export function openPdfTab(): (bytes: Uint8Array, filename: string) => void {
   const tab = window.open('', '_blank');
   if (tab) {
-    tab.document.title = 'Preparing printout…';
+    tab.document.title = 'Preparing PDF…';
     tab.document.body.style.font = '16px system-ui, sans-serif';
-    tab.document.body.textContent = 'Preparing your printout…';
+    tab.document.body.textContent = 'Preparing your PDF…';
   }
   return (bytes, filename) => {
     const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));

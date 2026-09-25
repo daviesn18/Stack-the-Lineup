@@ -287,7 +287,7 @@ function pitchCountSection(c: Canvas, rows: PitchingSummaryRow[], top: number): 
   const leftBottom = table(MARGIN, y, rows.slice(0, half));
   const rightBottom = table(MARGIN + miniWidth + gap, y, rows.slice(half));
   y = Math.max(leftBottom, rightBottom) + 4;
-  c.text('Available is the lower of the daily max and pitches remaining in the current weekly window. Rest is days still owed from the last outing.',
+  c.text('Available: pitches the player can still throw today. Rest: days off they still need after their last outing.',
     MARGIN, y, 7, c.f.italic, GRAY);
   return y + 10;
 }
