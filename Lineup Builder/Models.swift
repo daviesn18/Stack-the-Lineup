@@ -1374,6 +1374,9 @@ final class CloudPushDebouncer {
     /// For tests and diagnostics: are there un-flushed dirty teams?
     var hasPendingWork: Bool { !dirty.isEmpty }
 
+    /// For tests: which teams are waiting to be pushed.
+    var pendingTeamIDs: Set<UUID> { dirty }
+
     private func fire() {
         timer = nil
         guard !dirty.isEmpty else { return }
@@ -1509,15 +1512,24 @@ class LineupStore: ObservableObject {
 
     // MARK: - Persistence
 
-    func save() {
+    /// Persists every team locally and pushes the one that changed.
+    ///
+    /// - Parameter changedTeamID: the team this edit touched. Defaults to the
+    ///   active team, which is what almost every mutator edits. Callers that edit
+    ///   a team by id (Edit Team, per-team rules) MUST pass it: before they did,
+    ///   editing a non-active team stamped and pushed the active one instead, so
+    ///   the edit never left the device (a renamed team stayed renamed on one
+    ///   device only) and an untouched team looked newer than it was.
+    func save(changedTeamID: UUID? = nil) {
+        let changedID = changedTeamID ?? activeTeamID
+
         // Stamp the edited team's modified time before persisting, so the local
-        // blob (and the eventual CloudKit push) carries it. Only the active team
-        // is ever mutated — the same reason only it is pushed below — so this
-        // stamps exactly the team that changed. Stamping every team would make an
-        // untouched team look newer than a genuine remote edit and wrongly skip
-        // that edit in mergeCloudKitChanges. Metadata-only writes go through
-        // saveLocalOnly() directly and correctly do NOT bump updatedAt.
-        if let activeTeamID, let idx = teams.firstIndex(where: { $0.id == activeTeamID }) {
+        // blob (and the eventual CloudKit push) carries it. Only the team that
+        // changed is stamped: stamping every team would make an untouched team
+        // look newer than a genuine remote edit and wrongly skip that edit in
+        // mergeCloudKitChanges. Metadata-only writes go through saveLocalOnly()
+        // directly and correctly do NOT bump updatedAt.
+        if let changedID, let idx = teams.firstIndex(where: { $0.id == changedID }) {
             teams[idx].updatedAt = Date()
         }
 
@@ -1527,14 +1539,16 @@ class LineupStore: ObservableObject {
         // delaying the on-disk write.
         saveLocalOnly()
 
-        // Debounce the CloudKit push. Only the active team is ever mutated, so
-        // it is the only one that needs pushing here; the debouncer remembers it
-        // across a team switch and re-reads its live state at fire time. The
-        // read-only guard is re-checked in `pushDirtyTeamsToCloud` — a
+        // Debounce the CloudKit push of the changed team; the debouncer
+        // remembers it across a team switch and re-reads its live state at fire
+        // time. The read-only guard is re-checked in `pushDirtyTeamsToCloud` — a
         // permission change between scheduling and firing is honored there.
-        guard let activeTeamID else { return }
-        cloudPushDebouncer.schedule(activeTeamID)
+        guard let changedID else { return }
+        cloudPushDebouncer.schedule(changedID)
     }
+
+    /// For tests: teams waiting for their debounced CloudKit push.
+    var pendingCloudPushIDs: Set<UUID> { cloudPushDebouncer.pendingTeamIDs }
 
     /// Uploads the current state of each dirty team to CloudKit. Runs on the
     /// main actor from the debouncer's trailing edge (or an explicit flush).
@@ -2479,7 +2493,7 @@ class LineupStore: ObservableObject {
             "outfielderCount": "\(config.outfielderCount)",
             "minimumFieldingInnings": "\(config.minimumFieldingInnings)"
         ])
-        save()
+        save(changedTeamID: teamID)
     }
 
     /// Updates the pitching config for a specific team. Scoped to teamID so
@@ -2492,7 +2506,7 @@ class LineupStore: ObservableObject {
             "weeklyLimitEnabled": "\(config.weeklyLimitEnabled)",
             "rollingWindowType": config.rollingWindowType.rawValue
         ])
-        save()
+        save(changedTeamID: teamID)
     }
 
     /// Saves pitch counts to a specific game log. Merges with any existing counts
@@ -2577,7 +2591,9 @@ class LineupStore: ObservableObject {
     func setCoachName(_ coachName: String, teamID: UUID) {
         guard let idx = teams.firstIndex(where: { $0.id == teamID }) else { return }
         teams[idx].coachName = coachName
-        save()
+        // Local-only: no push, and no updatedAt bump that would make this team
+        // look newer than a real remote edit.
+        saveLocalOnly()
     }
 
     /// True when `coachName` tells you nothing about who the coach is.
@@ -2625,7 +2641,7 @@ class LineupStore: ObservableObject {
         teams[idx].color = color
         teams[idx].coachName = coachName
         applyGameInningCount(gameInningCount, at: idx)
-        save()
+        save(changedTeamID: id)
     }
 
     // MARK: - Schedule Management

@@ -476,6 +476,63 @@ final class LineupStoreTests: XCTestCase {
         wait(for: [reloaded], timeout: 5)
     }
 
+    // MARK: - Editing a team other than the active one
+    //
+    // Edit Team and the per-team rules screens edit a team by id. save() used to
+    // assume the active team changed, so it stamped and pushed that one instead:
+    // renaming a non-active team never reached CloudKit or the coach's other
+    // devices.
+
+    /// Two teams with the second active, and a clean push queue.
+    private func twoTeamsSecondActive() -> (edited: UUID, active: UUID) {
+        let edited = makeTeam("Rockhounds"), active = makeTeam("Tigers")
+        store.teams = [edited, active]
+        store.activeTeamID = active.id
+        return (edited.id, active.id)
+    }
+
+    private func updatedAt(_ id: UUID) -> Date? {
+        store.teams.first { $0.id == id }?.updatedAt
+    }
+
+    func testEditingANonActiveTeamPushesThatTeam() {
+        let (edited, active) = twoTeamsSecondActive()
+        let editedStamp = updatedAt(edited)!, activeStamp = updatedAt(active)
+
+        store.updateTeamDetails(id: edited, name: "Rockhounds - Old", color: .blue,
+                                coachName: "", gameInningCount: 6)
+
+        XCTAssertEqual(store.pendingCloudPushIDs, [edited],
+            "The edited team is the one queued for CloudKit, not the active team")
+        XCTAssertGreaterThan(updatedAt(edited)!, editedStamp, "The edited team is stamped as modified")
+        XCTAssertEqual(updatedAt(active), activeStamp,
+            "An untouched active team must not look newer than it is")
+    }
+
+    func testPerTeamRulesEditsPushTheEditedTeam() {
+        let (edited, _) = twoTeamsSecondActive()
+
+        var pitching = PitchingConfig(rulesEnabled: true)
+        pitching.applyLittleLeaguePreset()
+        store.updatePitchingConfig(pitching, for: edited)
+        var fairPlay = FairPlayConfig()
+        fairPlay.noCatcher = true
+        store.updateFairPlayConfig(fairPlay, for: edited)
+
+        XCTAssertEqual(store.pendingCloudPushIDs, [edited])
+    }
+
+    func testCoachNameStaysLocal() {
+        let (edited, active) = twoTeamsSecondActive()
+        let stamps = (updatedAt(edited), updatedAt(active))
+
+        store.setCoachName("Coach Nick", teamID: edited)
+
+        XCTAssertTrue(store.pendingCloudPushIDs.isEmpty, "The coach name is never synced")
+        XCTAssertEqual(updatedAt(edited), stamps.0)
+        XCTAssertEqual(updatedAt(active), stamps.1)
+    }
+
     func testClearSchedulePrunesGameLineups() {
         let game = makeScheduledGame("A", opponent: "Eagles")
         let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
