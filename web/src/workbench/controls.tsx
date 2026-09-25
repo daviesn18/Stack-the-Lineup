@@ -20,7 +20,7 @@ export function HeaderButton({ children, onClick, kind = 'plain', disabled, titl
     : kind === 'danger' ? { padding: '0 16px', background: C.red, color: '#fff', fontWeight: 600 }
       : { padding: '0 14px', background: '#fff', border: `1px solid ${BORDER2}`, fontWeight: 500 };
   return (
-    <button onClick={onClick} disabled={disabled} title={title} className={kind === 'plain' ? 'h-sec' : kind === 'primary' ? 'h-save' : 'h-bright'}
+    <button type="button" onClick={onClick} disabled={disabled} title={title} className={kind === 'plain' ? 'h-sec' : kind === 'primary' ? 'h-save' : 'h-bright'}
       style={{ height: 32, borderRadius: 8, fontSize: 13, opacity: disabled ? 0.45 : 1, ...look }}>
       {children}
     </button>
@@ -90,7 +90,7 @@ export function Master({ label, help, on, onChange }: { label: string; help: str
 
 export function Toggle({ on, onChange, label }: { on: boolean; onChange(): void; label: string }) {
   return (
-    <button role="switch" aria-checked={on} aria-label={label} onClick={onChange}
+    <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onChange}
       style={{ position: 'relative', width: 42, height: 26, borderRadius: 13, flexShrink: 0, background: on ? C.green : 'rgba(120,120,128,0.16)', transition: 'background-color .2s ease' }}>
       <span style={{ position: 'absolute', top: 2, left: on ? 18 : 2, width: 22, height: 22, borderRadius: 11, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)', transition: 'left .2s ease' }} />
     </button>
@@ -100,7 +100,7 @@ export function Toggle({ on, onChange, label }: { on: boolean; onChange(): void;
 /** − value +, from `min` to `max`; 0 reads "Off". */
 export function Stepper({ value, min = 0, max, onChange, label }: { value: number; min?: number; max: number; onChange(v: number): void; label: string }) {
   const btn = (enabled: boolean, dir: 'Fewer' | 'More', icon: string, next: number) => (
-    <button aria-label={`${dir}: ${label}`} disabled={!enabled} onClick={() => enabled && onChange(next)}
+    <button type="button" aria-label={`${dir}: ${label}`} disabled={!enabled} onClick={() => enabled && onChange(next)}
       style={{ display: 'grid', placeItems: 'center', opacity: enabled ? 1 : 0.3 }}>
       <Icon name={icon} size={22} color={C.blue} />
     </button>
@@ -120,7 +120,7 @@ export function Seg<T extends string>({ value, onChange, options, label }: { val
       {options.map(([id, text]) => {
         const on = id === value;
         return (
-          <button key={id} role="radio" aria-checked={on} onClick={() => onChange(id)}
+          <button type="button" key={id} role="radio" aria-checked={on} onClick={() => onChange(id)}
             style={{ height: 28, padding: '0 14px', borderRadius: 6, fontSize: 13, fontWeight: on ? 600 : 500, whiteSpace: 'nowrap', background: on ? '#fff' : 'transparent', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
             {text}
           </button>
@@ -199,7 +199,7 @@ export function Dialog({ title, subtitle, onClose, width = 560, footer, children
             <span style={{ display: 'block', fontSize: 17, fontWeight: 600 }}>{title}</span>
             {subtitle && <span className="ellipsis" style={{ display: 'block', fontSize: 12, color: SUB }}>{subtitle}</span>}
           </span>
-          <button onClick={onClose} aria-label="Close"><Kbd>esc</Kbd></button>
+          <button type="button" onClick={onClose} aria-label="Close"><Kbd>esc</Kbd></button>
         </header>
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 24 }}>{children}</div>
         <footer style={{ minHeight: 64, flexShrink: 0, background: '#fff', borderTop: `1px solid ${BORDER}`, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
