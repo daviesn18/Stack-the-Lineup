@@ -46,15 +46,21 @@ export function Sidebar({ demo }: { demo?: boolean }) {
 
   return (
     <aside style={{ width: 236, flexShrink: 0, background: SIDEBAR_BG, borderRight: `1px solid ${BORDER}`, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, position: 'relative' }}>
-      <button className="h-side" onClick={() => setTeamMenu((v) => !v)} aria-haspopup="menu" aria-expanded={teamMenu}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8, width: '100%' }}>
-        <img src="/app-icon.png" alt="" width={28} height={28} style={{ borderRadius: 7, flexShrink: 0 }} />
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span className="ellipsis" style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{w.team.name || 'Untitled team'}</span>
-          <span style={{ display: 'block', fontSize: 12, color: SUB }}>{seasonLabel(w.lineup.gameDate)}</span>
-        </span>
-        <Icon name="chevron.down" size={14} color={SUB} />
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <button className="h-side" onClick={() => w.go('settings')} title="Team settings"
+          style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8 }}>
+          <img src="/app-icon.png" alt="" width={28} height={28}
+            style={{ borderRadius: 7, flexShrink: 0, boxShadow: `0 0 0 2px ${SIDEBAR_BG}, 0 0 0 3.5px #${w.team.colorHex}` }} />
+          <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+            <span className="ellipsis" style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{w.team.name || 'Untitled team'}</span>
+            <span style={{ display: 'block', fontSize: 12, color: SUB }}>{seasonLabel(w.lineup.gameDate)}</span>
+          </span>
+        </button>
+        <button className="h-side" onClick={() => setTeamMenu((v) => !v)} aria-haspopup="menu" aria-expanded={teamMenu} aria-label="Switch team"
+          title="Switch team" style={{ width: 26, height: 40, borderRadius: 7, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+          <Icon name="chevron.down" size={14} color={SUB} />
+        </button>
+      </div>
       {teamMenu && <TeamMenu demo={demo} onClose={() => setTeamMenu(false)} />}
 
       <button onClick={() => setJump(true)} className="h-bright"
@@ -93,8 +99,10 @@ export function Sidebar({ demo }: { demo?: boolean }) {
       <div style={{ marginTop: 'auto', borderTop: `1px solid ${BORDER}`, paddingTop: 12, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 6px 0' }}>
         <span style={{ width: 28, height: 28, borderRadius: 14, background: C.gray5, fontSize: 11, fontWeight: 600, color: SUB, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{initials}</span>
         <span className="ellipsis" style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{w.team.coachName || 'Coach'}</span>
-        <button className="h-link" title="Team settings" aria-label="Team settings" onClick={() => w.setSettingsOpen(true)} style={{ display: 'flex' }}>
-          <Icon name="gearshape.fill" size={16} color={SUB} />
+        <button className={w.screen === 'settings' ? '' : 'h-side'} title="Team settings" aria-label="Team settings"
+          aria-current={w.screen === 'settings' ? 'page' : undefined} onClick={() => w.go('settings')}
+          style={{ width: 28, height: 28, borderRadius: 7, display: 'grid', placeItems: 'center', background: w.screen === 'settings' ? 'rgba(60,60,67,0.10)' : 'transparent' }}>
+          <Icon name="gearshape.fill" size={16} color={w.screen === 'settings' ? C.blue : SUB} />
         </button>
       </div>
     </aside>
@@ -116,7 +124,7 @@ function TeamMenu({ demo, onClose }: { demo?: boolean; onClose(): void }) {
     listTeams().then((t) => { if (live) setTeams(t); }, () => { if (live) setTeams([]); });
     return () => { live = false; };
   }, [demo]);
-  const go = (href: Parameters<typeof router.push>[0]) => { onClose(); router.push(href); };
+  const go = (href: Parameters<typeof router.push>[0]) => { onClose(); w.leave(() => router.push(href)); };
   const item: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 9px', borderRadius: 6, fontSize: 14 };
   return (
     <>
@@ -134,7 +142,7 @@ function TeamMenu({ demo, onClose }: { demo?: boolean; onClose(): void }) {
           </button>
         ))}
         <div style={{ height: 0.5, background: C.sep, margin: '5px 9px' }} />
-        <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); w.setSettingsOpen(true); }}>Team settings…</button>
+        <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); w.go('settings'); }}>Team settings…</button>
         <button role="menuitem" className="menu-item" style={item} onClick={() => go('/')}>All teams</button>
         {!demo && <button role="menuitem" className="menu-item" style={item} onClick={() => go('/import')}>Import a team file…</button>}
       </div>
@@ -157,10 +165,10 @@ function JumpPalette({ onClose }: { onClose(): void }) {
       { key: 'home', label: 'Home', meta: 'Page', run: () => w.go('home') },
       { key: 'roster', label: 'Roster', meta: 'Page', run: () => w.go('roster') },
       { key: 'stats', label: 'Season stats', meta: 'Page', run: () => w.go('stats') },
-      { key: 'settings', label: 'Team settings', meta: 'Page', run: () => w.setSettingsOpen(true) },
+      { key: 'settings', label: 'Team settings', meta: 'Page', run: () => w.go('settings') },
       ...w.players.map((p) => ({
         key: p.id, label: `${p.firstName} ${p.lastName}`, meta: p.number ? `Player · #${p.number}` : 'Player',
-        run: () => { w.go('roster'); w.setPlayerModal({ id: p.id }); },
+        run: () => w.leave(() => { w.go('roster'); w.setPlayerModal({ id: p.id }); }),
       })),
     ];
     const t = q.trim().toLowerCase();

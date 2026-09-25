@@ -105,6 +105,12 @@ export interface FairPlayConfig {
   catcherToPitcherThreshold: number;
   pitcherToCatcherThreshold: number;
   leagueRuleset: LeagueRuleset;
+  /**
+   * Web only. While fair play is paused the rule fields above are all off, so
+   * the engine and the checks need no special case; the coach's own values
+   * wait here until they turn it back on. iOS ignores the key.
+   */
+  pausedRules?: Partial<FairPlayConfig>;
 }
 
 export interface PositionLock {

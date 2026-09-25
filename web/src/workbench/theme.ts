@@ -58,6 +58,9 @@ export const CSS = `
 .stl :focus-visible { outline: 2px solid ${C.blue}; outline-offset: 2px; }
 .stl .num { font-variant-numeric: tabular-nums; }
 .stl .field:focus { border-color: ${C.blue} !important; box-shadow: 0 0 0 3px rgba(0,122,255,0.15); }
+.stl .num-field:focus { box-shadow: 0 0 0 2px ${C.blue}; }
+.stl .num-field::placeholder { color: rgba(60,60,67,0.3); font-weight: 500; }
+.stl .h-remove { opacity: 0.35; transition: opacity .15s; }
 .stl .settings-group > * + * { box-shadow: inset 0 0.5px 0 rgba(60,60,67,0.29); }
 .stl .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stl [draggable="true"] { cursor: grab; }
@@ -91,6 +94,10 @@ export const CSS = `
   .stl .menu-item.danger:hover { background: ${C.red}; color: #fff; }
   .stl .menu-tile:hover { filter: brightness(0.95); }
   .stl .h-cov:hover { background: ${C.gray6}; }
+  .stl .h-rail:hover { background: rgba(60,60,67,0.06); }
+  .stl .h-reset:hover { background: rgba(255,59,48,0.05) !important; }
+  .stl .h-save:hover:not(:disabled) { background: #0066d6 !important; }
+  .stl .h-remove:hover { opacity: 1; }
 }
 @keyframes stl-toast-in { from { transform: translate(-50%, 24px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 @keyframes stl-pop-in { from { transform: scale(0.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }

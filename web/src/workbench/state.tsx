@@ -15,7 +15,7 @@ import { useTeam, type TeamData } from '@/data/teamStore';
 
 import { fairPlayIssues, type FairPlayIssue } from './fairPlayIssues';
 
-export type Screen = 'home' | 'game' | 'roster' | 'stats';
+export type Screen = 'home' | 'game' | 'roster' | 'stats' | 'settings';
 /** Game prep: 1 Attendance, 2 Batting order, 3 Defense, 4 Review. */
 export type Step = 1 | 2 | 3 | 4;
 export type DefView = 'field' | 'grid' | 'pitching';
@@ -63,8 +63,13 @@ export interface Workbench extends TeamData {
 
   playerModal: PlayerModal;
   setPlayerModal(m: PlayerModal): void;
-  settingsOpen: boolean;
-  setSettingsOpen(open: boolean): void;
+  /** Team settings reports unsaved changes here, so leaving the page can ask first. */
+  setSettingsDirty(dirty: boolean): void;
+  /** Runs `fn` now, or after the coach agrees to drop unsaved team settings. */
+  leave(fn: () => void): void;
+  /** A leave waiting on "Discard unsaved changes?". */
+  pendingLeave: (() => void) | null;
+  resolveLeave(discard: boolean): void;
 
   /** Assign with swap (see lineupOps.place); closes overlays. */
   place(pid: string, inning: number, pos: FieldPosition | null): void;
@@ -97,7 +102,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [picker, setPicker] = useState<PickerState | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [playerModal, setPlayerModal] = useState<PlayerModal>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+  const settingsDirty = useRef(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [dragging, setDragging] = useState<DragSource | null>(null);
@@ -137,6 +143,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     if (toastText) showToast(toastText, before);
   }, [editLineup, lineup, showToast]);
 
+  const leave = (fn: () => void) => {
+    if (screen === 'settings' && settingsDirty.current) setPendingLeave(() => fn);
+    else fn();
+  };
+
   const wb: Workbench = {
     ...data!,
     ...derived,
@@ -144,11 +155,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     holder: (i, pos) => derived.holders[i]?.get(pos),
     posOf: (pid, i) => lineup.innings[i]?.assignments[pid],
 
-    screen, go: (s) => { closeOverlays(); setScreen(s); },
-    step, goStep: (n) => { closeOverlays(); setScreen('game'); setStep(n); },
+    screen, go: (s) => leave(() => { closeOverlays(); setScreen(s); }),
+    step, goStep: (n) => leave(() => { closeOverlays(); setScreen('game'); setStep(n); }),
     defView, setDefView: (v) => { closeOverlays(); setDefView(v); },
     histView, setHistView, inning, setInning,
-    showInning: (i) => { closeOverlays(); setScreen('game'); setStep(3); setDefView('field'); setInning(i); },
+    showInning: (i) => leave(() => { closeOverlays(); setScreen('game'); setStep(3); setDefView('field'); setInning(i); }),
 
     prompt, setPrompt,
     autoFill: () => {
@@ -188,7 +199,13 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     closeOverlays,
 
     playerModal, setPlayerModal,
-    settingsOpen, setSettingsOpen: (open) => { closeOverlays(); setSettingsOpen(open); },
+    setSettingsDirty: (d) => { settingsDirty.current = d; },
+    leave, pendingLeave,
+    resolveLeave: (discard) => {
+      const fn = pendingLeave;
+      setPendingLeave(null);
+      if (discard && fn) { settingsDirty.current = false; fn(); }
+    },
 
     place: (pid, i, pos) => { closeOverlays(); setDropKey(null); editLineup((l) => place(l, pid, i, pos)); },
     edit,
