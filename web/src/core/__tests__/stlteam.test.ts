@@ -61,14 +61,18 @@ const privateDir = join(FIXTURES, 'private');
 const privateFiles = existsSync(privateDir)
   ? readdirSync(privateDir).filter((f) => f.endsWith('.stlteam'))
   : [];
-describe.each(privateFiles.map((f) => [f]))('private export %s', (f) => {
-  it('decodes without losing players', () => {
-    const raw = JSON.parse(readFileSync(join(privateDir, f), 'utf8'));
-    const { team } = parseStlTeam(JSON.stringify(raw));
-    expect(team.players).toHaveLength(raw.team.players.length);
-    expect(Object.keys(team.gameLineups)).toHaveLength((raw.team.gameLineups ?? []).length / 2);
+// A loop, not describe.each: .each throws on an empty table, and CI has no
+// private exports.
+for (const f of privateFiles) {
+  describe(`private export ${f}`, () => {
+    it('decodes without losing players', () => {
+      const raw = JSON.parse(readFileSync(join(privateDir, f), 'utf8'));
+      const { team } = parseStlTeam(JSON.stringify(raw));
+      expect(team.players).toHaveLength(raw.team.players.length);
+      expect(Object.keys(team.gameLineups)).toHaveLength((raw.team.gameLineups ?? []).length / 2);
+    });
   });
-});
+}
 
 describe('iOS decode fallbacks', () => {
   it('maps unknown positions to Bench (FieldPosition.init(from:))', () => {
