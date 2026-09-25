@@ -451,6 +451,31 @@ final class LineupStoreTests: XCTestCase {
             "Players who played keep their order; a returning player goes back at the bottom")
     }
 
+    /// iCloud posts didChangeExternallyNotification on a background queue. The
+    /// handler must accept that without tripping Swift 6's main-actor check
+    /// (the 3.4 crash when a team was open on iPhone and iPad at once). The
+    /// real observer is Release-only, so this drives the same @objc entry point
+    /// through a test notification.
+    func testICloudChangeHandlerAcceptsBackgroundDelivery() {
+        let name = Notification.Name("LineupStoreTests.iCloudDidChange")
+        NotificationCenter.default.addObserver(
+            store!, selector: NSSelectorFromString("iCloudDidUpdate:"), name: name, object: nil
+        )
+        defer { NotificationCenter.default.removeObserver(store!, name: name, object: nil) }
+
+        let delivered = expectation(description: "posted from a background queue")
+        DispatchQueue.global().async {
+            NotificationCenter.default.post(name: name, object: nil)
+            delivered.fulfill()
+        }
+        wait(for: [delivered], timeout: 5)
+
+        // The handler hops to main to reload; let that run too.
+        let reloaded = expectation(description: "main-queue reload ran")
+        DispatchQueue.main.async { reloaded.fulfill() }
+        wait(for: [reloaded], timeout: 5)
+    }
+
     func testClearSchedulePrunesGameLineups() {
         let game = makeScheduledGame("A", opponent: "Eagles")
         let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!

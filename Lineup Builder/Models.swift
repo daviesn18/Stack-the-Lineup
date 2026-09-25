@@ -1826,7 +1826,11 @@ class LineupStore: ObservableObject {
         }
     }
 
-    @objc private func iCloudDidUpdate(_ notification: Notification) {
+    /// Nonisolated because iCloud posts didChangeExternallyNotification on a
+    /// background queue. As a main-actor method, Swift 6 checked the thread on
+    /// entry and trapped (_swift_task_checkIsolatedSwift) before the hop below
+    /// could run: the "open a team on iPhone and iPad at once" crash in 3.4.
+    @objc nonisolated private func iCloudDidUpdate(_ notification: Notification) {
         DispatchQueue.main.async { self.applyStoredData() }
     }
 
