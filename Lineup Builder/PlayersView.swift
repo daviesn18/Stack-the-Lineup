@@ -1570,7 +1570,7 @@ struct PlayerFormView: View {
             }
         } footer: {
             if archetypeExpanded {
-                Text("Describe each player's hitting style, speed, and OBP. Used to auto-generate the batting order.")
+                Text("Describe each player's hitting style, speed, and OBP.")
             }
         }
     }
@@ -1719,7 +1719,7 @@ struct PlayerFormView: View {
                         Text("Hitting Archetype")
                             .font(.body)
                             .foregroundColor(.primary)
-                        Text("Tag each hitter's power, speed, and on-base profile to automate batting orders. Requires Pro.")
+                        Text("Tag each hitter's power, speed, and on-base profile. Requires Pro.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
