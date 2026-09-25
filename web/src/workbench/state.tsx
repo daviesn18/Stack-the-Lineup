@@ -63,6 +63,9 @@ export interface Workbench extends TeamData {
 
   playerModal: PlayerModal;
   setPlayerModal(m: PlayerModal): void;
+  /** The New game dialog (archive this game, set up the next). */
+  newGameOpen: boolean;
+  setNewGameOpen(open: boolean): void;
   /** Team settings reports unsaved changes here, so leaving the page can ask first. */
   setSettingsDirty(dirty: boolean): void;
   /** Runs `fn` now, or after the coach agrees to drop unsaved team settings. */
@@ -102,6 +105,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [picker, setPicker] = useState<PickerState | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [playerModal, setPlayerModal] = useState<PlayerModal>(null);
+  const [newGameOpen, setNewGameOpen] = useState(false);
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
   const settingsDirty = useRef(false);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -199,6 +203,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     closeOverlays,
 
     playerModal, setPlayerModal,
+    newGameOpen, setNewGameOpen: (open) => { closeOverlays(); setNewGameOpen(open); },
     setSettingsDirty: (d) => { settingsDirty.current = d; },
     leave, pendingLeave,
     resolveLeave: (discard) => {

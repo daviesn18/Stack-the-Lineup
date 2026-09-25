@@ -23,11 +23,13 @@ export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' :
 export function gameStatus(w: Pick<Workbench, 'lineup' | 'players' | 'active' | 'issues' | 'team'>) {
   const here = w.active.length;
   const total = w.players.length;
-  const fpOk = w.issues.length === 0;
   const finalized = w.lineup.status === 'finalized';
+  // Until the first position is set there's nothing to check: every spot is open by definition.
   const started = w.lineup.innings.some((inn) => Object.keys(inn.assignments).length > 0);
+  const issueCount = started ? w.issues.length : 0;
+  const fpOk = started && issueCount === 0;
   const open = w.lineup.innings.reduce((n, _, i) => n + openPositions(w.lineup, i, w.players, w.team.fairPlayConfig).length, 0);
   // A quarter each: attendance and batting order (always set), fair play, finalized.
   const readiness = 50 + (fpOk ? 25 : 0) + (finalized ? 25 : 0);
-  return { here, total, fpOk, finalized, started, open, readiness, issueCount: w.issues.length };
+  return { here, total, fpOk, finalized, started, open, readiness, issueCount };
 }

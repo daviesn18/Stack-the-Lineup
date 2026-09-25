@@ -8,13 +8,13 @@ import { finalize, moveBatter, restoreAbsent, toggleAbsent } from '@/core/lineup
 import { battingOrderPdf, coachesGuidePdf, pdfFilename } from '@/print/lineupPdf';
 import { openPdfTab } from '@/print/openPdf';
 
+import { dateValue, DateTimeInputs, Dialog, fromInputs, Group, Row, TextInput, timeValue } from './controls';
 import { DefenseStep } from './DefenseStep';
 import { Icon } from './Icon';
 import { gameStatus, gameTitle, gameWhen, plural } from './gameStatus';
 import { BORDER, FairPlayBox, PageHeader, Pill, PrimaryButton, SecondaryButton, StepTitle, SUB } from './Shell';
 import { useWorkbench, type Step } from './state';
 import { C } from './theme';
-import { Modal, PillButton, TextField } from './ui';
 
 const LABELS = ['Attendance', 'Batting order', 'Defense', 'Review'];
 
@@ -40,7 +40,7 @@ export function GameScreen() {
   const foot = {
     1: st.here === st.total ? 'Everyone is coming' : `${st.here} of ${st.total} coming. Auto-Fill will fill the open spots.`,
     2: 'Order carries over to next week',
-    3: st.fpOk ? `All ${n} innings pass fair play` : 'Fix the issues above, or continue anyway',
+    3: !st.started ? 'Set positions, or let Auto-Fill do it' : st.fpOk ? `All ${n} innings pass fair play` : 'Fix the issues above, or continue anyway',
     4: st.finalized ? 'Finalized. Print what you need for the dugout.' : 'Finalizing locks the lineup until you edit it',
   }[w.step];
 
@@ -95,14 +95,14 @@ export function GameScreen() {
 function StepBar() {
   const w = useWorkbench();
   const st = gameStatus(w);
-  const meta = [`${st.here} of ${st.total} coming`, plural(st.here, 'batter'), st.fpOk ? 'Fair play OK' : plural(st.issueCount, 'issue'), st.finalized ? 'Finalized' : 'Not finalized'];
+  const meta = [`${st.here} of ${st.total} coming`, plural(st.here, 'batter'), !st.started ? 'No positions yet' : st.fpOk ? 'Fair play OK' : plural(st.issueCount, 'issue'), st.finalized ? 'Finalized' : 'Not finalized'];
   const done = [true, true, st.fpOk, st.finalized];
   return (
     <nav aria-label="Game steps" style={{ height: 56, flexShrink: 0, borderBottom: `1px solid ${BORDER}`, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
       {LABELS.map((label, k) => {
         const n = (k + 1) as Step;
         const on = w.step === n;
-        const warn = n === 3 && !st.fpOk;
+        const warn = n === 3 && st.started && !st.fpOk;
         const [cbg, cfg] = on ? [C.blue, '#fff'] : warn ? ['rgba(255,59,48,0.12)', C.red] : done[k] ? ['rgba(52,199,89,0.16)', 'rgb(30,120,55)'] : [C.gray6, SUB];
         return [
           <button key={label} onClick={() => w.goStep(n)} aria-current={on ? 'step' : undefined} className={on ? '' : 'h-step'}
@@ -220,10 +220,13 @@ function BattingOrder() {
 function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void }) {
   const w = useWorkbench();
   const st = gameStatus(w);
-  const rows: { label: string; meta: string; ok: boolean; step: Step }[] = [
+  const rows: { label: string; meta: string; ok: boolean; todo?: boolean; step: Step }[] = [
     { label: 'Attendance', meta: `${st.here} of ${st.total} coming`, ok: true, step: 1 },
     { label: 'Batting order', meta: plural(st.here, 'batter'), ok: true, step: 2 },
-    { label: 'Defense', meta: st.fpOk ? `All ${w.lineup.innings.length} innings pass fair play` : plural(st.issueCount, 'fair-play issue'), ok: st.fpOk, step: 3 },
+    {
+      label: 'Defense', ok: st.fpOk, todo: !st.started, step: 3,
+      meta: !st.started ? 'No positions yet' : st.fpOk ? `All ${w.lineup.innings.length} innings pass fair play` : plural(st.issueCount, 'fair-play issue'),
+    },
   ];
   return (
     <>
@@ -231,9 +234,9 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void 
       <div style={{ borderRadius: 12, border: `1px solid ${BORDER}`, padding: '0 16px' }}>
         {rows.map((r, i) => (
           <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 12, height: 56, borderTop: i ? '1px solid rgba(60,60,67,0.08)' : 'none' }}>
-            <Icon name={r.ok ? 'checkmark.circle.fill' : 'exclamationmark.triangle.fill'} size={20} color={r.ok ? C.green : C.red} />
+            <Icon name={r.ok ? 'checkmark.circle.fill' : r.todo ? 'plus.circle' : 'exclamationmark.triangle.fill'} size={20} color={r.ok ? C.green : r.todo ? 'rgba(60,60,67,0.3)' : C.red} />
             <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{r.label}</span>
-            <span style={{ fontSize: 13, color: r.ok ? SUB : C.red }}>{r.meta}</span>
+            <span style={{ fontSize: 13, color: r.ok || r.todo ? SUB : C.red }}>{r.meta}</span>
             <button className="h-link" onClick={() => w.goStep(r.step)} style={{ fontSize: 14, fontWeight: 500, color: C.blue }}>Edit</button>
           </div>
         ))}
@@ -246,6 +249,16 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void 
         <p style={{ fontSize: 13, color: C.orange, margin: '10px 2px 0' }}>
           {st.open} field {st.open === 1 ? 'spot is' : 'spots are'} still open. {st.open === 1 ? 'It prints' : 'They print'} blank.
         </p>
+      )}
+      {st.finalized && (
+        <div style={{ marginTop: 16, borderRadius: 12, border: `1px solid ${BORDER}`, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Icon name="archivebox" size={20} color={C.teal} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>After the game</span>
+            <span style={{ display: 'block', fontSize: 13, color: SUB }}>Save it to season history with pitch counts, then set up the next one.</span>
+          </span>
+          <SecondaryButton icon="calendar.badge.plus" onClick={() => w.setNewGameOpen(true)}>New game</SecondaryButton>
+        </div>
       )}
     </>
   );
@@ -265,39 +278,32 @@ function ExportCard({ icon, title, detail, onClick }: { icon: string; title: str
 
 // MARK: - Game details (opponent, date, time)
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const dateValue = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const timeValue = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-
 function GameModal({ onClose }: { onClose(): void }) {
   const w = useWorkbench();
   const [opponent, setOpponent] = useState(w.lineup.opponent);
   const [date, setDate] = useState(dateValue(w.lineup.gameDate));
   const [time, setTime] = useState(timeValue(w.lineup.gameDate));
-  const valid = /^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(time);
+  const gameDate = fromInputs(date, time);
   const save = () => {
-    if (!valid) return;
-    const [y, m, d] = date.split('-').map(Number);
-    const [hh, mm] = time.split(':').map(Number);
-    const gameDate = new Date(y, m - 1, d, hh, mm);
+    if (!gameDate) return;
     w.edit((l) => ({ ...l, opponent: opponent.trim(), gameDate }));
     onClose();
   };
   return (
-    <Modal title="Game" onClose={onClose} width={440}
+    <Dialog title="Game details" subtitle={gameTitle(w.lineup)} onClose={onClose} width={600}
       footer={<span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-        <PillButton onClick={onClose}>Cancel</PillButton>
-        <PillButton kind="primary" onClick={save} disabled={!valid}>Save</PillButton>
+        <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+        <PrimaryButton height={32} onClick={save} disabled={!gameDate}>Save</PrimaryButton>
       </span>}>
-      <form onSubmit={(e) => { e.preventDefault(); save(); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <TextField label="Opponent" value={opponent} onChange={setOpponent} placeholder="Who you're playing" autoFocus />
-        <div style={{ display: 'flex', gap: 10 }}>
-          <TextField label="Date" type="date" value={date} onChange={setDate} />
-          <TextField label="Time" type="time" value={time} onChange={setTime} width={140} />
-        </div>
-        <p style={{ margin: 0, fontSize: 13, color: SUB }}>The date sets which pitchers are rested, and prints on the lineup.</p>
+      <form onSubmit={(e) => { e.preventDefault(); save(); }}>
+        <Group label="Game">
+          <Row label="Opponent"><TextInput value={opponent} onChange={setOpponent} placeholder="Who you're playing" label="Opponent" autoFocus width={240} /></Row>
+          <Row label="Date and time" help="Sets which pitchers are rested, and prints on the lineup.">
+            <DateTimeInputs date={date} time={time} onDate={setDate} onTime={setTime} />
+          </Row>
+        </Group>
         <button type="submit" hidden />
       </form>
-    </Modal>
+    </Dialog>
   );
 }

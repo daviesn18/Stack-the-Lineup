@@ -10,6 +10,7 @@ import { useTeam } from '@/data/teamStore';
 import { GameScreen } from './GameScreen';
 import { HistoryScreen } from './HistoryScreen';
 import { HomeScreen } from './HomeScreen';
+import { NewGameDialog } from './NewGameDialog';
 import { Overlays } from './Overlays';
 import { PlayerPanel, RosterScreen } from './RosterScreen';
 import { LeaveDialog, SettingsScreen } from './SettingsScreen';
@@ -53,6 +54,7 @@ function Frame({ demo }: { demo?: boolean }) {
       </div>
       <Overlays />
       {w.playerModal && <PlayerPanel key={w.playerModal.id} />}
+      {w.newGameOpen && <NewGameDialog />}
       {w.pendingLeave && <LeaveDialog />}
       {saving && <span aria-live="polite" style={{ position: 'fixed', right: 14, bottom: 10, fontSize: 12, color: C.label3 }}>Saving…</span>}
     </div>
@@ -67,7 +69,7 @@ function useKeyboard() {
       const tag = (e.target as HTMLElement | null)?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (e.key === 'Escape') { w.closeOverlays(); return; }
-      if (typing || e.metaKey || e.ctrlKey || e.altKey || w.playerModal || w.pendingLeave) return;
+      if (typing || e.metaKey || e.ctrlKey || e.altKey || w.playerModal || w.newGameOpen || w.pendingLeave) return;
       if (w.menu && e.key.toLowerCase() === 'b') { e.preventDefault(); w.place(w.menu.pid, w.menu.inning, 'Bench'); return; }
       if (w.screen === 'game' && w.step === 3 && w.defView === 'field' && !w.picker && !w.menu) {
         if (/^[1-9]$/.test(e.key) && Number(e.key) <= w.lineup.innings.length) w.setInning(Number(e.key) - 1);

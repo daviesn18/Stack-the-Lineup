@@ -27,15 +27,16 @@ export function HomeScreen() {
     { label: 'Attendance', meta: `${st.here} of ${st.total} coming`, state: 'done', cta: 'Edit', step: 1 },
     { label: 'Batting order', meta: `${plural(st.here, 'batter')}`, state: 'done', cta: 'Edit', step: 2 },
     {
-      label: 'Defense', meta: st.fpOk ? `All ${w.lineup.innings.length} innings pass fair play` : plural(st.issueCount, 'fair-play issue'),
-      state: st.fpOk ? 'done' : 'warn', cta: st.fpOk ? 'Edit' : 'Fix', step: 3,
+      label: 'Defense', step: 3,
+      meta: !st.started ? 'No positions yet' : st.fpOk ? `All ${w.lineup.innings.length} innings pass fair play` : plural(st.issueCount, 'fair-play issue'),
+      state: !st.started ? 'todo' : st.fpOk ? 'done' : 'warn', cta: !st.started ? 'Set' : st.fpOk ? 'Edit' : 'Fix',
     },
     { label: 'Finalize lineup', meta: st.finalized ? 'Finalized. Coaches Guide is ready.' : 'Not finalized yet', state: st.finalized ? 'done' : 'todo', cta: st.finalized ? 'View' : 'Review', step: 4 },
   ];
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: C.grouped }}>
-      <PageHeader right={<PrimaryButton icon="calendar.badge.plus" disabled title="New games come with archiving, which isn't on the web yet">New game</PrimaryButton>}>
+      <PageHeader right={<PrimaryButton icon="calendar.badge.plus" onClick={() => w.setNewGameOpen(true)}>New game</PrimaryButton>}>
         <span style={{ fontSize: 15, fontWeight: 600 }}>Home</span>
       </PageHeader>
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>

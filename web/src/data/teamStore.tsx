@@ -14,6 +14,7 @@ import {
   defaultFairPlayConfig, defaultPitchingConfig, type FairPlayConfig, type FieldPosition, type GameLog, type Lineup,
   type PitchingConfig, type Player,
 } from '../core/model';
+import { addGameLog, gameLogFrom, nextGameLineup, type ArchiveInput } from '../core/newGame';
 import { supabase } from './supabase';
 import { upperId } from './teams';
 
@@ -171,6 +172,12 @@ interface TeamStore {
    * unassigned, as in the grid they'd otherwise be invisible.
    */
   updateTeam(team: TeamInfo): void;
+  /**
+   * Starts the next game in the open lineup: archives the current one first
+   * when `archive` is given (see core/newGame), then sets the next opponent
+   * and date with the positions cleared.
+   */
+  startNewGame(next: { opponent: string; gameDate: Date }, archive?: Omit<ArchiveInput, 'id' | 'archivedAt'>): void;
   reload(): Promise<void>;
 }
 
@@ -278,9 +285,30 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     });
   }, [enqueue]);
 
+  const startNewGame = useCallback((next: { opponent: string; gameDate: Date }, archive?: Omit<ArchiveInput, 'id' | 'archivedAt'>) => {
+    const now = current.current;
+    if (!now) return;
+    const count = now.team.gameInningCount;
+    const log = archive && gameLogFrom(now.lineup, now.players, count, now.team.coachName, {
+      ...archive, id: crypto.randomUUID().toUpperCase(), archivedAt: new Date(),
+    });
+    const lineup = nextGameLineup(now.lineup, count, next);
+    set({ ...now, lineup, gameLogs: log ? addGameLog(now.gameLogs, log) : now.gameLogs });
+    enqueue(async () => {
+      if (!log) { await saveLineup(now.lineup, lineup); return; }
+      await must(supabase.rpc('archive_game', {
+        p_lineup_id: lineup.id, p_innings_played: log.inningsPlayed, p_notes: log.notes,
+        p_pitch_counts: log.pitchCounts, p_game_log_id: log.id,
+      }));
+      // archive_game cleared the cells and reverted to draft; send the rest of the next game.
+      const archived = nextGameLineup(now.lineup, count, now.lineup);
+      await saveLineup({ ...archived, absentPlayerIDs: now.lineup.absentPlayerIDs }, lineup);
+    });
+  }, [enqueue]);
+
   const store: TeamStore = {
     data, loadError, saveError, saving: pending > 0, dismissSaveError: () => setSaveError(null),
-    editLineup, addPlayer, updatePlayer, deletePlayer, updateTeam, reload,
+    editLineup, addPlayer, updatePlayer, deletePlayer, updateTeam, startNewGame, reload,
   };
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

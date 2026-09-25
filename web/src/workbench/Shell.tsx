@@ -88,7 +88,7 @@ export function Sidebar({ demo }: { demo?: boolean }) {
         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: SUB, padding: '0 10px 6px' }}>Upcoming</div>
         <button onClick={() => w.goStep(w.step)} className={w.screen === 'game' ? '' : 'h-side'}
           style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 7, width: '100%', background: w.screen === 'game' ? '#fff' : 'transparent' }}>
-          <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: st.finalized ? C.green : st.fpOk ? C.blue : C.red }} />
+          <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: st.finalized ? C.green : !st.started ? C.gray2 : st.fpOk ? C.blue : C.red }} />
           <span style={{ minWidth: 0 }}>
             <span className="ellipsis" style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>{gameTitle(w.lineup)}</span>
             <span style={{ display: 'block', fontSize: 12, color: SUB }}>{w.lineup.gameDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
@@ -162,6 +162,7 @@ function JumpPalette({ onClose }: { onClose(): void }) {
   const items = useMemo(() => {
     const all: { key: string; label: string; meta: string; run(): void }[] = [
       { key: 'game', label: gameTitle(w.lineup), meta: 'Game', run: () => w.goStep(w.step) },
+      { key: 'new-game', label: 'New game', meta: 'Action', run: () => w.leave(() => w.setNewGameOpen(true)) },
       { key: 'home', label: 'Home', meta: 'Page', run: () => w.go('home') },
       { key: 'roster', label: 'Roster', meta: 'Page', run: () => w.go('roster') },
       { key: 'stats', label: 'Season stats', meta: 'Page', run: () => w.go('stats') },
@@ -250,9 +251,10 @@ export function Pill({ kind, children }: { kind: PillKind; children: ReactNode }
   return <span style={{ fontSize: 12, fontWeight: 500, padding: '3px 9px', borderRadius: 999, background: bg, color: fg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 
-/** Fair play at a glance, on every game step. Chips jump to the inning. */
+/** Fair play at a glance, on every game step. Chips jump to the inning. Hidden until the first position is set. */
 export function FairPlayBox() {
   const w = useWorkbench();
+  if (!gameStatus(w).started) return null;
   const ok = w.issues.length === 0;
   const red = w.issues.some((i) => i.severity === 'red');
   const [bg, border, color] = ok
