@@ -2244,6 +2244,20 @@ class LineupStore: ObservableObject {
         }
 
         clearPositions()
+        // Absences belong to the game just played; the next game starts with
+        // everyone present. Cleared before the template is applied so a player
+        // who missed the last game still gets their standing assignments. (Once
+        // this runs, applyScheduledGame's ad-hoc stamp path only ever carries
+        // absences the coach set on the new lineup, which is what they want.)
+        // Marking a player absent dropped them from the batting order, so
+        // returning players go back at the bottom, as toggleAbsent does. The
+        // order of everyone who played is left alone.
+        let returning = activeTeam.players.filter {
+            activeTeam.lineup.absentPlayerIDs.contains($0.id)
+                && !activeTeam.lineup.battingOrder.contains($0.id)
+        }
+        activeTeam.lineup.battingOrder.append(contentsOf: returning.map(\.id))
+        activeTeam.lineup.absentPlayerIDs = []
         // Archiving is the app's only "new game starts now" moment, so this is
         // where a default template earns its keep — the next game opens with
         // the coach's standing assignments already in the grid.

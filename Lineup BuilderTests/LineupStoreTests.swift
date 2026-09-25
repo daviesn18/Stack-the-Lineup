@@ -437,6 +437,20 @@ final class LineupStoreTests: XCTestCase {
         XCTAssertNil(store.savedLineup(for: game), "The played game's saved lineup slot is cleared")
     }
 
+    func testArchiveStartsNextGameWithEveryonePresent() {
+        let ann = makePlayer("Ann"), bo = makePlayer("Bo"), cy = makePlayer("Cy")
+        store.addPlayers([ann, bo, cy])
+        store.toggleAbsent(player: bo)
+        XCTAssertEqual(store.activeTeam.lineup.battingOrder, [ann.id, cy.id])
+
+        store.archiveCurrentLineup(inningsPlayed: store.activeTeam.gameInningCount)
+
+        XCTAssertTrue(store.activeTeam.lineup.absentPlayerIDs.isEmpty,
+            "Absences belong to the archived game; the next one starts with everyone present")
+        XCTAssertEqual(store.activeTeam.lineup.battingOrder, [ann.id, cy.id, bo.id],
+            "Players who played keep their order; a returning player goes back at the bottom")
+    }
+
     func testClearSchedulePrunesGameLineups() {
         let game = makeScheduledGame("A", opponent: "Eagles")
         let idx = store.teams.firstIndex { $0.id == store.activeTeamID }!
