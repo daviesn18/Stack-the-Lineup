@@ -61,6 +61,8 @@ export const CSS = `
 .stl .num-field:focus { box-shadow: 0 0 0 2px ${C.blue}; }
 .stl .num-field::placeholder { color: rgba(60,60,67,0.3); font-weight: 500; }
 .stl .h-remove { opacity: 0.35; transition: opacity .15s; }
+/* Hairlines between the rows of a card (not above the first). */
+.stl .sep-rows > * + * { box-shadow: inset 0 0.5px 0 ${C.sep}; }
 .stl .settings-group > * + * { box-shadow: inset 0 0.5px 0 rgba(60,60,67,0.29); }
 .stl .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stl [draggable="true"] { cursor: grab; }

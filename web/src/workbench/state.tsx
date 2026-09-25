@@ -44,6 +44,8 @@ export interface Workbench extends TeamData {
   step: Step; goStep(step: Step): void;
   defView: DefView; setDefView(v: DefView): void;
   histView: HistView; setHistView(v: HistView): void;
+  /** The archived game open on Season stats › Games, or null for the list. */
+  gameLogId: string | null; openGameLog(id: string | null): void;
   inning: number; setInning(i: number): void;
   /** Game › Defense › Field at `inning`. */
   showInning(inning: number): void;
@@ -99,6 +101,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [step, setStep] = useState<Step>(1);
   const [defView, setDefView] = useState<DefView>('field');
   const [histView, setHistView] = useState<HistView>('team');
+  const [gameLogId, setGameLogId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [fillNotes, setFillNotes] = useState<AutoFillOutcome | null>(null);
   const [inning, setInningRaw] = useState(0);
@@ -159,10 +162,10 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     holder: (i, pos) => derived.holders[i]?.get(pos),
     posOf: (pid, i) => lineup.innings[i]?.assignments[pid],
 
-    screen, go: (s) => leave(() => { closeOverlays(); setScreen(s); }),
+    screen, go: (s) => leave(() => { closeOverlays(); setGameLogId(null); setScreen(s); }),
     step, goStep: (n) => leave(() => { closeOverlays(); setScreen('game'); setStep(n); }),
     defView, setDefView: (v) => { closeOverlays(); setDefView(v); },
-    histView, setHistView, inning, setInning,
+    histView, setHistView, gameLogId, openGameLog: setGameLogId, inning, setInning,
     showInning: (i) => leave(() => { closeOverlays(); setScreen('game'); setStep(3); setDefView('field'); setInning(i); }),
 
     prompt, setPrompt,

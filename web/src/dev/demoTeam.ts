@@ -54,7 +54,7 @@ export function demoTeam(): TeamData {
     innings: lineup.innings.slice(0, n as number).map((_, i) => ({
       assignments: Object.fromEntries(Object.entries(GRID).map(([key, row]) => [id(key), row[(i + g + 1) % 7] as FieldPosition])),
     })),
-    playerSnapshot: [], archivedAt: daysAgo(ago as number), archivedBy: 'Coach', notes: '',
+    playerSnapshot: players.map(({ id: pid, firstName, lastName, number }) => ({ id: pid, firstName, lastName, number })), archivedAt: daysAgo(ago as number), archivedBy: 'Coach', notes: '',
     pitchCounts: g === 0 ? { [id('of')]: 35 } : {},
   }));
 

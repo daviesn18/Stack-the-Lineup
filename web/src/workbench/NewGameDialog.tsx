@@ -3,7 +3,7 @@
 // does). The next game leads; archiving is a switch that expands in place.
 // Not in the handoffs yet, so it's built from the team-settings pieces:
 // grouped rows, switch, stepper and number inputs, in the roster panel's
-// dialog frame.
+// dialog frame. The pitch count list is shared with History (PitchCounts).
 
 import { useMemo, useState } from 'react';
 
@@ -12,16 +12,14 @@ import { hasGameDetails, pitchersIn } from '@/core/newGame';
 import { useTeam } from '@/data/teamStore';
 
 import {
-  dateValue, DateTimeInputs, Dialog, fromInputs, Group, HAIR, NumInput, Row, Stepper, TextInput, timeValue, Toggle,
+  dateValue, DateTimeInputs, Dialog, fromInputs, Group, Row, Stepper, TextInput, timeValue, Toggle,
 } from './controls';
-import { Icon } from './Icon';
 import { gameWhen } from './gameStatus';
+import { countsToSave, MAX_PITCHES, overLimit, PitchCountList, type Counts } from './PitchCounts';
 import { PrimaryButton, SecondaryButton, SUB } from './Shell';
 import { useWorkbench } from './state';
-import { C } from './theme';
 
 const WEEK = 7 * 86_400_000;
-const MAX_PITCHES = 200;
 
 /** A week after this game (or after today, if this game is past), at the same time of day. */
 function defaultNextDate(current: Date): Date {
@@ -40,7 +38,7 @@ export function NewGameDialog() {
   const [archive, setArchive] = useState(false);
   const [innings, setInnings] = useState(l.innings.length);
   const [pitchers, setPitchers] = useState<string[]>(() => pitchersIn(l).filter((id) => w.byId.has(id)));
-  const [counts, setCounts] = useState<Record<string, number | ''>>({});
+  const [counts, setCounts] = useState<Counts>({});
   const [notes, setNotes] = useState('');
   const next = defaultNextDate(l.gameDate);
   const [opponent, setOpponent] = useState('');
@@ -48,7 +46,7 @@ export function NewGameDialog() {
   const [time, setTime] = useState(timeValue(next));
 
   const gameDate = fromInputs(date, time);
-  const tooMany = pitchers.filter((id) => Number(counts[id] || 0) > MAX_PITCHES);
+  const tooMany = overLimit(pitchers, counts);
   const ready = !!gameDate && (!archive || !canArchive || tooMany.length === 0);
   const addable = useMemo(() => w.players.filter((p) => !pitchers.includes(p.id)), [w.players, pitchers]);
   const nextTitle = opponent.trim() ? `vs ${opponent.trim()}` : 'the next game';
@@ -59,7 +57,7 @@ export function NewGameDialog() {
 
   const start = () => {
     if (!ready || !gameDate) return;
-    const pitchCounts = Object.fromEntries(pitchers.map((id) => [id, Number(counts[id] || 0)]));
+    const pitchCounts = countsToSave(pitchers, counts);
     startNewGame({ opponent, gameDate }, archiving ? { inningsPlayed: innings, notes, pitchCounts } : undefined);
     close();
     w.goStep(1);
@@ -101,38 +99,16 @@ export function NewGameDialog() {
                   <Stepper value={innings} min={1} max={l.innings.length} onChange={setInnings} label="Innings played" />
                 </Row>
                 <Row label="Pitch counts" stacked help="Pitches thrown today.">
-                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column' }}>
-                    {pitchers.length === 0 && <div style={{ fontSize: 13, color: SUB, padding: '6px 0' }}>Nobody pitched in this lineup. Add a pitcher to record a count.</div>}
-                    {pitchers.map((id) => {
+                  <PitchCountList
+                    pitchers={pitchers.flatMap((id) => {
                       const p = w.byId.get(id);
-                      if (!p) return null;
-                      const over = tooMany.includes(id);
-                      return (
-                        <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: HAIR }}>
-                          <span style={{ flex: 1, minWidth: 0 }}>
-                            <span className="ellipsis" style={{ display: 'block', fontSize: 14 }}>{displayName(p)}</span>
-                            {over ? <span style={{ display: 'block', fontSize: 12, color: C.red }}>Up to {MAX_PITCHES} pitches</span>
-                              : p.leagueAge === undefined && <span style={{ display: 'block', fontSize: 12, color: C.orange }}>Add a league age on the Roster page to track rest</span>}
-                          </span>
-                          <NumInput value={counts[id] ?? ''} onChange={(v) => setCounts({ ...counts, [id]: v })} label={`${displayName(p)} pitches`} placeholder="0" width={72} />
-                          <button type="button" className="h-remove" title="Remove pitcher" aria-label={`Remove ${displayName(p)}`}
-                            onClick={() => setPitchers(pitchers.filter((x) => x !== id))} style={{ display: 'grid', placeItems: 'center' }}>
-                            <Icon name="minus.circle.fill" size={18} color={C.red} />
-                          </button>
-                        </div>
-                      );
+                      return p ? [{ id, name: displayName(p), warning: p.leagueAge === undefined ? 'Add a league age on the Roster page to track rest' : undefined }] : [];
                     })}
-                    {addable.length > 0 && (
-                      <label className="h-link" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, paddingTop: 8, borderTop: HAIR, fontSize: 14, fontWeight: 500, color: C.blue, cursor: 'pointer' }}>
-                        <Icon name="plus.circle.fill" size={18} color={C.blue} />Add pitcher
-                        <select aria-label="Add pitcher" value="" onChange={(e) => e.target.value && setPitchers([...pitchers, e.target.value])}
-                          style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}>
-                          <option value="">Add pitcher</option>
-                          {addable.map((p) => <option key={p.id} value={p.id}>{displayName(p)}</option>)}
-                        </select>
-                      </label>
-                    )}
-                  </div>
+                    addable={addable.map((p) => ({ id: p.id, name: displayName(p) }))}
+                    counts={counts} onCounts={setCounts}
+                    onRemove={(id) => setPitchers(pitchers.filter((x) => x !== id))}
+                    onAdd={(id) => setPitchers([...pitchers, id])}
+                    empty="Nobody pitched in this lineup. Add a pitcher to record a count." />
                 </Row>
                 <Row label="Notes" stacked>
                   <textarea className="field" aria-label="Game notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}

@@ -1,11 +1,13 @@
 // History: season stats from archived games only (Team coverage and bench
-// innings, the games list, per-player totals).
+// innings, the games list, per-player totals). A game in the list opens its
+// detail page (GameLogDetail).
 
 import { useMemo } from 'react';
 
 import { shortName } from '@/core/lineupOps';
 import { isInfield, isOutfield, type FieldPosition, type GameLog, type Player } from '@/core/model';
 
+import { GameLogDetail, gameTitle } from './GameLogDetail';
 import { Icon } from './Icon';
 import { useWorkbench } from './state';
 import { C, TIER_STYLE } from './theme';
@@ -34,6 +36,12 @@ export function seasonTotals(players: Player[], logs: GameLog[]) {
 }
 
 export function HistoryScreen() {
+  const w = useWorkbench();
+  const open = w.gameLogs.find((g) => g.id === w.gameLogId);
+  return open ? <GameLogDetail log={open} /> : <SeasonStats />;
+}
+
+function SeasonStats() {
   const w = useWorkbench();
   const totals = useMemo(() => seasonTotals(w.players, w.gameLogs), [w.players, w.gameLogs]);
   const empty = w.gameLogs.length === 0;
@@ -121,19 +129,26 @@ function GamesView() {
   return (
     <>
       <div style={{ ...card, overflow: 'hidden' }}>
-        {w.gameLogs.map((g, i) => (
-          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderTop: i ? C.hair : 'none' }}>
-            <Icon name="archivebox" size={22} color={C.teal} />
-            <span style={{ flex: 1 }}>
-              <span style={{ display: 'block', fontSize: 17 }}>{g.opponent ? `vs ${g.opponent}` : 'Game'}</span>
-              <span style={{ display: 'block', fontSize: 13, color: C.label2 }}>
-                {g.gameDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {g.inningsPlayed} innings
+        {w.gameLogs.map((g, i) => {
+          const pitchers = Object.values(g.pitchCounts).filter((n) => n > 0).length;
+          return (
+            <button key={g.id} className="h-row" onClick={() => w.openGameLog(g.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '12px 16px', textAlign: 'left', borderTop: i ? C.hair : 'none' }}>
+              <Icon name="archivebox" size={22} color={C.teal} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 17 }}>{gameTitle(g)}</span>
+                <span style={{ display: 'block', fontSize: 13, color: C.label2 }}>
+                  {g.gameDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {g.inningsPlayed} {g.inningsPlayed === 1 ? 'inning' : 'innings'}
+                  {pitchers > 0 && ` · ${pitchers} ${pitchers === 1 ? 'pitcher' : 'pitchers'}`}
+                </span>
+                {g.notes && <span className="ellipsis" style={{ display: 'block', fontSize: 13, color: C.label2 }}>{g.notes}</span>}
               </span>
-            </span>
-          </div>
-        ))}
+              <Icon name="chevron.right" size={16} color={C.gray2} />
+            </button>
+          );
+        })}
       </div>
-      <p style={{ fontSize: 13, color: C.label2, margin: '10px 16px' }}>Season stats only count archived games.</p>
+      <p style={{ fontSize: 13, color: C.label2, margin: '10px 16px' }}>Season stats only count archived games. Open a game to add pitch counts or notes.</p>
     </>
   );
 }

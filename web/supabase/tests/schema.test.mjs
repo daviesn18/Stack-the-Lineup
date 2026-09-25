@@ -391,6 +391,32 @@ describe('archive_game', () => {
       assert.deepEqual(rows, [{ player: p2, pitches: 25 }]);
     });
   });
+
+  // History: what the web's updateGameLog / deleteGameLog send.
+  test('notes and soft delete on an archived game: its coach only', async () => {
+    const a = await createUser(db);
+    const b = await createUser(db);
+    const { lineup, players: [p1] } = await makeTeam(a);
+    const id = await asUser(db, a, async (d) =>
+      (await d.query(`select public.archive_game($1, 6, '', $2) as id`, [lineup, { [p1]: 30 }])).rows[0].id);
+
+    await asUser(db, b, async (d) => {
+      const notes = await d.query(`update public.game_logs set notes = 'hijacked' where id = $1`, [id]);
+      const del = await d.query(`update public.game_logs set deleted_at = now() where id = $1`, [id]);
+      assert.equal(notes.affectedRows, 0);
+      assert.equal(del.affectedRows, 0);
+      await rejects(d.query(`select public.replace_pitch_counts($1, '{}')`, [id]), { message: /Game log not found/ });
+    });
+
+    await asUser(db, a, async (d) => {
+      await d.query(`update public.game_logs set notes = 'Won 9-6' where id = $1`, [id]);
+      await d.query(`update public.game_logs set deleted_at = now() where id = $1`, [id]);
+      const { rows: [log] } = await d.query(`select notes, deleted_at is not null as deleted from public.game_logs where id = $1`, [id]);
+      assert.deepEqual(log, { notes: 'Won 9-6', deleted: true });
+      // A deleted game's pitch counts can't be edited any more.
+      await rejects(d.query(`select public.replace_pitch_counts($1, '{}')`, [id]), { message: /Game log not found/ });
+    });
+  });
 });
 
 describe('import_team', () => {

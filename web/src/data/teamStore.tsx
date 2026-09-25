@@ -178,6 +178,14 @@ interface TeamStore {
    * and date with the positions cleared.
    */
   startNewGame(next: { opponent: string; gameDate: Date }, archive?: Omit<ArchiveInput, 'id' | 'archivedAt'>): void;
+  /**
+   * Edits an archived game after the fact (iOS updateGameLogNotes and
+   * replacePitchCounts). Pitch counts replace the whole set, so a pitcher
+   * left out is cleared; zeros are dropped.
+   */
+  updateGameLog(id: string, change: { notes?: string; pitchCounts?: Record<string, number> }): void;
+  /** Removes an archived game from history, stats and pitcher rest (a soft delete). */
+  deleteGameLog(id: string): void;
   reload(): Promise<void>;
 }
 
@@ -306,9 +314,35 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     });
   }, [enqueue]);
 
+  const updateGameLog = useCallback((id: string, change: { notes?: string; pitchCounts?: Record<string, number> }) => {
+    const now = current.current;
+    if (!now) return;
+    const notes = change.notes?.trim();
+    const pitchCounts = change.pitchCounts && Object.fromEntries(Object.entries(change.pitchCounts).filter(([, n]) => n > 0));
+    set({
+      ...now,
+      gameLogs: now.gameLogs.map((g) => (g.id !== id ? g : {
+        ...g, ...(notes !== undefined ? { notes } : {}), ...(pitchCounts ? { pitchCounts } : {}),
+      })),
+    });
+    enqueue(async () => {
+      if (notes !== undefined) await must(supabase.from('game_logs').update({ notes }).eq('id', id));
+      if (pitchCounts) await must(supabase.rpc('replace_pitch_counts', { p_game_log_id: id, p_counts: pitchCounts }));
+    });
+  }, [enqueue]);
+
+  const deleteGameLog = useCallback((id: string) => {
+    const now = current.current;
+    if (!now) return;
+    set({ ...now, gameLogs: now.gameLogs.filter((g) => g.id !== id) });
+    enqueue(async () => {
+      await must(supabase.from('game_logs').update({ deleted_at: new Date().toISOString() }).eq('id', id));
+    });
+  }, [enqueue]);
+
   const store: TeamStore = {
     data, loadError, saveError, saving: pending > 0, dismissSaveError: () => setSaveError(null),
-    editLineup, addPlayer, updatePlayer, deletePlayer, updateTeam, startNewGame, reload,
+    editLineup, addPlayer, updatePlayer, deletePlayer, updateTeam, startNewGame, updateGameLog, deleteGameLog, reload,
   };
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }
