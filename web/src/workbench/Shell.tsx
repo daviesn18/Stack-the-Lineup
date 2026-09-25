@@ -6,6 +6,8 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
+import { useAuth } from '@/data/auth';
+import { supabase } from '@/data/supabase';
 import { listTeams, type TeamSummary } from '@/data/teams';
 
 import { Icon } from './Icon';
@@ -32,6 +34,7 @@ export function Sidebar({ demo }: { demo?: boolean }) {
   const w = useWorkbench();
   const [teamMenu, setTeamMenu] = useState(false);
   const [jump, setJump] = useState(false);
+  const [account, setAccount] = useState(false);
   const st = gameStatus(w);
   const meta = (s: Screen) => (s === 'game' ? String(1 + w.gameLogs.length) : s === 'roster' ? String(w.players.length) : '');
   const initials = (w.team.coachName || 'Coach').split(/\s+/).map((x) => x.charAt(0)).join('').slice(0, 2).toUpperCase();
@@ -97,15 +100,43 @@ export function Sidebar({ demo }: { demo?: boolean }) {
       </div>
 
       <div style={{ marginTop: 'auto', borderTop: `1px solid ${BORDER}`, paddingTop: 12, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 6px 0' }}>
-        <span style={{ width: 28, height: 28, borderRadius: 14, background: C.gray5, fontSize: 11, fontWeight: 600, color: SUB, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{initials}</span>
-        <span className="ellipsis" style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{w.team.coachName || 'Coach'}</span>
+        <button className="h-side" onClick={() => setAccount((v) => !v)} aria-haspopup="menu" aria-expanded={account} title="Account"
+          style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, padding: 3, margin: -3, borderRadius: 8 }}>
+          <span style={{ width: 28, height: 28, borderRadius: 14, background: C.gray5, fontSize: 11, fontWeight: 600, color: SUB, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{initials}</span>
+          <span className="ellipsis" style={{ flex: 1, fontSize: 13, fontWeight: 500, textAlign: 'left' }}>{w.team.coachName || 'Coach'}</span>
+          <Icon name="chevron.up" size={12} color={SUB} />
+        </button>
         <button className={w.screen === 'settings' ? '' : 'h-side'} title="Team settings" aria-label="Team settings"
           aria-current={w.screen === 'settings' ? 'page' : undefined} onClick={() => w.go('settings')}
           style={{ width: 28, height: 28, borderRadius: 7, display: 'grid', placeItems: 'center', background: w.screen === 'settings' ? 'rgba(60,60,67,0.10)' : 'transparent' }}>
           <Icon name="gearshape.fill" size={16} color={w.screen === 'settings' ? C.blue : SUB} />
         </button>
       </div>
+      {account && <AccountMenu demo={demo} onClose={() => setAccount(false)} />}
     </aside>
+  );
+}
+
+/** Opens from the coach in the sidebar footer: who's signed in, all teams, sign out. */
+function AccountMenu({ demo, onClose }: { demo?: boolean; onClose(): void }) {
+  const router = useRouter();
+  const w = useWorkbench();
+  const { session } = useAuth();
+  const item: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 9px', borderRadius: 6, fontSize: 14 };
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
+      <div role="menu" className="pop" style={{ position: 'absolute', bottom: 58, left: 10, right: 10, zIndex: 21, background: 'rgba(255,255,255,0.98)', borderRadius: 10, padding: 5, boxShadow: '0 10px 30px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.14)' }}>
+        <div style={{ padding: '6px 9px 4px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: SUB }}>Signed in as</div>
+          <div className="ellipsis" style={{ fontSize: 13 }}>{demo ? 'Demo team' : session?.user.email ?? ''}</div>
+        </div>
+        <div style={{ height: 0.5, background: C.sep, margin: '5px 9px' }} />
+        <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); w.leave(() => router.push('/')); }}>All teams</button>
+        <button role="menuitem" className="menu-item" style={item} disabled={demo}
+          onClick={() => { onClose(); w.leave(() => { void supabase.auth.signOut({ scope: 'local' }); }); }}>Sign out</button>
+      </div>
+    </>
   );
 }
 
@@ -145,6 +176,12 @@ function TeamMenu({ demo, onClose }: { demo?: boolean; onClose(): void }) {
         <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); w.go('settings'); }}>Team settings…</button>
         <button role="menuitem" className="menu-item" style={item} onClick={() => go('/')}>All teams</button>
         {!demo && <button role="menuitem" className="menu-item" style={item} onClick={() => go('/import')}>Import a team file…</button>}
+        {!demo && (
+          <>
+            <div style={{ height: 0.5, background: C.sep, margin: '5px 9px' }} />
+            <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); w.leave(() => { void supabase.auth.signOut({ scope: 'local' }); }); }}>Sign out</button>
+          </>
+        )}
       </div>
     </>
   );

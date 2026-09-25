@@ -297,7 +297,7 @@ function AppFrame({ children, width = 1040 }: { children: ReactNode; width?: num
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           {isPro && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: C.blue, background: 'rgba(0,122,255,0.1)', borderRadius: 999, padding: '3px 8px' }}>PRO</span>}
           <span style={{ fontSize: 13, color: SUB }}>{email}</span>
-          <SecondaryButton onClick={() => void supabase.auth.signOut()}>Sign out</SecondaryButton>
+          <SecondaryButton onClick={() => void supabase.auth.signOut({ scope: 'local' })}>Sign out</SecondaryButton>
         </span>
       </header>
       <main style={{ maxWidth: width, margin: '0 auto', padding: '36px 24px 64px' }}>{children}</main>

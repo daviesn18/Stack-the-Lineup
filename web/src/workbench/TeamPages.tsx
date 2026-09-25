@@ -30,7 +30,7 @@ export function TeamsPage() {
         <View style={styles.headerRight}>
           {isPro && <Text style={[styles.pro, { color: c.accent, borderColor: c.accent }]}>PRO</Text>}
           <Text style={{ color: c.muted }}>{session?.user.email}</Text>
-          <Button title="Sign out" kind="secondary" onPress={() => supabase.auth.signOut()} />
+          <Button title="Sign out" kind="secondary" onPress={() => supabase.auth.signOut({ scope: 'local' })} />
         </View>
       </View>
 
