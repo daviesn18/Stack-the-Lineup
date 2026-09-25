@@ -1831,7 +1831,7 @@ struct PositionPickerView: View {
                     Section {
                         pitchStatusRow
                     } footer: {
-                        Text("Available is the lower of the daily max and the pitches remaining in the current weekly window.")
+                        Text("Available: pitches the player can still throw today.")
                     }
                 }
 

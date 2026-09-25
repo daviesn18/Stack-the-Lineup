@@ -786,7 +786,7 @@ struct PositionSummaryView: View {
                 }
 
                 if store.pitchingConfig.rulesEnabled && !pitchers.isEmpty {
-                    Text("Available is the lower of the daily max and the pitches remaining in the current weekly window.")
+                    Text("Available: pitches the player can still throw today.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 16)

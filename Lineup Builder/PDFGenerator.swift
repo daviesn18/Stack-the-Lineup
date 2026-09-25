@@ -371,7 +371,7 @@ class PDFGenerator {
         y = max(leftBottom, rightBottom)
 
         y += 4
-        drawText("Available is the lower of the daily max and pitches remaining in the current weekly window. Rest is days still owed from the last outing.",
+        drawText("Available: pitches the player can still throw today. Rest: days off they still need after their last outing.",
                  x: margin, y: y,
                  font: .italicSystemFont(ofSize: 7), color: .gray)
         y += 10
