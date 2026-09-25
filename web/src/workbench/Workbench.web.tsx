@@ -11,7 +11,7 @@ import { GameScreen } from './GameScreen';
 import { HistoryScreen } from './HistoryScreen';
 import { HomeScreen } from './HomeScreen';
 import { Overlays } from './Overlays';
-import { PlayerModal, PlayersScreen } from './PlayersScreen';
+import { PlayerPanel, RosterScreen } from './RosterScreen';
 import { SettingsModal } from './SettingsModal';
 import { Sidebar } from './Shell';
 import { useWorkbench, WorkbenchProvider } from './state';
@@ -45,13 +45,13 @@ function Frame({ demo }: { demo?: boolean }) {
           <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
             {w.screen === 'home' && <HomeScreen />}
             {w.screen === 'game' && <GameScreen />}
-            {w.screen === 'roster' && <PlayersScreen demo={demo} />}
+            {w.screen === 'roster' && <RosterScreen />}
             {w.screen === 'stats' && <HistoryScreen />}
           </div>
         </main>
       </div>
       <Overlays />
-      {w.playerModal && <PlayerModal key={w.playerModal.id} />}
+      {w.playerModal && <PlayerPanel key={w.playerModal.id} />}
       {w.settingsOpen && <SettingsModal onClose={() => w.setSettingsOpen(false)} />}
       {saving && <span aria-live="polite" style={{ position: 'fixed', right: 14, bottom: 10, fontSize: 12, color: C.label3 }}>Saving…</span>}
     </div>

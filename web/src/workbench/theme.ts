@@ -32,6 +32,15 @@ export const badgeColor = (p: FieldPosition | undefined | null) =>
 export const tint = (p: FieldPosition | undefined | null) =>
   !p ? C.gray5 : isInfield(p) ? C.infieldTint : isOutfield(p) ? C.outfieldTint : C.gray5;
 
+const TIERS_BY_RANK: PositionPreferenceTier[] = ['Strength', 'Capable', 'Emergency', 'Never'];
+
+/** Initials avatar tinted by the player's average preference tier (Capable when none are set). */
+export function playerAvatar(p: { positionPreferences: Partial<Record<FieldPosition, PositionPreferenceTier>> }) {
+  const ranks = Object.values(p.positionPreferences).filter(Boolean).map((t) => TIERS_BY_RANK.indexOf(t!));
+  const avg = ranks.length ? Math.round(ranks.reduce((a, b) => a + b, 0) / ranks.length) : 1;
+  return TIER_STYLE[TIERS_BY_RANK[avg]];
+}
+
 /** A stable pastel for a player's initials avatar. */
 export function avatarStyle(id: string) {
   const tiers: PositionPreferenceTier[] = ['Strength', 'Capable', 'Emergency', 'Never'];
@@ -48,6 +57,7 @@ export const CSS = `
 .stl input, .stl textarea, .stl select { font: inherit; color: inherit; }
 .stl :focus-visible { outline: 2px solid ${C.blue}; outline-offset: 2px; }
 .stl .num { font-variant-numeric: tabular-nums; }
+.stl .field:focus { border-color: ${C.blue} !important; box-shadow: 0 0 0 3px rgba(0,122,255,0.15); }
 .stl .settings-group > * + * { box-shadow: inset 0 0.5px 0 rgba(60,60,67,0.29); }
 .stl .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stl [draggable="true"] { cursor: grab; }
@@ -66,6 +76,9 @@ export const CSS = `
   .stl .h-link:hover:not(:disabled) { opacity: 0.7; }
   .stl .h-tint:hover { background: rgba(0,122,255,0.05); }
   .stl .h-side:hover { background: rgba(60,60,67,0.08); }
+  .stl .h-row3:hover { background: #F7F7FA; }
+  .stl .h-bluetext:hover { color: ${C.blue}; }
+  .stl .menu-row:hover { background: rgba(0,122,255,0.08); }
   .stl .h-sec:hover:not(:disabled) { background: #F7F7FA !important; }
   .stl .h-step:hover { background: rgba(60,60,67,0.05); }
   .stl .h-card:hover { box-shadow: inset 0 0 0 1.5px rgba(0,122,255,0.55) !important; }
@@ -83,4 +96,6 @@ export const CSS = `
 @keyframes stl-pop-in { from { transform: scale(0.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .stl .toast { animation: stl-toast-in .35s cubic-bezier(.2,.9,.3,1.15); }
 .stl .pop { animation: stl-pop-in .12s ease-out; }
+@keyframes stl-slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.stl .slide-in { animation: stl-slide-in .18s ease-out; }
 `;

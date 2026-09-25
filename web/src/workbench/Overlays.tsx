@@ -8,7 +8,7 @@ import { keepForRemaining, toggleAbsent } from '@/core/lineupOps';
 import { isInfield, POSITION_NAMES, type Player } from '@/core/model';
 
 import { useWorkbench } from './state';
-import { avatarStyle, badgeColor, C, TIER_RANK, TIER_STYLE, tint } from './theme';
+import { badgeColor, C, playerAvatar, TIER_RANK, TIER_STYLE, tint } from './theme';
 
 export function Overlays() {
   const w = useWorkbench();
@@ -61,7 +61,7 @@ function Picker() {
       </div>
       <div style={{ maxHeight: 330, overflowY: 'auto', borderTop: C.hair }}>
         {rows.map(({ p, tier, now }) => {
-          const av = avatarStyle(p.id);
+          const av = playerAvatar(p);
           const prev = pk.inning > 0 ? `Inn ${pk.inning}: ${w.posOf(p.id, pk.inning - 1) ?? '—'}` : p.number ? `#${p.number}` : '';
           return (
             <button key={p.id} className="pick-row" onClick={() => w.place(p.id, pk.inning, pk.pos)}
