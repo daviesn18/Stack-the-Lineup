@@ -1,5 +1,5 @@
-// Home: how ready the next game is, plus the season so far (bench innings,
-// the schedule and position coverage), from archived games.
+// Home: how ready the next game is, plus the season so far (innings played
+// by zone, the schedule and position coverage), from archived games.
 
 import { useMemo, type ReactNode } from 'react';
 
@@ -70,10 +70,10 @@ export function HomeScreen() {
             ))}
           </section>
 
-          <section style={card} aria-label="Bench innings this season">
-            <CardTitle right={plural(w.gameLogs.length, 'game')}>Bench innings this season</CardTitle>
-            <div style={{ fontSize: 13, color: SUB, marginTop: 2, marginBottom: 14 }}>Innings on the bench in archived games.</div>
-            {w.gameLogs.length === 0 ? <Empty>Archive a game and bench time accumulates.</Empty> : <BenchBars totals={totals} />}
+          <section style={card} aria-label="Innings this season">
+            <CardTitle right={plural(w.gameLogs.length, 'game')}>Innings this season</CardTitle>
+            <div style={{ fontSize: 13, color: SUB, marginTop: 2, marginBottom: 14 }}>Infield, outfield and bench innings in archived games.</div>
+            {w.gameLogs.length === 0 ? <Empty>Archive a game and innings accumulate.</Empty> : <ZoneBars totals={totals} />}
           </section>
 
           <section style={card} aria-label="Schedule">
@@ -117,24 +117,36 @@ function Empty({ children }: { children: string }) {
 
 type Totals = ReturnType<typeof seasonTotals>;
 
-function BenchBars({ totals }: { totals: Totals }) {
+const ZONES = [
+  { key: 'infield', label: 'IF', name: 'infield', color: C.blue },
+  { key: 'outfield', label: 'OF', name: 'outfield', color: C.green },
+  { key: 'bench', label: 'BN', name: 'bench', color: C.gray1 },
+] as const;
+
+/** One stacked bar per player, most bench innings first; bar length is total innings. */
+function ZoneBars({ totals }: { totals: Totals }) {
   const w = useWorkbench();
-  const rows = w.players.map((p) => ({ p, n: totals.get(p.id)!.bench })).sort((a, b) => b.n - a.n);
-  const max = Math.max(1, ...rows.map((r) => r.n));
+  const rows = w.players.map((p) => ({ p, t: totals.get(p.id)! })).sort((a, b) => b.t.bench - a.t.bench);
+  const max = Math.max(1, ...rows.map(({ t }) => t.infield + t.outfield + t.bench));
+  const cols = '92px 1fr repeat(3, 26px)';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {rows.map(({ p, n }) => {
-        const top = n === max && n > 0;
-        return (
-          <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '92px 1fr 22px', gap: 10, alignItems: 'center' }}>
-            <span className="ellipsis" style={{ fontSize: 14 }}>{shortName(p)}</span>
-            <span style={{ height: 10, borderRadius: 5, background: C.gray6, overflow: 'hidden' }}>
-              <span style={{ display: 'block', height: '100%', width: `${(n / max) * 100}%`, borderRadius: 5, background: top ? C.orange : 'rgba(0,122,255,0.55)' }} />
-            </span>
-            <span className="num" style={{ fontSize: 14, textAlign: 'right', color: top ? 'rgb(133,79,10)' : C.label }}>{n}</span>
-          </div>
-        );
-      })}
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, fontSize: 11, fontWeight: 600, color: SUB }}>
+        <span /><span />
+        {ZONES.map((z) => <span key={z.key} style={{ textAlign: 'right', color: z.color }}>{z.label}</span>)}
+      </div>
+      {rows.map(({ p, t }) => (
+        <div key={p.id} style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center' }}
+          title={`${p.firstName}: ${ZONES.map((z) => `${t[z.key]} ${z.name}`).join(', ')}`}>
+          <span className="ellipsis" style={{ fontSize: 14 }}>{shortName(p)}</span>
+          <span style={{ display: 'flex', gap: 2, height: 10, borderRadius: 5, background: C.gray6, overflow: 'hidden' }}>
+            {ZONES.map((z) => t[z.key] > 0 && (
+              <span key={z.key} style={{ height: '100%', width: `${(t[z.key] / max) * 100}%`, background: z.color, opacity: z.key === 'bench' ? 0.5 : 0.8 }} />
+            ))}
+          </span>
+          {ZONES.map((z) => <span key={z.key} className="num" style={{ fontSize: 14, textAlign: 'right' }}>{t[z.key]}</span>)}
+        </div>
+      ))}
     </div>
   );
 }
