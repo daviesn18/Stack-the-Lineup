@@ -152,6 +152,67 @@ final class TeamExportRoundTripTests: XCTestCase {
         XCTAssertEqual(imported.lineupTemplates, original.lineupTemplates)
     }
 
+    // MARK: - Position preferences
+
+    /// A full roster where every player has preferences, covering every fielding
+    /// position and every tier, with a different mix per player.
+    private func makePreferenceTeam() -> Team {
+        let fielding = FieldPosition.allCases.filter { $0 != .bench && $0 != .absent }
+        let tiers = PositionPreferenceTier.allCases
+        let players = (0..<11).map { i -> Player in
+            var prefs: [FieldPosition: PositionPreferenceTier] = [:]
+            for (j, pos) in fielding.enumerated() where (i + j) % 3 != 0 {
+                prefs[pos] = tiers[(i + j) % tiers.count]
+            }
+            return Player(firstName: "Player\(i)", lastName: "Test", number: "\(i)",
+                          positionPreferences: prefs)
+        }
+        return Team(name: "Prefs", players: players, gameInningCount: 6)
+    }
+
+    func testPositionPreferencesAreWrittenToTheFile() throws {
+        let team = makePreferenceTeam()
+        let data = try XCTUnwrap(TeamExporter.export(team: team))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let players = try XCTUnwrap((json["team"] as? [String: Any])?["players"] as? [[String: Any]])
+        XCTAssertEqual(players.count, team.players.count)
+
+        for (raw, player) in zip(players, team.players) {
+            // [FieldPosition: Tier] encodes as a flat [pos, tier, pos, tier] array.
+            let flat = try XCTUnwrap(raw["positionPreferences"] as? [String])
+            XCTAssertEqual(flat.count, player.positionPreferences.count * 2, player.firstName)
+            var decoded: [String: String] = [:]
+            for k in stride(from: 0, to: flat.count, by: 2) { decoded[flat[k]] = flat[k + 1] }
+            let expected = Dictionary(uniqueKeysWithValues:
+                player.positionPreferences.map { ($0.key.rawValue, $0.value.rawValue) })
+            XCTAssertEqual(decoded, expected, player.firstName)
+        }
+    }
+
+    func testPositionPreferencesSurviveRepeatedExportImport() throws {
+        let original = makePreferenceTeam()
+        var team = original
+        for pass in 1...5 {
+            team = try parseExported(team).team
+            for (got, want) in zip(team.players, original.players) {
+                XCTAssertEqual(got.positionPreferences, want.positionPreferences,
+                               "pass \(pass): \(want.firstName)")
+            }
+        }
+    }
+
+    func testEditedPositionPreferencesExport() throws {
+        // Mirrors PlayerFormView's edit save: a player added without preferences,
+        // then edited to have them, must export the edited set.
+        var team = makePreferenceTeam()
+        team.players[0].positionPreferences = [:]
+        XCTAssertTrue(try parseExported(team).team.players[0].positionPreferences.isEmpty)
+
+        team.players[0].positionPreferences = [.catcher: .never, .centerField: .strength]
+        XCTAssertEqual(try parseExported(team).team.players[0].positionPreferences,
+                       [.catcher: .never, .centerField: .strength])
+    }
+
     func testConfigsRoundTrip() throws {
         let original = makeRichTeam()
         let imported = try parseExported(original).team
