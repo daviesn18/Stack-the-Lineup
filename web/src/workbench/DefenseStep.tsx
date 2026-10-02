@@ -150,7 +150,7 @@ function useSpot(inning: number, pos: FieldPosition, key: string) {
       onClick: (e: { currentTarget: Element }) => w.openPicker(e.currentTarget, inning, pos),
       onContextMenu: (e: { clientX: number; clientY: number; preventDefault(): void }) => w.openMenu(e, p?.id, inning),
       ...w.dragProps(p?.id, 'cell'),
-      ...w.dropProps(key, (src) => w.place(src.pid, inning, pos)),
+      ...w.dropProps(key, (src) => w.place(src.pid, inning, pos, 'drag')),
     },
   };
 }
@@ -242,7 +242,7 @@ function BenchBox() {
   const w = useWorkbench();
   const list = benched(w, w.inning);
   return (
-    <div {...w.dropProps('bn', (src) => w.place(src.pid, w.inning, 'Bench'))}
+    <div {...w.dropProps('bn', (src) => w.place(src.pid, w.inning, 'Bench', 'drag'))}
       style={{ background: C.gray6, borderRadius: 12, padding: '10px 12px', boxShadow: w.dropKey === 'bn' ? `inset 0 0 0 2px ${C.blue}` : undefined }}>
       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', color: SUB, textTransform: 'uppercase', marginBottom: 8 }}>Bench · Inning {w.inning + 1}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -362,7 +362,7 @@ function BenchColumn({ inning }: { inning: number }) {
   const w = useWorkbench();
   const key = `b-${inning}`;
   return (
-    <div {...w.dropProps(key, (src) => w.place(src.pid, inning, 'Bench'))}
+    <div {...w.dropProps(key, (src) => w.place(src.pid, inning, 'Bench', 'drag'))}
       style={{ background: FILL, borderRadius: 8, padding: 4, display: 'flex', flexDirection: 'column', gap: 4, minHeight: 36, boxShadow: w.dropKey === key ? `inset 0 0 0 2px ${C.blue}` : undefined }}>
       {benched(w, inning).map((p) => <BenchChip key={p.id} p={p} inning={inning} size="sm" />)}
     </div>

@@ -3,6 +3,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import { setAnalyticsUser, signal } from './analytics';
 import { arrivedVia, supabase } from './supabase';
 
 interface AuthState {
@@ -29,6 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  const userId = session === undefined ? undefined : session?.user.id ?? null;
+  useEffect(() => { if (userId !== undefined) setAnalyticsUser(userId); }, [userId]);
+
   return (
     <AuthContext.Provider value={{ session, mustSetPassword, passwordSet: () => setMustSetPassword(false) }}>
       {children}
@@ -46,6 +50,7 @@ export const useAuth = () => useContext(AuthContext);
 export async function deleteAccount(): Promise<string | null> {
   const { error } = await supabase.rpc('delete_account');
   if (error) return error.message;
+  signal('account.deleted');   // web only; sent before the sign-out ends the session
   await supabase.auth.signOut({ scope: 'local' });
   return null;
 }

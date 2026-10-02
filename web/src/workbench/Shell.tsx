@@ -10,7 +10,6 @@ import { useAuth } from '@/data/auth';
 import { supabase } from '@/data/supabase';
 import { listTeams, type TeamSummary } from '@/data/teams';
 
-import { AccountDialog } from './AccountDialog';
 import { Icon } from './Icon';
 import { gameStatus, gameTitle, seasonLabel } from './gameStatus';
 import { useWorkbench, type Screen } from './state';
@@ -31,12 +30,12 @@ const NAV: [Screen, string, string][] = [
   ['stats', 'Season stats', 'list.number'],
 ];
 
-export function Sidebar({ demo }: { demo?: boolean }) {
+/** `onAccount` opens the Account dialog, which the frame owns (it can't be imported here without a cycle). */
+export function Sidebar({ demo, onAccount }: { demo?: boolean; onAccount(): void }) {
   const w = useWorkbench();
   const [teamMenu, setTeamMenu] = useState(false);
   const [jump, setJump] = useState(false);
   const [account, setAccount] = useState(false);
-  const [accountDialog, setAccountDialog] = useState(false);
   const st = gameStatus(w);
   const meta = (s: Screen) => (s === 'game' ? String(1 + w.gameLogs.length) : s === 'roster' ? String(w.players.length) : '');
   const initials = (w.team.coachName || 'Coach').split(/\s+/).map((x) => x.charAt(0)).join('').slice(0, 2).toUpperCase();
@@ -114,8 +113,7 @@ export function Sidebar({ demo }: { demo?: boolean }) {
           <Icon name="gearshape.fill" size={16} color={w.screen === 'settings' ? C.blue : SUB} />
         </button>
       </div>
-      {account && <AccountMenu demo={demo} onClose={() => setAccount(false)} onAccount={() => setAccountDialog(true)} />}
-      {accountDialog && <AccountDialog onClose={() => setAccountDialog(false)} />}
+      {account && <AccountMenu demo={demo} onClose={() => setAccount(false)} onAccount={onAccount} />}
     </aside>
   );
 }

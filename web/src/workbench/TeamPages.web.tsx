@@ -9,6 +9,7 @@ import { useCallback, useRef, useState, type DragEvent, type ReactNode } from 'r
 
 import { DEFAULT_INNING_COUNT } from '@/core/model';
 import { useAuth, useIsPro } from '@/data/auth';
+import { signal } from '@/data/analytics';
 import { teamToAutoOpen } from '@/data/landing';
 import { supabase } from '@/data/supabase';
 import { createTeam, importTeam, listTeams, previewImport, type ImportOutcome, type ImportPreview, type TeamSummary } from '@/data/teams';
@@ -77,7 +78,10 @@ export function TeamsPage() {
         </div>
       )}
 
-      {creating && <NewTeamDialog onClose={() => setCreating(false)} onCreated={open} />}
+      {creating && (
+        <NewTeamDialog onClose={() => setCreating(false)}
+          onCreated={(id) => { signal('team.created', { teamCount: (teams?.length ?? 0) + 1 }); open(id); }} />
+      )}
     </AppFrame>
   );
 }

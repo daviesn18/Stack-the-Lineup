@@ -56,7 +56,7 @@ function Picker() {
       </div>
       <div style={{ padding: '0 12px 10px' }}>
         <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Type a name" aria-label="Search players"
-          onKeyDown={(e) => { if (e.key === 'Enter' && rows[0]) w.place(rows[0].p.id, pk.inning, pk.pos); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && rows[0]) w.place(rows[0].p.id, pk.inning, pk.pos, 'key'); }}
           style={{ width: '100%', height: 32, background: C.gray6, borderRadius: 8, border: 'none', outline: 'none', padding: '0 10px', fontSize: 15 }} />
       </div>
       <div style={{ maxHeight: 330, overflowY: 'auto', borderTop: C.hair }}>
@@ -64,7 +64,7 @@ function Picker() {
           const av = playerAvatar(p);
           const prev = pk.inning > 0 ? `Inn ${pk.inning}: ${w.posOf(p.id, pk.inning - 1) ?? '—'}` : p.number ? `#${p.number}` : '';
           return (
-            <button key={p.id} className="pick-row" onClick={() => w.place(p.id, pk.inning, pk.pos)}
+            <button key={p.id} className="pick-row" onClick={() => w.place(p.id, pk.inning, pk.pos, 'picker')}
               style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 14px', opacity: tier === 'Never' ? 0.45 : 1, background: p.id === current?.id ? 'rgba(0,122,255,0.06)' : 'transparent' }}>
               <span style={{ width: 28, height: 28, borderRadius: 14, background: av.bg, color: av.fg, fontSize: 11, fontWeight: 600, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{initials(p)}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -103,7 +103,7 @@ function ContextMenu() {
         {w.positions.map((pos) => {
           const never = p.positionPreferences[pos] === 'Never';
           return (
-            <button key={pos} className="menu-tile" onClick={() => w.place(p.id, m.inning, pos)} title={never ? `${p.firstName} is marked Never at ${pos}` : undefined}
+            <button key={pos} className="menu-tile" onClick={() => w.place(p.id, m.inning, pos, 'menu')} title={never ? `${p.firstName} is marked Never at ${pos}` : undefined}
               style={{ fontSize: 12, fontWeight: 700, borderRadius: 6, padding: '6px 0', textAlign: 'center',
                 background: never ? C.gray5 : tint(pos), color: never ? C.label3 : isInfield(pos) ? TIER_STYLE.Capable.fg : TIER_STYLE.Strength.fg,
                 boxShadow: now === pos ? `inset 0 0 0 2px ${C.blue}` : 'none' }}>
@@ -113,14 +113,14 @@ function ContextMenu() {
         })}
       </div>
       <div style={{ height: 0.5, background: C.sep, margin: '2px 9px 4px' }} />
-      <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, 'Bench')}>
+      <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, 'Bench', 'menu')}>
         Move to bench<span style={{ marginLeft: 'auto', opacity: 0.6 }}>B</span>
       </button>
       <button role="menuitem" className="menu-item" style={item} disabled={m.inning === w.lineup.innings.length - 1}
         onClick={() => { w.closeOverlays(); w.edit((l) => keepForRemaining(l, p.id, m.inning)); }}>
         Keep here for remaining innings
       </button>
-      <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, null)}>Unassign this inning</button>
+      <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, null, 'menu')}>Unassign this inning</button>
       <div style={{ height: 0.5, background: C.sep, margin: '4px 9px' }} />
       <button role="menuitem" className="menu-item danger" style={{ ...item, color: C.red }}
         onClick={() => { w.closeOverlays(); w.edit((l) => toggleAbsent(l, p.id), `${p.firstName} marked absent`); }}>

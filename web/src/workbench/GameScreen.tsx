@@ -5,6 +5,7 @@
 import { useState, type DragEvent } from 'react';
 
 import { finalize, moveBatter, restoreAbsent, toggleAbsent } from '@/core/lineupOps';
+import { signal } from '@/data/analytics';
 import { battingOrderPdf, coachesGuidePdf, pdfFilename } from '@/print/lineupPdf';
 import { openPdfTab } from '@/print/openPdf';
 
@@ -33,7 +34,7 @@ export function GameScreen() {
       teamColorHex: w.team.colorHex, pitchingConfig: w.team.pitchingConfig,
     };
     (kind === 'battingOrder' ? battingOrderPdf(input) : coachesGuidePdf(input))
-      .then((bytes) => show(bytes, pdfFilename(kind, w.lineup.gameDate)))
+      .then((bytes) => { show(bytes, pdfFilename(kind, w.lineup.gameDate)); signal('pdf.exported', { type: kind }); })
       .catch((e: Error) => setPrintError(`Couldn't make the printout: ${e.message}`));
   };
 

@@ -2,6 +2,7 @@
 
 import { parseStlTeam, TeamImportError } from '../core/stlteam';
 import { defaultFairPlayConfig, defaultPitchingConfig, emptyLineup, type Team } from '../core/model';
+import { signal } from './analytics';
 import { supabase } from './supabase';
 import { asSeparateCopy, toImportPayload, type ImportPayload } from './teamPayload';
 
@@ -53,7 +54,14 @@ export interface ImportPreview {
 
 /** Reads a .stlteam file's text. Throws with the iOS wording on a bad file. */
 export function previewImport(text: string): ImportPreview {
-  const { team, exportedAt, appVersion } = parseStlTeam(text);
+  let parsed: ReturnType<typeof parseStlTeam>;
+  try {
+    parsed = parseStlTeam(text);
+  } catch (e) {
+    signal('team.import.failed', { reason: e instanceof TeamImportError ? e.kind : 'read_error' });
+    throw e;
+  }
+  const { team, exportedAt, appVersion } = parsed;
   const { payload, notes } = toImportPayload(team);
   const savedLineups = payload.lineups.filter((l) => {
     const cells = l.cells as Record<string, object>;
@@ -73,6 +81,20 @@ export type ImportOutcome =
 export async function importTeam(
   payload: ImportPayload, mode: 'new' | 'replace' | 'copy' = 'new',
 ): Promise<ImportOutcome> {
+  const out = await writeTeam(payload, mode);
+  if (out.ok) {
+    signal('team.import.completed', {
+      mode: mode === 'new' ? 'new_team' : mode,   // iOS: new_team | replace; "copy" is web only
+      player_count: payload.players.length, game_count: payload.game_logs.length,
+    });
+  } else if (out.reason === 'error') {
+    signal('team.import.failed', { reason: 'save_error' });
+  }
+  return out;
+}
+
+/** Writes a whole team through import_team (an import, or a new empty team). */
+async function writeTeam(payload: ImportPayload, mode: 'new' | 'replace' | 'copy'): Promise<ImportOutcome> {
   const body = mode === 'copy' ? asSeparateCopy(payload) : payload;
   const { data, error } = await supabase.rpc('import_team', { p_payload: body, p_replace: mode === 'replace' });
   if (!error) return { ok: true, teamId: upperId(data as string) };
@@ -91,7 +113,10 @@ export async function deleteTeam(id: string): Promise<string | null> {
   const { data, error } = await supabase.from('teams').delete().eq('id', id).select('id');
   if (error) return error.message;
   // Row-level security turns "not yours" into zero rows, not an error.
-  return data?.length ? null : "This team wasn't found. It may already be deleted.";
+  if (!data?.length) return "This team wasn't found. It may already be deleted.";
+  const left = await supabase.from('teams').select('id', { count: 'exact', head: true }).is('deleted_at', null);
+  signal('team.deleted', left.count === null ? {} : { remainingTeams: left.count });
+  return null;
 }
 
 /** A new, empty team: no players yet, default rules. Written through the same import_team function. */
@@ -102,5 +127,5 @@ export async function createTeam(fields: { name: string; coachName: string; colo
     createdAt: new Date(), scheduledGames: [], fairPlayConfig: defaultFairPlayConfig(), pitchingConfig: defaultPitchingConfig(),
     lineupTemplates: [], gameLineups: {},
   };
-  return importTeam(toImportPayload(team).payload);
+  return writeTeam(toImportPayload(team).payload, 'new');
 }

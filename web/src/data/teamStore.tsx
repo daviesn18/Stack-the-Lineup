@@ -15,6 +15,7 @@ import {
   type PitchingConfig, type Player,
 } from '../core/model';
 import { addGameLog, gameLogFrom, nextGameLineup, type ArchiveInput } from '../core/newGame';
+import { signal, takeTallies, teamOpened } from './analytics';
 import { supabase } from './supabase';
 import { upperId } from './teams';
 
@@ -214,7 +215,7 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     if (demo) { current.current = demo; return; }
     let live = true;
     loadTeam(teamId).then(
-      (d) => { if (live) { current.current = d; setData(d); } },
+      (d) => { if (live) { current.current = d; setData(d); teamOpened(d.team.id, d.players.length); } },
       (e: Error) => { if (live) setLoadError(e.message); },
     );
     return () => { live = false; };
@@ -235,6 +236,12 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     if (!now) return;
     const next = { ...edit(now.lineup), id: now.lineup.id };
     set({ ...now, lineup: next });
+    if (now.lineup.status !== 'finalized' && next.status === 'finalized') {
+      // assignDrag / assignPicker / assignMenu / assignKey are web only: how positions were set for this game.
+      signal('lineup.finalized', takeTallies('assign'));
+    } else if (now.lineup.status === 'finalized' && next.status !== 'finalized') {
+      signal('lineup.reverted_to_draft', { trigger: 'edit' });
+    }
     enqueue(() => saveLineup(now.lineup, next));
   }, [enqueue]);
 
@@ -278,6 +285,21 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     const resized = resizeInnings(dropPositions(now.lineup, removed), team.gameInningCount);
     const lineup = { ...resized, id: now.lineup.id };
     set({ ...now, team, lineup });
+    const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+    if (changed(now.team.fairPlayConfig, team.fairPlayConfig)) {
+      const f = team.fairPlayConfig;
+      signal('fairplay.config.updated', {
+        noPitcher: f.noPitcher, noCatcher: f.noCatcher, outfielderCount: f.outfielderCount, minimumFieldingInnings: f.minimumFieldingInnings,
+      });
+    }
+    if (changed(now.team.pitchingConfig, team.pitchingConfig)) {
+      const pc = team.pitchingConfig;
+      signal('pitching.config.updated', { rulesEnabled: pc.rulesEnabled, weeklyLimitEnabled: pc.weeklyLimitEnabled, rollingWindowType: pc.rollingWindowType });
+    }
+    if (now.team.gameInningCount !== team.gameInningCount) {
+      signal('team.gameInningCount.changed', { count: team.gameInningCount });
+      if (now.lineup.status === 'finalized' && lineup.status !== 'finalized') signal('lineup.reverted_to_draft', { trigger: 'inningCountReduced' });
+    }
     enqueue(async () => {
       await must(supabase.from('teams').update({
         name: team.name, color_hex: team.colorHex, coach_name: team.coachName,
@@ -302,6 +324,12 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     });
     const lineup = nextGameLineup(now.lineup, count, next);
     set({ ...now, lineup, gameLogs: log ? addGameLog(now.gameLogs, log) : now.gameLogs });
+    if (log) {
+      signal('game.archived', {
+        inningsPlayed: log.inningsPlayed, playerCount: log.battingOrder.length,
+        pitchCountsEntered: Object.values(log.pitchCounts).filter((n) => n > 0).length,
+      });
+    }
     enqueue(async () => {
       if (!log) { await saveLineup(now.lineup, lineup); return; }
       await must(supabase.rpc('archive_game', {
@@ -325,6 +353,8 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
         ...g, ...(notes !== undefined ? { notes } : {}), ...(pitchCounts ? { pitchCounts } : {}),
       })),
     });
+    if (notes !== undefined) signal('gamelog.notes.updated');
+    if (pitchCounts) signal('pitchcounts.retroactive', { pitcherCount: Object.keys(pitchCounts).length });
     enqueue(async () => {
       if (notes !== undefined) await must(supabase.from('game_logs').update({ notes }).eq('id', id));
       if (pitchCounts) await must(supabase.rpc('replace_pitch_counts', { p_game_log_id: id, p_counts: pitchCounts }));

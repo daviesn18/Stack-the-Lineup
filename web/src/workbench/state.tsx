@@ -11,6 +11,7 @@ import { runAutoFill, type AutoFillOutcome } from '@/core/autofillCoordinator';
 import { activeFieldPositions, activePlayers, openPositions } from '@/core/fairPlay';
 import { displayPlayers, gridNames, moveBatter, place, unbench } from '@/core/lineupOps';
 import type { FieldPosition, Lineup, Player } from '@/core/model';
+import { signal, tally } from '@/data/analytics';
 import { useTeam, type TeamData } from '@/data/teamStore';
 
 import { fairPlayIssues, type FairPlayIssue } from './fairPlayIssues';
@@ -25,6 +26,8 @@ export interface PickerState { inning: number; pos: FieldPosition; x: number; y:
 export interface MenuState { pid: string; inning: number; x: number; y: number }
 export interface ToastState { id: number; text: string; before: Lineup | null }
 type DragSource = { pid: string; from: 'cell' | 'order' };
+/** How a position was set, counted for analytics (see lineup.finalized). */
+export type AssignVia = 'drag' | 'picker' | 'menu' | 'key';
 /** Player editor: an existing player's id, or 'new'. */
 export type PlayerModal = { id: string } | { id: 'new' } | null;
 
@@ -77,7 +80,7 @@ export interface Workbench extends TeamData {
   resolveLeave(discard: boolean): void;
 
   /** Assign with swap (see lineupOps.place); closes overlays. */
-  place(pid: string, inning: number, pos: FieldPosition | null): void;
+  place(pid: string, inning: number, pos: FieldPosition | null, via: AssignVia): void;
   /** Any lineup edit; with `toast`, shows it with Undo. */
   edit(fn: (l: Lineup) => Lineup, toast?: string): void;
   toast: ToastState | null;
@@ -178,6 +181,13 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         lineup: unbench(lineup, short), players, config: team.fairPlayConfig, pitchingConfig: team.pitchingConfig, gameLogs,
       });
       setFillNotes(outcome.incompleteMessage || outcome.noticeMessage ? outcome : null);
+      if (outcome.promptUse) {
+        // The web has no on-device model, so the source is always the deterministic parser.
+        signal('autofill.nl_prompt_used', {
+          source: 'deterministic', constraintCount: outcome.promptUse.constraintCount, patternRule: outcome.promptUse.benchPairing,
+        });
+      }
+      signal('autofill.used', { mode: 'range', filledCount: outcome.filledCount, unfilledCount: outcome.unfilledCount });
       if (outcome.filledCount === 0) { showToast('Nothing to fill: every position is covered'); return; }
       const n = activePlayers(lineup, players).length;
       edit(() => outcome.lineup, `Filled ${lineup.innings.length} innings for ${n} players`);
@@ -215,7 +225,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       if (discard && fn) { settingsDirty.current = false; fn(); }
     },
 
-    place: (pid, i, pos) => { closeOverlays(); setDropKey(null); editLineup((l) => place(l, pid, i, pos)); },
+    place: (pid, i, pos, via) => { closeOverlays(); setDropKey(null); tally(`assign.${via}`); editLineup((l) => place(l, pid, i, pos)); },
     edit,
     toast, showToast,
     undo: () => {

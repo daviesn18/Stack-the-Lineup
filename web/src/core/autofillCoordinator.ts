@@ -23,6 +23,10 @@ export interface AutoFillOutcome {
   scope: FillScope;
   lineup: Lineup;
   filledCount: number;
+  /** Slots Auto-Fill had to leave empty. */
+  unfilledCount: number;
+  /** When instructions were typed: how many were understood, and whether the bench-pairing rule was detected. */
+  promptUse: { constraintCount: number; benchPairing: boolean } | null;
   /** Why some slots stayed empty, or null. */
   incompleteMessage: string | null;
   /** Parse misses and instruction notices, combined, or null. */
@@ -77,6 +81,10 @@ export function runAutoFill(args: {
     scope,
     lineup: result.lineup,
     filledCount: result.filledCount,
+    unfilledCount: result.unfilledSlots.length,
+    promptUse: prompt
+      ? { constraintCount: constraints.playerConstraints.length, benchPairing: constraints.patternRules.benchInConsecutivePairs }
+      : null,
     incompleteMessage: incompleteMessage(result, scope.kind === 'through'),
     noticeMessage: notice || null,
     undoMessage: `Auto-filled ${result.filledCount} ${noun} (${scopeLabel(scope)})`,

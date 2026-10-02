@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import { isInfield, type FieldPosition, type Player, type PositionPreferenceTier } from '@/core/model';
 import { matchKey, parseRosterCsv, ROSTER_CSV_ERRORS, type ImportedPlayer } from '@/core/rosterCsv';
+import { signal } from '@/data/analytics';
 import { useTeam } from '@/data/teamStore';
 
 import { Field, Input } from './controls';
@@ -40,10 +41,15 @@ export function RosterScreen() {
   const shown = w.players.filter((p) => !t || `${p.firstName} ${p.lastName}`.toLowerCase().includes(t)).sort(byLastName);
 
   const readCsv = (f: File) => {
+    signal('roster.import.started');
     f.text().then((text) => {
       const r = parseRosterCsv(text);
+      if (!r.ok) signal('roster.import.failed', { reason: r.error });
       setCsv(r.ok ? { players: r.players } : { error: ROSTER_CSV_ERRORS[r.error] });
-    }, () => setCsv({ error: "Couldn't read the file. It may be corrupted." }));
+    }, () => {
+      signal('roster.import.failed', { reason: 'read_error' });
+      setCsv({ error: "Couldn't read the file. It may be corrupted." });
+    });
   };
 
   return (
@@ -289,7 +295,7 @@ function PasteList({ onClose }: { onClose(): void }) {
     <Modal title="Paste a list of names" onClose={onClose}
       footer={<span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
         <PillButton onClick={onClose}>Cancel</PillButton>
-        <PillButton kind="primary" disabled={!parsed.length} onClick={() => { const n = addAll(parsed); w.showToast(`Added ${n} ${n === 1 ? 'player' : 'players'}`); onClose(); }}>
+        <PillButton kind="primary" disabled={!parsed.length} onClick={() => { const n = addAll(parsed); signal('roster.bulk_add.completed', { count: n, withNumbers: parsed.filter((x) => x.number).length }); w.showToast(`Added ${n} ${n === 1 ? 'player' : 'players'}`); onClose(); }}>
           {parsed.length ? `Add ${parsed.length} ${parsed.length === 1 ? 'player' : 'players'}` : 'Add'}
         </PillButton>
       </span>}>
@@ -321,7 +327,7 @@ function CsvImport({ result, onClose }: { result: { players: ImportedPlayer[] } 
     <Modal title="Import from GameChanger" onClose={onClose} width={520}
       footer={<span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
         <PillButton onClick={onClose}>Cancel</PillButton>
-        <PillButton kind="primary" disabled={!toAdd.length} onClick={() => { const n = addAll(toAdd); w.showToast(`Added ${n} ${n === 1 ? 'player' : 'players'}`); onClose(); }}>
+        <PillButton kind="primary" disabled={!toAdd.length} onClick={() => { const n = addAll(toAdd); signal('roster.import.completed', { count: n }); w.showToast(`Added ${n} ${n === 1 ? 'player' : 'players'}`); onClose(); }}>
           {toAdd.length ? `Add ${toAdd.length} ${toAdd.length === 1 ? 'player' : 'players'}` : 'Nothing to add'}
         </PillButton>
       </span>}>
@@ -376,6 +382,12 @@ export function PlayerPanel() {
       ...(existing?.hittingArchetype ? { hittingArchetype: existing.hittingArchetype } : {}),
     };
     if (existing) updatePlayer({ ...fields, id: existing.id }); else addPlayer(fields);
+    const tiers = Object.values(prefs);
+    if (tiers.length) {
+      signal('player.preferences.set', {
+        strengthCount: tiers.filter((t) => t === 'Strength').length, neverCount: tiers.filter((t) => t === 'Never').length,
+      });
+    }
     w.showToast(`${existing ? 'Saved' : 'Added'} ${fullName}`);
     close();
   };
