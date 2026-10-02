@@ -7,6 +7,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth, useIsPro } from '@/data/auth';
+import { teamToAutoOpen } from '@/data/landing';
 import { supabase } from '@/data/supabase';
 import { importTeam, listTeams, previewImport, type ImportPreview, type TeamSummary } from '@/data/teams';
 import { Body, Button, Card, Notice, Page, Title, usePalette } from '@/ui/kit';
@@ -20,8 +21,13 @@ export function TeamsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => {
-    listTeams().then(setTeams, (e: Error) => setError(e.message));
-  }, []));
+    listTeams().then((list) => {
+      // Signing in with one team goes straight to it; with more, the coach picks.
+      const only = teamToAutoOpen(list);
+      if (only) router.replace({ pathname: '/team/[id]', params: { id: only.id } });
+      else setTeams(list);
+    }, (e: Error) => setError(e.message));
+  }, [router]));
 
   return (
     <Page>

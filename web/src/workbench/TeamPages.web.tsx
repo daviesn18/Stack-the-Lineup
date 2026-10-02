@@ -9,9 +9,11 @@ import { useCallback, useRef, useState, type DragEvent, type ReactNode } from 'r
 
 import { DEFAULT_INNING_COUNT } from '@/core/model';
 import { useAuth, useIsPro } from '@/data/auth';
+import { teamToAutoOpen } from '@/data/landing';
 import { supabase } from '@/data/supabase';
 import { createTeam, importTeam, listTeams, previewImport, type ImportOutcome, type ImportPreview, type TeamSummary } from '@/data/teams';
 
+import { AccountDialog } from './AccountDialog';
 import { ColorSwatches, Dialog, GameLength, Group, HAIR, Row, TextInput } from './controls';
 import { Icon } from './Icon';
 import { plural } from './gameStatus';
@@ -27,8 +29,13 @@ export function TeamsPage() {
   const [creating, setCreating] = useState(false);
 
   useFocusEffect(useCallback(() => {
-    listTeams().then(setTeams, (e: Error) => setError(e.message));
-  }, []));
+    listTeams().then((list) => {
+      // Signing in with one team goes straight to it; with more, the coach picks.
+      const only = teamToAutoOpen(list);
+      if (only) router.replace({ pathname: '/team/[id]', params: { id: only.id } });
+      else setTeams(list);
+    }, (e: Error) => setError(e.message));
+  }, [router]));
 
   const open = (id: string) => router.push({ pathname: '/team/[id]', params: { id } });
   const actions = (
@@ -287,6 +294,7 @@ function Tile({ n, label }: { n: number; label: string }) {
 function AppFrame({ children, width = 1040 }: { children: ReactNode; width?: number }) {
   const { session } = useAuth();
   const isPro = useIsPro();
+  const [account, setAccount] = useState(false);
   const email = session?.user.email ?? '';
   return (
     <div className="stl" style={{ position: 'fixed', inset: 0, overflow: 'auto', background: C.grouped }}>
@@ -297,10 +305,12 @@ function AppFrame({ children, width = 1040 }: { children: ReactNode; width?: num
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           {isPro && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: C.blue, background: 'rgba(0,122,255,0.1)', borderRadius: 999, padding: '3px 8px' }}>PRO</span>}
           <span style={{ fontSize: 13, color: SUB }}>{email}</span>
+          <SecondaryButton onClick={() => setAccount(true)}>Account</SecondaryButton>
           <SecondaryButton onClick={() => void supabase.auth.signOut({ scope: 'local' })}>Sign out</SecondaryButton>
         </span>
       </header>
       <main style={{ maxWidth: width, margin: '0 auto', padding: '36px 24px 64px' }}>{children}</main>
+      {account && <AccountDialog onClose={() => setAccount(false)} />}
     </div>
   );
 }

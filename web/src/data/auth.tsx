@@ -39,6 +39,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export const useAuth = () => useContext(AuthContext);
 
 /**
+ * Erases the signed-in coach's account and every team it owns (the
+ * delete_account database function), then signs this browser out. Returns an
+ * error message, or null once the account is gone.
+ */
+export async function deleteAccount(): Promise<string | null> {
+  const { error } = await supabase.rpc('delete_account');
+  if (error) return error.message;
+  await supabase.auth.signOut({ scope: 'local' });
+  return null;
+}
+
+/**
  * Pro, from the entitlements row the database creates for every account.
  * Coaches can read it but never write it; during the pilot Nick sets it in the
  * dashboard, later a RevenueCat webhook does.

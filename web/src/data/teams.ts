@@ -83,6 +83,17 @@ export async function importTeam(
 
 export { TeamImportError };
 
+/**
+ * Deletes a team for good, with its roster, lineups and game history (the
+ * database cascades). Returns an error message, or null when it's gone.
+ */
+export async function deleteTeam(id: string): Promise<string | null> {
+  const { data, error } = await supabase.from('teams').delete().eq('id', id).select('id');
+  if (error) return error.message;
+  // Row-level security turns "not yours" into zero rows, not an error.
+  return data?.length ? null : "This team wasn't found. It may already be deleted.";
+}
+
 /** A new, empty team: no players yet, default rules. Written through the same import_team function. */
 export async function createTeam(fields: { name: string; coachName: string; colorHex: string; gameInningCount: number }): Promise<ImportOutcome> {
   const team: Team = {

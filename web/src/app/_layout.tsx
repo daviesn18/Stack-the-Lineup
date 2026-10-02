@@ -1,6 +1,8 @@
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
+import { useEffect } from 'react';
 
 import { AuthProvider, useAuth } from '@/data/auth';
+import { markLanded, resetLanding } from '@/data/landing';
 import { Loading } from '@/ui/kit';
 
 export default function RootLayout() {
@@ -18,6 +20,12 @@ export default function RootLayout() {
  */
 function Routes() {
   const { session, mustSetPassword } = useAuth();
+  const pathname = usePathname();
+  // See data/landing: being inside the app ends the landing; signing out resets it.
+  useEffect(() => {
+    if (session === null) resetLanding();
+    else if (session && (pathname.startsWith('/team/') || pathname === '/import')) markLanded();
+  }, [session, pathname]);
   if (session === undefined) return <Loading />;
   const signedIn = !!session && !mustSetPassword;
   return (

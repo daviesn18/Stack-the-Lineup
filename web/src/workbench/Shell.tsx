@@ -10,6 +10,7 @@ import { useAuth } from '@/data/auth';
 import { supabase } from '@/data/supabase';
 import { listTeams, type TeamSummary } from '@/data/teams';
 
+import { AccountDialog } from './AccountDialog';
 import { Icon } from './Icon';
 import { gameStatus, gameTitle, seasonLabel } from './gameStatus';
 import { useWorkbench, type Screen } from './state';
@@ -35,6 +36,7 @@ export function Sidebar({ demo }: { demo?: boolean }) {
   const [teamMenu, setTeamMenu] = useState(false);
   const [jump, setJump] = useState(false);
   const [account, setAccount] = useState(false);
+  const [accountDialog, setAccountDialog] = useState(false);
   const st = gameStatus(w);
   const meta = (s: Screen) => (s === 'game' ? String(1 + w.gameLogs.length) : s === 'roster' ? String(w.players.length) : '');
   const initials = (w.team.coachName || 'Coach').split(/\s+/).map((x) => x.charAt(0)).join('').slice(0, 2).toUpperCase();
@@ -112,13 +114,14 @@ export function Sidebar({ demo }: { demo?: boolean }) {
           <Icon name="gearshape.fill" size={16} color={w.screen === 'settings' ? C.blue : SUB} />
         </button>
       </div>
-      {account && <AccountMenu demo={demo} onClose={() => setAccount(false)} />}
+      {account && <AccountMenu demo={demo} onClose={() => setAccount(false)} onAccount={() => setAccountDialog(true)} />}
+      {accountDialog && <AccountDialog onClose={() => setAccountDialog(false)} />}
     </aside>
   );
 }
 
-/** Opens from the coach in the sidebar footer: who's signed in, all teams, sign out. */
-function AccountMenu({ demo, onClose }: { demo?: boolean; onClose(): void }) {
+/** Opens from the coach in the sidebar footer: who's signed in, all teams, the account, sign out. */
+function AccountMenu({ demo, onClose, onAccount }: { demo?: boolean; onClose(): void; onAccount(): void }) {
   const router = useRouter();
   const w = useWorkbench();
   const { session } = useAuth();
@@ -133,6 +136,7 @@ function AccountMenu({ demo, onClose }: { demo?: boolean; onClose(): void }) {
         </div>
         <div style={{ height: 0.5, background: C.sep, margin: '5px 9px' }} />
         <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); w.leave(() => router.push('/')); }}>All teams</button>
+        <button role="menuitem" className="menu-item" style={item} disabled={demo} onClick={() => { onClose(); onAccount(); }}>Account…</button>
         <button role="menuitem" className="menu-item" style={item} disabled={demo}
           onClick={() => { onClose(); w.leave(() => { void supabase.auth.signOut({ scope: 'local' }); }); }}>Sign out</button>
       </div>

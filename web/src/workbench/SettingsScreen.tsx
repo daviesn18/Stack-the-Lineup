@@ -3,13 +3,16 @@
 // the unsaved changes and offers Discard and Save. Leaving the page with
 // changes asks first (see state.leave).
 
+import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { activeFieldPositions } from '@/core/fairPlay';
 import { lastAssignedInning } from '@/core/lineupOps';
 import { POSITION_NAMES, type FairPlayConfig, type FieldPosition } from '@/core/model';
+import { deleteTeam } from '@/data/teams';
 import { useTeam } from '@/data/teamStore';
 
+import { ConfirmDelete } from './AccountDialog';
 import { Icon } from './Icon';
 import {
   CANVAS, ColorSwatches, Fade, GameLength, Group, HAIR, HeaderButton, Heading, Master, NumInput, Row, Seg, Stepper, TextInput, Toggle,
@@ -123,6 +126,15 @@ type SectionProps = { d: SettingsDraft; set(p: Partial<SettingsDraft>): void };
 // MARK: - Team
 
 function TeamSection({ d, set }: SectionProps) {
+  const router = useRouter();
+  const w = useWorkbench();
+  const [deleting, setDeleting] = useState(false);
+  const name = w.team.name || 'Untitled team';
+  const removeTeam = async () => {
+    const failed = await deleteTeam(w.team.id);
+    if (!failed) router.replace('/');
+    return failed;
+  };
   return (
     <>
       <Heading title="Team" sub="Name, color and length of games." />
@@ -138,6 +150,17 @@ function TeamSection({ d, set }: SectionProps) {
           <GameLength value={d.gameLen} onChange={(n) => set({ gameLen: n, fair: clampToGame(d.fair, n) })} />
         </Row>
       </Group>
+      <Group label="Delete team">
+        <Row label="Delete this team" help="Removes the team from the web with its roster, lineups and game history. The iPhone app's copy is not affected.">
+          <HeaderButton kind="danger" onClick={() => setDeleting(true)}>Delete team…</HeaderButton>
+        </Row>
+      </Group>
+      {deleting && (
+        <ConfirmDelete title={`Delete ${name}?`} action="Delete team" onClose={() => setDeleting(false)} run={removeTeam}>
+          This erases {name} from the web: {plural(w.players.length, 'player')}, the lineup you&apos;re building
+          and {plural(w.gameLogs.length, 'archived game')}. The iPhone app&apos;s copy is not affected. This can&apos;t be undone.
+        </ConfirmDelete>
+      )}
     </>
   );
 }

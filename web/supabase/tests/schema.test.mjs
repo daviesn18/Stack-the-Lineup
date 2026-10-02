@@ -506,3 +506,71 @@ describe('import_team', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('deleting a team or an account', () => {
+  const counts = async (team) => {
+    const { rows } = await db.query(
+      `select (select count(*) from public.teams where id = $1)::int as teams,
+              (select count(*) from public.players where team_id = $1)::int as players,
+              (select count(*) from public.lineups where team_id = $1)::int as lineups,
+              (select count(*) from public.lineup_cells where team_id = $1)::int as cells,
+              (select count(*) from public.game_logs where team_id = $1)::int as logs`,
+      [team],
+    );
+    return rows[0];
+  };
+  const gone = { teams: 0, players: 0, lineups: 0, cells: 0, logs: 0 };
+
+  /** A team with a filled cell and an archived game, so every child table has rows. */
+  async function fullTeam(userId) {
+    const t = await makeTeam(userId);
+    await asUser(db, userId, async (d) => {
+      await d.query(`select public.save_innings($1, $2)`, [t.lineup, { 0: { [t.players[0]]: 'P' } }]);
+      await d.query(`select public.archive_game($1, 6, '', $2, $3)`, [t.lineup, { [t.players[0]]: 20 }, uuid()]);
+      await d.query(`select public.save_innings($1, $2)`, [t.lineup, { 0: { [t.players[1]]: 'C' } }]);
+    });
+    return t;
+  }
+
+  test('the owner deletes a team and everything in it; other teams are untouched', async () => {
+    const a = await createUser(db);
+    const doomed = await fullTeam(a);
+    const kept = await fullTeam(a);
+    assert.deepEqual(await counts(doomed.team), { teams: 1, players: 3, lineups: 1, cells: 1, logs: 1 });
+
+    const del = await asUser(db, a, (d) => d.query(`delete from public.teams where id = $1`, [doomed.team]));
+    assert.equal(del.affectedRows, 1);
+    assert.deepEqual(await counts(doomed.team), gone);
+    assert.deepEqual(await counts(kept.team), { teams: 1, players: 3, lineups: 1, cells: 1, logs: 1 });
+  });
+
+  test('delete_account erases the caller and all their teams, and nobody else', async () => {
+    const a = await createUser(db);
+    const b = await createUser(db);
+    const mine = await fullTeam(a);
+    const theirs = await fullTeam(b);
+
+    await asUser(db, a, (d) => d.query(`select public.delete_account()`));
+
+    const { rows } = await db.query(
+      `select (select count(*) from auth.users where id = $1)::int as users,
+              (select count(*) from public.profiles where id = $1)::int as profiles,
+              (select count(*) from public.entitlements where user_id = $1)::int as entitlements`,
+      [a],
+    );
+    assert.deepEqual(rows[0], { users: 0, profiles: 0, entitlements: 0 });
+    assert.deepEqual(await counts(mine.team), gone);
+
+    assert.deepEqual(await counts(theirs.team), { teams: 1, players: 3, lineups: 1, cells: 1, logs: 1 });
+    const still = await db.query(`select count(*)::int as n from auth.users where id = $1`, [b]);
+    assert.equal(still.rows[0].n, 1);
+  });
+
+  test('delete_account cannot be called signed out', async () => {
+    await asAnon(db, async (d) => {
+      await rejects(d.query(`select public.delete_account()`), { code: '42501' });
+    });
+  });
+});
