@@ -1,6 +1,6 @@
 import { runAutoFill, incompleteMessage } from '../autofillCoordinator';
 import {
-  assign, changedInnings, clearPositions, displayPlayers, finalize, moveBatter, removePlayer, reopen, shortName,
+  assign, benchUnplaced, changedInnings, clearPositions, displayPlayers, finalize, moveBatter, removePlayer, reopen, shortName,
   toggleAbsent, unassign,
 } from '../lineupOps';
 import { defaultFairPlayConfig, emptyLineup, type Lineup, type Player } from '../model';
@@ -94,5 +94,27 @@ describe('Auto-Fill coordinator', () => {
       ],
     }, true);
     expect(msg).toMatch(/^C \(Inning 2\), CF \(Innings 1, 3\) could not be filled/);
+  });
+});
+
+describe('benchUnplaced', () => {
+  const nine = ['P', 'C', '1B', '2B', 'SS', '3B', 'LF', 'CF', 'RF'] as const;
+  const full = (l: Lineup, inning: number) =>
+    nine.reduce((acc, pos, i) => assign(acc, `ID${i + 1}`, [inning], pos), l);
+
+  it('benches unplaced players only in innings with every field spot filled', () => {
+    const l = assign(full(base(), 0), 'ID1', [1], 'P');
+    const out = benchUnplaced(l, roster, defaultFairPlayConfig());
+    expect(out.innings[0].assignments).toMatchObject({ ID10: 'Bench', ID11: 'Bench' });
+    expect(out.innings[1].assignments).toEqual({ ID1: 'P' });
+    expect(out.innings[2].assignments).toEqual({});
+  });
+
+  it('leaves absent players off and returns the same lineup when nothing changes', () => {
+    const l = toggleAbsent(full(base(), 0), 'ID11');
+    const once = benchUnplaced(l, roster, defaultFairPlayConfig());
+    expect(once.innings[0].assignments.ID10).toBe('Bench');
+    expect('ID11' in once.innings[0].assignments).toBe(false);
+    expect(benchUnplaced(once, roster, defaultFairPlayConfig())).toBe(once);
   });
 });

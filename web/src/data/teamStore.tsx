@@ -8,7 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 
 import { activeFieldPositions } from '../core/fairPlay';
 import {
-  addToBattingOrder, changedInnings, completeBattingOrder, dropPositions, removePlayer, resizeInnings,
+  addToBattingOrder, benchUnplaced, changedInnings, completeBattingOrder, dropPositions, removePlayer, resizeInnings,
 } from '../core/lineupOps';
 import {
   defaultFairPlayConfig, defaultPitchingConfig, type FairPlayConfig, type FieldPosition, type GameLog, type Lineup,
@@ -118,15 +118,21 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
     // Repair a partial batting order once, so every screen and printout has everyone.
     await must(supabase.from('lineups').update({ batting_order: complete.battingOrder }).eq('id', saved.id));
   }
+  const fairPlayConfig = { ...defaultFairPlayConfig(), ...(t.fair_play_config ?? {}) };
+  const benched = { ...benchUnplaced(complete, roster, fairPlayConfig), id: saved.id };
+  if (benched.innings !== complete.innings && saved.status === 'draft') {
+    // Lineups filled by hand before benchUnplaced ran: store their sitters as Bench once.
+    await saveLineup(complete, benched);
+  }
   return {
     team: {
       id: upperId(t.id), name: t.name, colorHex: t.color_hex, coachName: t.coach_name,
       gameInningCount: t.game_inning_count,
-      fairPlayConfig: { ...defaultFairPlayConfig(), ...(t.fair_play_config ?? {}) },
+      fairPlayConfig,
       pitchingConfig: { ...defaultPitchingConfig(), ...(t.pitching_config ?? {}) },
     },
     players: roster,
-    lineup: complete,
+    lineup: benched,
     gameLogs: (logs as Row[]).map(toGameLog),
   };
 }
@@ -234,7 +240,8 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
   const editLineup = useCallback((edit: (l: Lineup) => Lineup) => {
     const now = current.current;
     if (!now) return;
-    const next = { ...edit(now.lineup), id: now.lineup.id };
+    // Sitters in a full inning are stored as Bench, so BN and fair play count them.
+    const next = { ...benchUnplaced(edit(now.lineup), now.players, now.team.fairPlayConfig), id: now.lineup.id };
     set({ ...now, lineup: next });
     if (now.lineup.status !== 'finalized' && next.status === 'finalized') {
       // assignDrag / assignPicker / assignMenu / assignKey are web only: how positions were set for this game.
@@ -249,7 +256,7 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     const now = current.current;
     if (!now) return;
     const player: Player = { ...fields, id: crypto.randomUUID().toUpperCase() };
-    const lineup = { ...addToBattingOrder(now.lineup, player.id), id: now.lineup.id };
+    const lineup = { ...benchUnplaced(addToBattingOrder(now.lineup, player.id), [...now.players, player], now.team.fairPlayConfig), id: now.lineup.id };
     set({ ...now, players: [...now.players, player], lineup });
     enqueue(async () => {
       await must(supabase.from('players').insert({ ...playerRow(player), team_id: now.team.id, roster_order: now.players.length }));

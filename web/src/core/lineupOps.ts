@@ -9,7 +9,10 @@
 //  * marking a player absent drops them from the batting order and every
 //    inning; marking them back appends them to the bottom of the order.
 
-import { displayName, isNonFielding, type FieldPosition, type Lineup, type Player, type PlayerID } from './model';
+import { activePlayers, openPositions } from './fairPlay';
+import {
+  displayName, isNonFielding, type FairPlayConfig, type FieldPosition, type Lineup, type Player, type PlayerID,
+} from './model';
 
 const withInnings = (l: Lineup, innings: Lineup['innings']): Lineup => ({ ...l, innings });
 
@@ -251,6 +254,27 @@ export function unbench(l: Lineup, innings: number[]): Lineup {
     if (!innings.includes(i) || !Object.values(inn.assignments).includes('Bench')) return inn;
     changed = true;
     return { assignments: Object.fromEntries(Object.entries(inn.assignments).filter(([, p]) => p !== 'Bench')) };
+  });
+  return changed ? withInnings(l, next) : l;
+}
+
+/**
+ * In every inning with all field spots filled, puts active players who have
+ * no spot on Bench. The grid already shows them on the bench, but the BN
+ * count and the back-to-back check only count Bench, so a hand-filled inning
+ * would otherwise read as nobody sitting. Innings with open spots are left
+ * alone: there, unassigned means "still to place", which Auto-Fill relies on.
+ * Doesn't touch the finalized stamp. Returns `l` when nothing changed.
+ */
+export function benchUnplaced(l: Lineup, players: Player[], config: FairPlayConfig): Lineup {
+  const active = activePlayers(l, players);
+  let changed = false;
+  const next = l.innings.map((inn, i) => {
+    if (openPositions(l, i, players, config).length > 0) return inn;
+    const missing = active.filter((p) => !(p.id in inn.assignments));
+    if (!missing.length) return inn;
+    changed = true;
+    return { assignments: { ...inn.assignments, ...Object.fromEntries(missing.map((p) => [p.id, 'Bench' as FieldPosition])) } };
   });
   return changed ? withInnings(l, next) : l;
 }
