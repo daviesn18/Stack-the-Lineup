@@ -81,10 +81,11 @@ export interface Workbench extends TeamData {
 
   /** Assign with swap (see lineupOps.place); closes overlays. */
   place(pid: string, inning: number, pos: FieldPosition | null, via: AssignVia): void;
-  /** Any lineup edit; with `toast`, shows it with Undo. */
-  edit(fn: (l: Lineup) => Lineup, toast?: string): void;
+  /** Any lineup edit; with `toast`, shows it with Undo for `ms` (default 5s). */
+  edit(fn: (l: Lineup) => Lineup, toast?: string, ms?: number): void;
   toast: ToastState | null;
-  showToast(text: string, before?: Lineup | null): void;
+  showToast(text: string, before?: Lineup | null, ms?: number): void;
+  /** Restores the toast's lineup. Also on ⌘Z / Ctrl+Z while the toast is up. */
   undo(): void;
 
   // Drag and drop (HTML5).
@@ -141,16 +142,16 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 
   const closeOverlays = useCallback(() => { setPicker(null); setMenu(null); }, []);
 
-  const showToast = useCallback((text: string, before: Lineup | null = null) => {
+  const showToast = useCallback((text: string, before: Lineup | null = null, ms = 5000) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ id: Date.now(), text, before });
-    toastTimer.current = setTimeout(() => setToast(null), 5000);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
   }, []);
 
-  const edit = useCallback((fn: (l: Lineup) => Lineup, toastText?: string) => {
+  const edit = useCallback((fn: (l: Lineup) => Lineup, toastText?: string, ms?: number) => {
     const before = lineup;
     editLineup(fn);
-    if (toastText) showToast(toastText, before);
+    if (toastText) showToast(toastText, before, ms);
   }, [editLineup, lineup, showToast]);
 
   const leave = (fn: () => void) => {
@@ -190,7 +191,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       signal('autofill.used', { mode: 'range', filledCount: outcome.filledCount, unfilledCount: outcome.unfilledCount });
       if (outcome.filledCount === 0) { showToast('Nothing to fill: every position is covered'); return; }
       const n = activePlayers(lineup, players).length;
-      edit(() => outcome.lineup, `Filled ${lineup.innings.length} innings for ${n} players`);
+      // 10s, as on iOS: a whole-game fill is the edit most worth a second look.
+      edit(() => outcome.lineup, `Filled ${lineup.innings.length} innings for ${n} players`, 10_000);
     },
     fillNotes, clearFillNotes: () => setFillNotes(null),
 
@@ -230,6 +232,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     toast, showToast,
     undo: () => {
       if (toast?.before) { const b = toast.before; editLineup(() => b); }
+      // The notes describe a fill that's no longer on screen.
+      setFillNotes(null);
       setToast(null);
     },
 

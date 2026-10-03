@@ -64,7 +64,7 @@ function Frame({ demo }: { demo?: boolean }) {
   );
 }
 
-/** Esc closes overlays; on the Field view, 1-9 and the arrows switch innings; B benches from the menu. */
+/** Esc closes overlays; ⌘Z/Ctrl+Z undoes while the undo toast is up; on the Field view, 1-9 and the arrows switch innings; B benches from the menu. */
 function useKeyboard() {
   const w = useWorkbench();
   useEffect(() => {
@@ -72,6 +72,7 @@ function useKeyboard() {
       const tag = (e.target as HTMLElement | null)?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (e.key === 'Escape') { w.closeOverlays(); return; }
+      if (!typing && w.toast?.before && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); w.undo(); return; }
       if (typing || e.metaKey || e.ctrlKey || e.altKey || w.playerModal || w.newGameOpen || w.pendingLeave) return;
       if (w.menu && e.key.toLowerCase() === 'b') { e.preventDefault(); w.place(w.menu.pid, w.menu.inning, 'Bench', 'key'); return; }
       if (w.screen === 'game' && w.step === 3 && w.defView === 'field' && !w.picker && !w.menu) {
