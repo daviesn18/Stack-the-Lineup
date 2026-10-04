@@ -2,12 +2,21 @@ import UIKit
 import PDFKit
 import SwiftUI
 
+// MARK: - PDF Generator
+//
+// The Batting Order and Coaches Guide printouts, from the Coaches Guide
+// redesign handoff (the ink-saver version: white position badges with black
+// borders, no row tints, black status dots, so it prints cleanly in black and
+// white). US Letter, 612 x 792 pt; the handoff's px values are x0.75.
+// The web pilot draws the same pages (web/src/print/lineupPdf.ts).
+
 class PDFGenerator {
     /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
     /// AutoFillNLConstraintService's deinit.
     nonisolated deinit {}
 
-
+    /// `teamColor` is no longer drawn (the redesigned header is black and
+    /// white); it stays so callers don't change.
     static func generate(
         type: PDFType,
         lineup: Lineup,
@@ -18,22 +27,17 @@ class PDFGenerator {
         pitchingConfig: PitchingConfig = PitchingConfig(),
         fairPlayConfig: FairPlayConfig = FairPlayConfig()
     ) -> PDFDocument {
-        let pageWidth: CGFloat = 612   // US Letter
-        let pageHeight: CGFloat = 792
-        let margin: CGFloat = 48
-
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: Page.width, height: Page.height))
+        let generatedAt = Date()
 
         let data = renderer.pdfData { ctx in
             switch type {
             case .battingOrder:
-                drawBattingOrder(ctx: ctx, lineup: lineup, players: players,
-                                  pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, teamName: teamName, teamColor: teamColor)
+                drawBattingOrder(ctx: ctx, lineup: lineup, players: players, teamName: teamName, generatedAt: generatedAt)
             case .coachesGuide:
-                drawCoachesGuide(ctx: ctx, lineup: lineup, players: players,
-                                  pageWidth: pageWidth, pageHeight: pageHeight, margin: margin,
-                                  teamName: teamName, teamColor: teamColor,
-                                  gameLogs: gameLogs, pitchingConfig: pitchingConfig, fairPlayConfig: fairPlayConfig)
+                drawCoachesGuide(ctx: ctx, lineup: lineup, players: players, teamName: teamName,
+                                 gameLogs: gameLogs, pitchingConfig: pitchingConfig,
+                                 fairPlayConfig: fairPlayConfig, generatedAt: generatedAt)
             }
         }
 
@@ -45,86 +49,128 @@ class PDFGenerator {
         return PDFDocument(data: data, filename: filename)
     }
 
+    // MARK: - Page and tokens
+
+    private enum Page {
+        static let width: CGFloat = 612
+        static let height: CGFloat = 792
+        static let top: CGFloat = 33
+        static let side: CGFloat = 36
+        static let bottom: CGFloat = 27
+        static let contentWidth = width - side * 2
+        static let footerTextTop = height - bottom - 7.5 * lineFactor
+        static let footerRule = footerTextTop - 7.5
+        /// Lowest y page content may reach, leaving room above the footer rule.
+        static let contentBottom = footerRule - 12
+    }
+
+    /// Line box height as a fraction of font size (CSS "normal").
+    private static let lineFactor: CGFloat = 1.2
+
+    private enum Ink {
+        static let black = UIColor.black
+        static let white = UIColor.white
+        static let blue = UIColor(red: 0, green: 122 / 255, blue: 1, alpha: 1)
+        static let grouped = UIColor(red: 242 / 255, green: 242 / 255, blue: 247 / 255, alpha: 1)
+        static let separator = UIColor(red: 198 / 255, green: 198 / 255, blue: 200 / 255, alpha: 1)
+        static let hairline = UIColor(red: 229 / 255, green: 229 / 255, blue: 234 / 255, alpha: 1)
+        /// rgba(60,60,67,a)
+        static func secondary(_ a: CGFloat) -> UIColor { UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: a) }
+    }
+
     // MARK: - Batting Order PDF
 
     private static func drawBattingOrder(ctx: UIGraphicsPDFRendererContext, lineup: Lineup, players: [Player],
-                                          pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat, teamName: String = "", teamColor: Color = .blue) {
+                                         teamName: String, generatedAt: Date) {
         ctx.beginPage()
-        var y: CGFloat = margin
+        let ordered = lineup.orderedPlayers(from: players)
 
-        // Header
-        y = drawHeader(title: "Batting Order", lineup: lineup,
-                       pageWidth: pageWidth, margin: margin, y: y, teamName: teamName, teamColor: teamColor)
-        y += 24
+        let numW: CGFloat = 48
+        let jerseyW: CGFloat = 72
+        let left = Page.side
+        let right = Page.width - Page.side
+        let playerX = left + numW
+        let jerseyX = right - jerseyW
+        let headH: CGFloat = 7.5 * 2 + 7.5 * lineFactor
+        let countH: CGFloat = 7.5 + 8.25 * lineFactor
 
-        // Column headers
-        let col2: CGFloat = margin + 80
-        let col3: CGFloat = pageWidth - margin - 60
+        var top = drawHeader(eyebrow: "Batting Order", lineup: lineup, teamName: teamName) + 15
+        // Rows shrink from 30.75 to 24 to fit; past that the list continues on another page.
+        let room = Page.contentBottom - top - headH - countH
+        let rowH = max(24, min(30.75, room / CGFloat(max(1, ordered.count))))
+        let nameSize: CGFloat = rowH < 27 ? 11.25 : 12.75
 
-        drawText("#", x: margin, y: y, font: .boldSystemFont(ofSize: 11), color: .darkGray)
-        drawText("Player", x: col2, y: y, font: .boldSystemFont(ofSize: 11), color: .darkGray)
-        drawText("Jersey", x: col3, y: y, font: .boldSystemFont(ofSize: 11), color: .darkGray)
-        y += 16
-
-        // Divider
-        let dividerPath = UIBezierPath()
-        dividerPath.move(to: CGPoint(x: margin, y: y))
-        dividerPath.addLine(to: CGPoint(x: pageWidth - margin, y: y))
-        UIColor.lightGray.setStroke()
-        dividerPath.stroke()
-        y += 12
-
-        let orderedPlayers = lineup.orderedPlayers(from: players)
-
-        for (index, player) in orderedPlayers.enumerated() {
-            let rowBg = index % 2 == 0 ? UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0) : UIColor.white
-            let rowRect = CGRect(x: margin, y: y - 4, width: pageWidth - margin * 2, height: 28)
-            rowBg.setFill()
-            UIBezierPath(roundedRect: rowRect, cornerRadius: 4).fill()
-
-            drawText("\(index + 1).", x: margin + 8, y: y + 4, font: .boldSystemFont(ofSize: 14), color: .black)
-            drawText(player.displayName, x: col2, y: y + 4, font: .systemFont(ofSize: 14), color: .black)
-            
-            // Only show jersey number if it exists
-            let jerseyText = player.number.isEmpty ? "—" : "#\(player.number)"
-            drawText(jerseyText, x: col3, y: y + 4, font: .systemFont(ofSize: 14), color: .darkGray)
-
-            y += 32
+        func table(_ rows: ArraySlice<Player>) {
+            let h = headH + CGFloat(rows.count) * rowH
+            // Grouped fill clipped to the corners; white rows painted over it (square is fine: the page is white).
+            fillRounded(CGRect(x: left, y: top, width: Page.contentWidth, height: h), radius: 6, Ink.grouped)
+            for (k, i) in rows.indices.enumerated() {
+                let player = rows[i]
+                let y = top + headH + CGFloat(k) * rowH
+                if i % 2 == 0 { fill(CGRect(x: left, y: y, width: Page.contentWidth, height: rowH), Ink.white) }
+                if k > 0 { hLine(from: left, to: right, y: y, Ink.hairline, 0.75) }
+                text("\(i + 1)", x: left + numW / 2, top: y, height: rowH, size: 15, weight: .heavy, color: Ink.black,
+                     align: .center, digits: true)
+                text(player.displayName, x: playerX + 10.5, top: y, height: rowH, size: nameSize, weight: .semibold,
+                     color: Ink.black, tracking: -0.01, maxWidth: jerseyX - playerX - 21)
+                if !player.number.isEmpty {
+                    text(player.number, x: jerseyX + jerseyW / 2, top: y, height: rowH, size: 11.25, weight: .bold,
+                         color: Ink.black, align: .center, maxWidth: jerseyW - 12, digits: true)
+                }
+            }
+            hLine(from: left, to: right, y: top + headH, Ink.separator, 0.75)
+            vLine(x: playerX, from: top, to: top + h, Ink.hairline, 0.75)
+            vLine(x: jerseyX, from: top, to: top + h, Ink.hairline, 0.75)
+            let labelColor = Ink.secondary(0.7)
+            text("#", x: left + numW / 2, top: top, height: headH, size: 7.5, weight: .bold, color: labelColor,
+                 tracking: 0.08, align: .center)
+            text("PLAYER", x: playerX + 10.5, top: top, height: headH, size: 7.5, weight: .bold, color: labelColor, tracking: 0.08)
+            text("JERSEY", x: jerseyX + jerseyW / 2, top: top, height: headH, size: 7.5, weight: .bold, color: labelColor,
+                 tracking: 0.08, align: .center)
+            strokeRounded(CGRect(x: left, y: top, width: Page.contentWidth, height: h), radius: 6, Ink.separator, 0.75)
+            top += h
         }
 
-        // Total
-        y += 12
-        drawText("Total Players: \(orderedPlayers.count)", x: margin, y: y,
-                 font: .italicSystemFont(ofSize: 11), color: .gray)
+        var i = 0
+        repeat {
+            let fits = max(1, Int((Page.contentBottom - top - headH - countH) / rowH))
+            let end = min(ordered.count, i + fits)
+            table(ordered[i..<end])
+            i = end
+            if i < ordered.count {
+                drawFooter(generatedAt: generatedAt)
+                ctx.beginPage()
+                top = Page.top
+            }
+        } while i < ordered.count
 
-        drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
+        text("\(ordered.count) \(ordered.count == 1 ? "player" : "players")", x: left, top: top + 7.5,
+             size: 8.25, weight: .regular, color: Ink.secondary(0.7))
+        drawFooter(generatedAt: generatedAt)
     }
 
     // MARK: - Coaches Guide PDF
+
+    private static let gridHeadH: CGFloat = 4.5 + 6.75 * lineFactor + 13.5 * 1.1 + 4.5
+    private static let positionRowH: CGFloat = 25.5
+    private static let badgeColumn: CGFloat = 48
+    private static let pitchTitleH: CGFloat = 12.75 * lineFactor
+    private static let pitchHeadH: CGFloat = 7.1 * lineFactor + 3.75 + 1.125
 
     private static func drawCoachesGuide(
         ctx: UIGraphicsPDFRendererContext,
         lineup: Lineup,
         players: [Player],
-        pageWidth: CGFloat,
-        pageHeight: CGFloat,
-        margin: CGFloat,
-        teamName: String = "",
-        teamColor: Color = .blue,
-        gameLogs: [GameLog] = [],
-        pitchingConfig: PitchingConfig = PitchingConfig(),
-        fairPlayConfig: FairPlayConfig = FairPlayConfig()
+        teamName: String,
+        gameLogs: [GameLog],
+        pitchingConfig: PitchingConfig,
+        fairPlayConfig: FairPlayConfig,
+        generatedAt: Date
     ) {
         ctx.beginPage()
-        var y: CGFloat = margin
+        var top = drawHeader(eyebrow: "Coaches Guide", lineup: lineup, teamName: teamName) + 15
 
-        // Header
-        y = drawHeader(title: "Coaches Guide", lineup: lineup,
-                       pageWidth: pageWidth, margin: margin, y: y, teamName: teamName, teamColor: teamColor)
-        y += 20
-
-        // By position: a row per field position, then Bench; each cell names
-        // who is there that inning. The web printout (lineupPdf.ts) matches.
+        // By position: a row per field position, then Bench; each cell names who is there that inning.
         let positions = lineup.activeFieldPositions(config: fairPlayConfig)
         let active = lineup.activePlayers(from: players)
         let orderedPlayers = lineup.orderedPlayers(from: players)
@@ -135,118 +181,15 @@ class PDFGenerator {
                 return pos == nil || pos == .bench
             }
         }
+        let most = sitters.map(\.count).max() ?? 0
         // First name, or "Caleb J." when two active players share one (as on the field view).
         var firstNameCounts: [String: Int] = [:]
         for p in active { firstNameCounts[p.firstName, default: 0] += 1 }
-        func name(_ p: Player) -> String { (firstNameCounts[p.firstName] ?? 0) > 1 ? p.shortName : p.firstName }
+        let name: (Player) -> String = { p in (firstNameCounts[p.firstName] ?? 0) > 1 ? p.shortName : p.firstName }
 
-        // Grid dimensions
-        let gridLeft = margin + 120    // space for the position label
-        let gridRight = pageWidth - margin
-        let colWidth = (gridRight - gridLeft) / CGFloat(lineup.innings.count)
-        let rowHeight: CGFloat = 26
-        let benchLine: CGFloat = 11
-
-        /// Largest font up to `size` at which `text` fits a cell.
-        func fitted(_ text: String, size: CGFloat, bold: Bool) -> UIFont {
-            var s = size
-            while s > 6 {
-                let font: UIFont = bold ? .boldSystemFont(ofSize: s) : .systemFont(ofSize: s)
-                if (text as NSString).size(withAttributes: [.font: font]).width <= colWidth - 6 { return font }
-                s -= 1
-            }
-            return bold ? .boldSystemFont(ofSize: 6) : .systemFont(ofSize: 6)
-        }
-        func checkOverflow() {
-            if y > pageHeight - margin - 80 {
-                drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
-                ctx.beginPage()
-                y = margin
-            }
-        }
-
-        // Draw inning header row
-        drawText("Position", x: margin, y: y + 6, font: .boldSystemFont(ofSize: 10), color: .darkGray)
-
-        for inning in 0..<lineup.innings.count {
-            // Inning header cell
-            let headerRect = CGRect(x: gridLeft + CGFloat(inning) * colWidth, y: y, width: colWidth - 2, height: rowHeight)
-            UIColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0).setFill()
-            UIBezierPath(roundedRect: headerRect, cornerRadius: 3).fill()
-            drawCenteredText("Inn \(inning + 1)", in: headerRect, font: .boldSystemFont(ofSize: 10), color: .black)
-        }
-        y += rowHeight + 4
-
-        let evenRow = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
-
-        // Position rows
-        for (rowIndex, position) in positions.enumerated() {
-            (rowIndex % 2 == 0 ? evenRow : UIColor.white).setFill()
-            UIBezierPath(roundedRect: CGRect(x: margin, y: y, width: pageWidth - margin * 2, height: rowHeight), cornerRadius: 3).fill()
-
-            drawText(position.rawValue, x: margin + 4, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .darkGray)
-            drawText(position.displayName, x: margin + 30, y: y + 7, font: .systemFont(ofSize: 10), color: .black)
-
-            for inning in 0..<lineup.innings.count {
-                let cellRect = CGRect(x: gridLeft + CGFloat(inning) * colWidth + 1, y: y + 2, width: colWidth - 3, height: rowHeight - 4)
-                if let player = lineup.innings[inning].player(at: position, in: active) {
-                    let text = name(player)
-                    drawCenteredText(text, in: cellRect, font: fitted(text, size: 10, bold: true), color: .black)
-                } else {
-                    drawCenteredText("—", in: cellRect, font: .systemFont(ofSize: 10), color: .lightGray)
-                }
-            }
-
-            y += rowHeight + 2
-            checkOverflow()
-        }
-
-        // Bench: everyone with no field spot that inning, in batting order, one name per line.
-        let most = sitters.map(\.count).max() ?? 0
-        if most > 0 {
-            let height = max(rowHeight, CGFloat(most) * benchLine + 8)
-            if y + height > pageHeight - margin - 80 {
-                drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
-                ctx.beginPage()
-                y = margin
-            }
-            (positions.count % 2 == 0 ? evenRow : UIColor.white).setFill()
-            UIBezierPath(roundedRect: CGRect(x: margin, y: y, width: pageWidth - margin * 2, height: height), cornerRadius: 3).fill()
-            drawText("BN", x: margin + 4, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .darkGray)
-            drawText("Bench", x: margin + 30, y: y + 7, font: .systemFont(ofSize: 10), color: .black)
-
-            for (inning, list) in sitters.enumerated() {
-                let x = gridLeft + CGFloat(inning) * colWidth + 1
-                if list.isEmpty {
-                    drawCenteredText("—", in: CGRect(x: x, y: y + 2, width: colWidth - 3, height: rowHeight - 4),
-                                     font: .systemFont(ofSize: 10), color: .lightGray)
-                }
-                for (k, player) in list.enumerated() {
-                    let text = name(player)
-                    drawCenteredText(text, in: CGRect(x: x, y: y + 4 + CGFloat(k) * benchLine, width: colWidth - 3, height: benchLine),
-                                     font: fitted(text, size: 9, bold: false), color: .black)
-                }
-            }
-            y += height + 2
-            checkOverflow()
-        }
-
-        let absent = players.filter { lineup.absentPlayerIDs.contains($0.id) }
-        if !absent.isEmpty {
-            y += 6
-            drawText("Absent: " + absent.map(\.displayName).joined(separator: ", "), x: margin + 4, y: y,
-                     font: .italicSystemFont(ofSize: 10), color: .gray)
-            y += 14
-            checkOverflow()
-        }
-
-        // MARK: - Pitch Count Section
-        // Rows come from PitchEligibilityEngine, scoped to lineup.gameDate rather
-        // than today so the numbers match what the coach sees in the Pitching tab
-        // for this game. This file used to carry its own copy of that calculation
-        // ("exact port of PositionSummaryView.pitchingRows()"); the engine owns it
-        // now, so there's one place for the window maths to be right.
-
+        // Pitch counts, scoped to lineup.gameDate rather than today so the
+        // numbers match what the coach sees in the Pitching tab for this game.
+        // Hidden when no one can pitch.
         let pitchRows = PitchEligibilityEngine.coachesGuideSummary(
             gameLogs: gameLogs,
             players: players,
@@ -254,258 +197,284 @@ class PDFGenerator {
             referenceDate: lineup.gameDate
         ) ?? []
 
+        // Overflow, per the handoff: tighten the bench lines, then the pitch rows; then move pitch counts to page 2.
+        func benchHeight(_ line: CGFloat) -> CGFloat { max(7.5 * 2 + 16.5, 6 * 2 + CGFloat(most) * line) }
+        func gridHeight(_ line: CGFloat) -> CGFloat {
+            gridHeadH + CGFloat(positions.count) * positionRowH + 0.75 + benchHeight(line)
+        }
+        func pitchHeight(_ row: CGFloat) -> CGFloat {
+            pitchRows.isEmpty ? 0 : 19.5 + pitchTitleH + 6 + pitchHeadH + CGFloat((pitchRows.count + 1) / 2) * row
+        }
+        let room = Page.contentBottom - top
+        var benchLine: CGFloat = 12.75
+        var pitchRow: CGFloat = 18.75
+        if gridHeight(benchLine) + pitchHeight(pitchRow) > room { benchLine = 11.25 }
+        if gridHeight(benchLine) + pitchHeight(pitchRow) > room { pitchRow = 16.5 }
+
+        top = drawDefenseGrid(
+            top: top, lineup: lineup, positions: positions, active: active, sitters: sitters,
+            benchLine: benchLine, benchHeight: benchHeight(benchLine), name: name
+        )
+
         if !pitchRows.isEmpty {
-            // Estimated height: divider+title (20) + header row (22) + rows in the taller column
-            // Two-column layout means vertical rows = ceil(count / 2)
-            let halfRows = Int(ceil(Double(pitchRows.count) / 2.0))
-            let sectionHeight = CGFloat(20 + 22 + halfRows * 21 + 20)
-            let spaceRemaining = pageHeight - margin - y
-
-            if spaceRemaining < sectionHeight {
-                // Not enough room — start a new page
-                drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
+            if top + pitchHeight(pitchRow) > Page.contentBottom {
+                drawFooter(generatedAt: generatedAt)
                 ctx.beginPage()
-                y = margin
-            } else {
-                y += 16
+                top = Page.top - 19.5
             }
-
-            drawPitchCountSection(
-                rows: pitchRows,
-                y: &y,
-                pageWidth: pageWidth,
-                pageHeight: pageHeight,
-                margin: margin,
-                ctx: ctx
-            )
+            drawPitchCounts(rows: pitchRows, top: top + 19.5, rowH: pitchRow)
         }
 
-        drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
+        drawFooter(generatedAt: generatedAt)
     }
 
-    // MARK: - Pitch Count Section Helper
-    // Renders as two side-by-side mini-tables so the section stays on one page
-    // regardless of roster size. Left table gets the first half of rows, right
-    // gets the second half. Both share the same column proportions.
+    private static func drawDefenseGrid(
+        top: CGFloat, lineup: Lineup, positions: [FieldPosition], active: [Player], sitters: [[Player]],
+        benchLine: CGFloat, benchHeight: CGFloat, name: (Player) -> String
+    ) -> CGFloat {
+        let left = Page.side
+        let right = Page.width - Page.side
+        let innings = lineup.innings.count
+        let colW = (Page.contentWidth - badgeColumn) / CGFloat(innings)
+        func colX(_ i: Int) -> CGFloat { left + badgeColumn + CGFloat(i) * colW }
+        let nameSize: CGFloat = innings >= 7 ? 9.75 : 10.5
+        let rowsTop = top + gridHeadH
+        let firstOutfield = positions.firstIndex(where: { $0.isOutfield })
+        func rowTop(_ r: Int) -> CGFloat {
+            rowsTop + CGFloat(r) * positionRowH + ((firstOutfield ?? Int.max) > 0 && r >= (firstOutfield ?? Int.max) ? 0.75 : 0)
+        }
+        let benchTop = rowTop(positions.count)
+        let bottom = benchTop + benchHeight
+        let box = CGRect(x: left, y: top, width: Page.contentWidth, height: bottom - top)
 
-    private static func drawPitchCountSection(
-        rows: [PitchingGuideSummaryRow],
-        y: inout CGFloat,
-        pageWidth: CGFloat,
-        pageHeight: CGFloat,
-        margin: CGFloat,
-        ctx: UIGraphicsPDFRendererContext
-    ) {
-        // Section divider line
-        let divPath = UIBezierPath()
-        divPath.move(to: CGPoint(x: margin, y: y))
-        divPath.addLine(to: CGPoint(x: pageWidth - margin, y: y))
-        UIColor.lightGray.withAlphaComponent(0.6).setStroke()
-        divPath.lineWidth = 0.5
-        divPath.stroke()
-        y += 6
+        // Fills: the grouped header and bench, the white body between. The container clips to its 6 pt corners.
+        fillRounded(box, radius: 6, Ink.grouped)
+        fill(CGRect(x: left, y: rowsTop, width: Page.contentWidth, height: benchTop - rowsTop), Ink.white)
 
-        // Section title
-        drawText("Pitch Counts", x: margin, y: y,
-                 font: .boldSystemFont(ofSize: 11), color: .black)
-        y += 14
+        // Header row.
+        text("POS", x: left + 9, top: top + gridHeadH - 6 - 7.5 * lineFactor, size: 7.5, weight: .bold,
+             color: Ink.secondary(0.7), tracking: 0.08)
+        for i in 0..<innings {
+            text("INNING", x: colX(i) + 7.5, top: top + 4.5, size: 6.75, weight: .bold, color: Ink.secondary(0.6), tracking: 0.08)
+            text("\(i + 1)", x: colX(i) + 7.5, top: top + 4.5 + 6.75 * lineFactor + (1.1 - lineFactor) * 13.5 / 2,
+                 size: 13.5, weight: .heavy, color: Ink.black, digits: true)
+        }
+        hLine(from: left, to: right, y: rowsTop, Ink.separator, 0.75)
 
-        // Split rows into left and right halves
-        let half = Int(ceil(Double(rows.count) / 2.0))
-        let leftRows  = Array(rows.prefix(half))
-        let rightRows = Array(rows.dropFirst(half))
-
-        // Two mini-tables side by side with a gap between them
-        let gap: CGFloat = 12
-        let tableWidth = pageWidth - margin * 2
-        let miniWidth = (tableWidth - gap) / 2
-
-        // Column proportions within each mini-table
-        // Player | Thrown | Avail | Rest | Status
-        let pct: (player: CGFloat, thrown: CGFloat, avail: CGFloat, rest: CGFloat, status: CGFloat) =
-            (0.32, 0.13, 0.13, 0.12, 0.30)
-
-        let rowHeight: CGFloat = 20
-        let headerBg  = UIColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1.0)
-        let evenBg    = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
-
-        // Helper: draw one mini-table starting at (originX, originY)
-        // Returns the Y of the bottom of the last row.
-        func drawMiniTable(originX: CGFloat, originY: CGFloat, tableRows: [PitchingGuideSummaryRow]) -> CGFloat {
-            var ty = originY
-            let w = miniWidth
-
-            // Column x positions
-            let xPlayer = originX
-            let xThrown = originX + w * pct.player
-            let xAvail  = xThrown + w * pct.thrown
-            let xRest   = xAvail  + w * pct.avail
-            let xStatus = xRest   + w * pct.rest
-
-            // Column widths
-            let wPlayer = w * pct.player
-            let wThrown = w * pct.thrown
-            let wAvail  = w * pct.avail
-            let wRest   = w * pct.rest
-
-            // Header row
-            let hRect = CGRect(x: originX, y: ty, width: w, height: rowHeight)
-            headerBg.setFill()
-            UIBezierPath(roundedRect: hRect, cornerRadius: 3).fill()
-
-            drawText("Player",
-                     x: xPlayer + 4, y: ty + 5,
-                     font: .boldSystemFont(ofSize: 8), color: .darkGray)
-            drawCenteredText("Thrown",
-                             in: CGRect(x: xThrown, y: ty, width: wThrown, height: rowHeight),
-                             font: .boldSystemFont(ofSize: 8), color: .darkGray)
-            drawCenteredText("Avail",
-                             in: CGRect(x: xAvail, y: ty, width: wAvail, height: rowHeight),
-                             font: .boldSystemFont(ofSize: 8), color: .darkGray)
-            drawCenteredText("Rest",
-                             in: CGRect(x: xRest, y: ty, width: wRest, height: rowHeight),
-                             font: .boldSystemFont(ofSize: 8), color: .darkGray)
-            drawText("Status",
-                     x: xStatus + 4, y: ty + 5,
-                     font: .boldSystemFont(ofSize: 8), color: .darkGray)
-            ty += rowHeight + 2
-
-            // Data rows
-            for (idx, row) in tableRows.enumerated() {
-                let rowBg = idx % 2 == 0 ? evenBg : UIColor.white
-                let rRect = CGRect(x: originX, y: ty, width: w, height: rowHeight)
-                rowBg.setFill()
-                UIBezierPath(roundedRect: rRect, cornerRadius: 3).fill()
-
-                // Available color
-                let availColor: UIColor
-                switch row.status {
-                case .eligible:
-                    availColor = UIColor(red: 0.13, green: 0.55, blue: 0.13, alpha: 1.0)
-                case .limited:
-                    availColor = UIColor(red: 0.80, green: 0.50, blue: 0.0,  alpha: 1.0)
-                case .mustRest, .unknownAge:
-                    availColor = UIColor(red: 0.75, green: 0.10, blue: 0.10, alpha: 1.0)
+        // Position rows: badge, then who plays there each inning.
+        for (r, position) in positions.enumerated() {
+            let y = rowTop(r)
+            if r > 0 && r == firstOutfield {
+                hLine(from: left, to: right, y: y, Ink.separator, 1.5)
+            } else if r > 0 {
+                hLine(from: left, to: right, y: y, Ink.hairline, 0.75)
+            }
+            drawBadge(position.rawValue, x: left + 9, top: y + (positionRowH - 16.5) / 2)
+            for i in 0..<innings {
+                if let player = lineup.innings[i].player(at: position, in: active) {
+                    text(name(player), x: colX(i) + 7.5, top: y, height: positionRowH, size: nameSize, weight: .semibold,
+                         color: Ink.black, tracking: -0.01, maxWidth: colW - 15)
+                } else {
+                    text("—", x: colX(i) + 7.5, top: y, height: positionRowH, size: nameSize, weight: .regular,
+                         color: Ink.secondary(0.6))
                 }
-
-                // Player name — truncate to first name if too wide
-                let nameFont = UIFont.systemFont(ofSize: 9)
-                let fullName = row.player.displayName
-                let nameAttrs: [NSAttributedString.Key: Any] = [.font: nameFont, .foregroundColor: UIColor.black]
-                let nw = (fullName as NSString).size(withAttributes: nameAttrs).width
-                let nameText = nw > wPlayer - 8 ? row.player.firstName : fullName
-                drawText(nameText, x: xPlayer + 4, y: ty + 5,
-                         font: nameFont, color: .black)
-
-                // Thrown
-                drawCenteredText("\(row.pitchesInWindow)",
-                                 in: CGRect(x: xThrown, y: ty, width: wThrown, height: rowHeight),
-                                 font: .systemFont(ofSize: 9), color: .darkGray)
-
-                // Available
-                let availText = row.status.isRestricted ? "—" : (row.dailyMax > 0 ? "\(row.available)" : "—")
-                drawCenteredText(availText,
-                                 in: CGRect(x: xAvail, y: ty, width: wAvail, height: rowHeight),
-                                 font: .boldSystemFont(ofSize: 9), color: availColor)
-
-                // Rest owed from their last outing. Only meaningful while they're
-                // still inside it — once the days have elapsed the status flips to
-                // eligible and the number is noise, so it's suppressed there.
-                let restText = row.status.isRestricted && row.restDaysRequired > 0
-                    ? "\(row.restDaysRequired)d"
-                    : "—"
-                drawCenteredText(restText,
-                                 in: CGRect(x: xRest, y: ty, width: wRest, height: rowHeight),
-                                 font: .systemFont(ofSize: 9), color: .darkGray)
-
-                // Status
-                drawText(row.status.displayLabel,
-                         x: xStatus + 4, y: ty + 5,
-                         font: .systemFont(ofSize: 8), color: .darkGray)
-
-                ty += rowHeight + 1
             }
-            return ty
         }
 
-        let leftOriginX  = margin
-        let rightOriginX = margin + miniWidth + gap
+        // Bench: everyone with no field spot that inning, in batting order, one name per line.
+        hLine(from: left, to: right, y: benchTop + 0.75, Ink.separator, 1.5)
+        drawBadge("BN", x: left + 9, top: benchTop + 1.5 + 7.5)
+        for (i, list) in sitters.enumerated() {
+            for (k, player) in list.enumerated() {
+                text(name(player), x: colX(i) + 7.5, top: benchTop + 1.5 + 6 + CGFloat(k) * benchLine, height: benchLine,
+                     size: 9, weight: .medium, color: Ink.secondary(0.85), maxWidth: colW - 15)
+            }
+        }
 
-        let leftBottom  = drawMiniTable(originX: leftOriginX,  originY: y, tableRows: leftRows)
-        let rightBottom = drawMiniTable(originX: rightOriginX, originY: y, tableRows: rightRows)
-
-        // Advance y past whichever column is taller
-        y = max(leftBottom, rightBottom)
-
-        y += 4
-        drawText("Available: pitches the player can still throw today. Rest: days off they still need after their last outing.",
-                 x: margin, y: y,
-                 font: .italicSystemFont(ofSize: 7), color: .gray)
-        y += 10
+        for i in 0..<innings { vLine(x: colX(i), from: top, to: bottom, Ink.hairline, 0.75) }
+        strokeRounded(box, radius: 6, Ink.separator, 0.75)
+        return bottom
     }
 
-    // MARK: - Helpers
+    /// "Pitch counts" title, then two tables side by side (first half, rounded up, on the left).
+    private static func drawPitchCounts(rows: [PitchingGuideSummaryRow], top: CGFloat, rowH: CGFloat) {
+        let left = Page.side
+        let right = Page.width - Page.side
+        text("Pitch counts", x: left, top: top, size: 12.75, weight: .bold, color: Ink.black, tracking: -0.01)
+        // Shares the title's baseline: solve the note's line top so both baselines land on the same y.
+        let titleFont = UIFont.systemFont(ofSize: 12.75, weight: .bold)
+        let noteFont = UIFont.systemFont(ofSize: 8.25)
+        let baseline = top + (lineFactor * 12.75 - titleFont.lineHeight) / 2 + titleFont.ascender
+        let noteTop = baseline - noteFont.ascender - (lineFactor * 8.25 - noteFont.lineHeight) / 2
+        text("Avail: pitches left today. Rest: days off still needed.", x: right, top: noteTop,
+             size: 8.25, weight: .regular, color: Ink.secondary(0.7), align: .right)
 
-    @discardableResult
-    private static func drawHeader(title: String, lineup: Lineup, pageWidth: CGFloat, margin: CGFloat, y: CGFloat, teamName: String = "", teamColor: Color = .blue) -> CGFloat {
-        var currentY = y
+        let gap: CGFloat = 18
+        let tableW = (Page.contentWidth - gap) / 2
+        let labels = rows.map { $0.status.displayLabel }
+        let labelFont = UIFont.systemFont(ofSize: 8.25, weight: .semibold)
+        // Status is 52.5 wide in the handoff; a rest date ("Available Tue 9/29") needs more, taken from Player.
+        let statusW = max(52.5, labels.map { 5.25 + 3.75 + ($0 as NSString).size(withAttributes: [.font: labelFont]).width + 3 }.max() ?? 0)
+        let half = (rows.count + 1) / 2
+        let tablesTop = top + pitchTitleH + 6
 
-        // Title bar
-        let titleRect = CGRect(x: margin, y: currentY, width: pageWidth - margin * 2, height: 40)
-        UIColor(teamColor).setFill()
-        UIBezierPath(roundedRect: titleRect, cornerRadius: 6).fill()
+        func table(x: CGFloat, list: ArraySlice<PitchingGuideSummaryRow>) {
+            let tRight = x + tableW - 3
+            let restR = tRight - statusW
+            let availR = restR - 25.5
+            let thrownR = availR - 31.5
+            let head = Ink.secondary(0.7)
+            text("PLAYER", x: x + 3, top: tablesTop, size: 7.1, weight: .bold, color: head, tracking: 0.08)
+            text("THROWN", x: thrownR, top: tablesTop, size: 7.1, weight: .bold, color: head, tracking: 0.08, align: .right)
+            text("AVAIL", x: availR, top: tablesTop, size: 7.1, weight: .bold, color: head, tracking: 0.08, align: .right)
+            text("REST", x: restR, top: tablesTop, size: 7.1, weight: .bold, color: head, tracking: 0.08, align: .right)
+            text("STATUS", x: tRight, top: tablesTop, size: 7.1, weight: .bold, color: head, tracking: 0.08, align: .right)
+            fill(CGRect(x: x, y: tablesTop + 7.1 * lineFactor + 3.75, width: tableW, height: 1.125), Ink.black)
 
-        let headerLabel = teamName.isEmpty ? "Stack the Lineup" : teamName
-        drawText(headerLabel, x: margin + 12, y: currentY + 10,
-                 font: .boldSystemFont(ofSize: 16), color: .white)
-        drawText(title, x: pageWidth - margin - 120, y: currentY + 10,
-                 font: .systemFont(ofSize: 14), color: UIColor.white.withAlphaComponent(0.85))
+            for (k, i) in list.indices.enumerated() {
+                let row = list[i]
+                let y = tablesTop + pitchHeadH + CGFloat(k) * rowH
+                let restricted = row.status.isRestricted
+                text(row.player.displayName, x: x + 3, top: y, height: rowH, size: 9.4, weight: .semibold, color: Ink.black,
+                     maxWidth: thrownR - 34.5 - x - 3)
+                text("\(row.pitchesInWindow)", x: thrownR, top: y, height: rowH, size: 9.4, weight: .regular,
+                     color: Ink.secondary(0.75), align: .right, digits: true)
+                text("\(restricted ? 0 : row.available)", x: availR, top: y, height: rowH, size: 9.4, weight: .bold,
+                     color: Ink.black, align: .right, digits: true)
+                // Rest owed is only meaningful while they're still inside it; 0 otherwise (no dashes).
+                text("\(restricted ? row.restDaysRequired : 0)", x: restR, top: y, height: rowH, size: 9.4, weight: .regular,
+                     color: Ink.secondary(0.75), align: .right, digits: true)
+                let label = labels[i]
+                let labelW = (label as NSString).size(withAttributes: [.font: labelFont]).width
+                text(label, x: tRight, top: y, height: rowH, size: 8.25, weight: .semibold, color: Ink.black, align: .right)
+                let d: CGFloat = 5.25
+                Ink.black.setFill()
+                UIBezierPath(ovalIn: CGRect(x: tRight - labelW - 3.75 - d, y: y + rowH / 2 - d / 2, width: d, height: d)).fill()
+                hLine(from: x, to: x + tableW, y: y + rowH - 0.375, Ink.hairline, 0.75)
+            }
+        }
 
-        currentY += 50
+        table(x: left, list: rows[0..<half])
+        table(x: left + tableW + gap, list: rows[half...])
+    }
 
-        // Game info
+    // MARK: - Shared header and footer
+
+    /// Eyebrow + team name on the left, opponent + date on the right, over a
+    /// 1.5 pt black rule. Returns the rule's bottom.
+    private static func drawHeader(eyebrow: String, lineup: Lineup, teamName: String) -> CGFloat {
+        let leftH: CGFloat = 8.25 * lineFactor + 3 + 21 * 1.05
+        let rightH: CGFloat = 15 * lineFactor + 2.25 + 9.75 * lineFactor
+        let bottom = Page.top + max(leftH, rightH)
+        let left = Page.side
+        let right = Page.width - Page.side
+
+        let opponent = "vs. \(lineup.opponent.isEmpty ? "TBD" : lineup.opponent)"
         let formatter = DateFormatter()
-        formatter.dateStyle = .long
-        let dateStr = formatter.string(from: lineup.gameDate)
-        let opponent = lineup.opponent.isEmpty ? "TBD" : lineup.opponent
+        formatter.dateStyle = .full
+        let date = formatter.string(from: lineup.gameDate)
+        let rightW = max(width(opponent, size: 15, weight: .bold, tracking: -0.01), width(date, size: 9.75, weight: .medium))
+        text(opponent, x: right, top: bottom - rightH, size: 15, weight: .bold, color: Ink.black, tracking: -0.01,
+             align: .right, maxWidth: Page.contentWidth / 2)
+        text(date, x: right, top: bottom - 9.75 * lineFactor, size: 9.75, weight: .medium, color: Ink.secondary(0.75), align: .right)
 
-        drawText("Date: \(dateStr)", x: margin, y: currentY,
-                 font: .systemFont(ofSize: 12), color: .darkGray)
-        drawText("vs. \(opponent)", x: pageWidth / 2, y: currentY,
-                 font: .boldSystemFont(ofSize: 12), color: .black)
+        text(eyebrow.uppercased(), x: left, top: bottom - leftH, size: 8.25, weight: .bold, color: Ink.blue, tracking: 0.12)
+        // The 1.05 line box is tighter than lineFactor; center the glyphs in it.
+        text(teamName.isEmpty ? "Stack the Lineup" : teamName, x: left,
+             top: bottom - 21 * 1.05 - (lineFactor - 1.05) * 21 / 2, size: 21, weight: .heavy, color: Ink.black,
+             tracking: -0.02, maxWidth: Page.contentWidth - min(rightW, Page.contentWidth / 2) - 12)
 
-        return currentY + 20
+        let ruleTop = bottom + 10.5
+        fill(CGRect(x: left, y: ruleTop, width: Page.contentWidth, height: 1.5), Ink.black)
+        return ruleTop + 1.5
     }
 
-    private static func drawText(_ text: String, x: CGFloat, y: CGFloat, font: UIFont, color: UIColor) {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color
-        ]
-        text.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
-    }
-
-    /// Draws text centered both horizontally and vertically within the given rect.
-    private static func drawCenteredText(_ text: String, in rect: CGRect, font: UIFont, color: UIColor) {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color
-        ]
-        let textSize = (text as NSString).size(withAttributes: attrs)
-        let x = rect.midX - textSize.width / 2
-        let y = rect.midY - textSize.height / 2
-        text.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
-    }
-
-    private static func drawFooter(pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat) {
+    private static func drawFooter(generatedAt: Date) {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .short
-        let timestamp = "Generated: \(formatter.string(from: Date()))"
+        hLine(from: Page.side, to: Page.width - Page.side, y: Page.footerRule, Ink.hairline, 0.75)
+        text("Generated \(formatter.string(from: generatedAt))", x: Page.side, top: Page.footerTextTop,
+             size: 7.5, weight: .regular, color: Ink.secondary(0.6))
+        text("Stack the Lineup", x: Page.width - Page.side, top: Page.footerTextTop, size: 7.5, weight: .semibold,
+             color: Ink.secondary(0.6), align: .right)
+    }
 
-        drawText(timestamp, x: margin, y: pageHeight - margin + 10,
-                 font: .systemFont(ofSize: 9), color: .lightGray)
-        drawText("Stack the Lineup", x: pageWidth - margin - 90, y: pageHeight - margin + 10,
-                 font: .systemFont(ofSize: 9), color: .lightGray)
+    /// Ink-saver position badge: white, black text, 1.125 pt black border.
+    private static func drawBadge(_ label: String, x: CGFloat, top: CGFloat) {
+        let inset: CGFloat = 1.125 / 2   // CSS border-box: the border sits inside the 22.5 x 16.5 box
+        let rect = CGRect(x: x + inset, y: top + inset, width: 22.5 - 1.125, height: 16.5 - 1.125)
+        fillRounded(rect, radius: 4.5 - inset, Ink.white)
+        strokeRounded(rect, radius: 4.5 - inset, Ink.black, 1.125)
+        text(label, x: x + 22.5 / 2, top: top, height: 16.5, size: 9, weight: .heavy, color: Ink.black, align: .center)
+    }
+
+    // MARK: - Drawing helpers
+
+    private enum Align { case left, center, right }
+
+    private static func font(size: CGFloat, weight: UIFont.Weight, digits: Bool) -> UIFont {
+        digits ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
+    }
+
+    private static func attributes(size: CGFloat, weight: UIFont.Weight, color: UIColor = .black,
+                                   tracking: CGFloat = 0, digits: Bool = false) -> [NSAttributedString.Key: Any] {
+        [.font: font(size: size, weight: weight, digits: digits), .foregroundColor: color, .kern: tracking * size]
+    }
+
+    /// Width of `s` with `tracking` (em) after every glyph, as CSS letter-spacing.
+    private static func width(_ s: String, size: CGFloat, weight: UIFont.Weight, tracking: CGFloat = 0, digits: Bool = false) -> CGFloat {
+        (s as NSString).size(withAttributes: attributes(size: size, weight: weight, tracking: tracking, digits: digits)).width
+    }
+
+    /// One line of text. Its CSS line box (size x 1.2) starts at `top`, or, with
+    /// `height`, it is vertically centered in a box that tall. `x` is the left,
+    /// center or right edge per `align`. Past `maxWidth` it ends in an ellipsis.
+    private static func text(_ s: String, x: CGFloat, top: CGFloat, height: CGFloat? = nil, size: CGFloat,
+                             weight: UIFont.Weight, color: UIColor, tracking: CGFloat = 0, align: Align = .left,
+                             maxWidth: CGFloat? = nil, digits: Bool = false) {
+        let attrs = attributes(size: size, weight: weight, color: color, tracking: tracking, digits: digits)
+        var t = s
+        if let maxWidth, (t as NSString).size(withAttributes: attrs).width > maxWidth {
+            while t.count > 1 && ((t + "…") as NSString).size(withAttributes: attrs).width > maxWidth { t.removeLast() }
+            t = t.trimmingCharacters(in: .whitespaces) + "…"
+        }
+        // Trailing tracking isn't ink, so alignment ignores it.
+        let w = (t as NSString).size(withAttributes: attrs).width - tracking * size
+        let f = attrs[.font] as! UIFont
+        let boxTop = height.map { top + $0 / 2 - lineFactor * size / 2 } ?? top
+        let y = boxTop + (lineFactor * size - f.lineHeight) / 2
+        let originX: CGFloat
+        switch align {
+        case .left: originX = x
+        case .center: originX = x - w / 2
+        case .right: originX = x - w
+        }
+        (t as NSString).draw(at: CGPoint(x: originX, y: y), withAttributes: attrs)
+    }
+
+    private static func fill(_ rect: CGRect, _ color: UIColor) {
+        color.setFill()
+        UIBezierPath(rect: rect).fill()
+    }
+
+    private static func fillRounded(_ rect: CGRect, radius: CGFloat, _ color: UIColor) {
+        color.setFill()
+        UIBezierPath(roundedRect: rect, cornerRadius: radius).fill()
+    }
+
+    private static func strokeRounded(_ rect: CGRect, radius: CGFloat, _ color: UIColor, _ lineWidth: CGFloat) {
+        color.setStroke()
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: radius)
+        path.lineWidth = lineWidth
+        path.stroke()
+    }
+
+    private static func hLine(from x1: CGFloat, to x2: CGFloat, y: CGFloat, _ color: UIColor, _ thickness: CGFloat) {
+        fill(CGRect(x: x1, y: y - thickness / 2, width: x2 - x1, height: thickness), color)
+    }
+
+    private static func vLine(x: CGFloat, from top: CGFloat, to bottom: CGFloat, _ color: UIColor, _ thickness: CGFloat) {
+        fill(CGRect(x: x - thickness / 2, y: top, width: thickness, height: bottom - top), color)
     }
 }
