@@ -3,9 +3,11 @@ import { useEffect } from 'react';
 
 import { AuthProvider, useAuth } from '@/data/auth';
 import { markLanded, resetLanding } from '@/data/landing';
+import { registerPrintouts } from '@/print/openPdf';
 import { Loading } from '@/ui/kit';
 
 export default function RootLayout() {
+  useEffect(registerPrintouts, []);
   return (
     <AuthProvider>
       <Routes />

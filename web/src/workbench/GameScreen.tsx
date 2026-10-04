@@ -7,7 +7,7 @@ import { useState, type DragEvent } from 'react';
 import { finalize, moveBatter, restoreAbsent, toggleAbsent } from '@/core/lineupOps';
 import { signal } from '@/data/analytics';
 import { battingOrderPdf, coachesGuidePdf, pdfFilename } from '@/print/lineupPdf';
-import { openPdfTab } from '@/print/openPdf';
+import { downloadPdf, openPdfTab } from '@/print/openPdf';
 
 import { dateValue, DateTimeInputs, Dialog, fromInputs, Group, Row, TextInput, timeValue } from './controls';
 import { DefenseStep } from './DefenseStep';
@@ -26,9 +26,10 @@ export function GameScreen() {
   const [printError, setPrintError] = useState<string | null>(null);
   const n = w.lineup.innings.length;
 
-  const print = (kind: 'battingOrder' | 'coachesGuide') => {
+  /** Opens the printout in a new tab, or with `download`, saves it as a named file. */
+  const print = (kind: 'battingOrder' | 'coachesGuide', download = false) => {
     setPrintError(null);
-    const show = openPdfTab();   // must happen in the click, before any await
+    const show = download ? downloadPdf : openPdfTab();   // the tab must open in the click, before any await
     const input = {
       lineup: w.lineup, players: w.players, gameLogs: w.gameLogs, teamName: w.team.name,
       teamColorHex: w.team.colorHex, pitchingConfig: w.team.pitchingConfig, fairPlayConfig: w.team.fairPlayConfig,
@@ -218,7 +219,7 @@ function BattingOrder() {
 
 // MARK: - Step 4: Review
 
-function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void }) {
+function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide', download?: boolean): void }) {
   const w = useWorkbench();
   const st = gameStatus(w);
   const rows: { label: string; meta: string; ok: boolean; todo?: boolean; step: Step }[] = [
@@ -243,8 +244,10 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void 
         ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
-        <ExportCard icon="doc.richtext.fill" title="Coaches Guide PDF" detail="Defensive assignments for every inning." onClick={() => print('coachesGuide')} />
-        <ExportCard icon="doc.text" title="Lineup card" detail="Print the batting order." onClick={() => print('battingOrder')} />
+        <ExportCard icon="doc.richtext.fill" title="Coaches Guide PDF" detail="Defensive assignments for every inning."
+          onClick={() => print('coachesGuide')} onDownload={() => print('coachesGuide', true)} />
+        <ExportCard icon="doc.text" title="Lineup card" detail="Print the batting order."
+          onClick={() => print('battingOrder')} onDownload={() => print('battingOrder', true)} />
       </div>
       {st.open > 0 && (
         <p style={{ fontSize: 13, color: C.orange, margin: '10px 2px 0' }}>
@@ -265,15 +268,22 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide'): void 
   );
 }
 
-function ExportCard({ icon, title, detail, onClick }: { icon: string; title: string; detail: string; onClick(): void }) {
+/** Click to open the printout; Download saves it as a named file. */
+function ExportCard({ icon, title, detail, onClick, onDownload }: {
+  icon: string; title: string; detail: string; onClick(): void; onDownload(): void;
+}) {
   return (
-    <button onClick={onClick} className="h-ring" style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: 18, borderRadius: 12, border: `1px solid ${BORDER}`, textAlign: 'left' }}>
-      <Icon name={icon} size={24} color={C.blue} />
-      <span>
-        <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{title}</span>
-        <span style={{ display: 'block', fontSize: 13, color: SUB, marginTop: 2 }}>{detail}</span>
-      </span>
-    </button>
+    <div style={{ position: 'relative', display: 'flex' }}>
+      <button onClick={onClick} className="h-ring" style={{ flex: 1, display: 'flex', gap: 14, alignItems: 'flex-start', padding: 18, paddingBottom: 40, borderRadius: 12, border: `1px solid ${BORDER}`, textAlign: 'left' }}>
+        <Icon name={icon} size={24} color={C.blue} />
+        <span>
+          <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{title}</span>
+          <span style={{ display: 'block', fontSize: 13, color: SUB, marginTop: 2 }}>{detail}</span>
+        </span>
+      </button>
+      <button className="h-link" onClick={onDownload} aria-label={`Download ${title}`}
+        style={{ position: 'absolute', left: 56, bottom: 14, fontSize: 13, fontWeight: 500, color: C.blue }}>Download</button>
+    </div>
   );
 }
 
