@@ -13,6 +13,8 @@ enum PDFType {
 struct PDFDocument: Identifiable {
     let id = UUID()
     let data: Data
+    /// "Wilsonville Fall Ball vs Lincoln 2 - Coaches Guide Oct 4"
+    let title: String
     let filename: String
 }
 

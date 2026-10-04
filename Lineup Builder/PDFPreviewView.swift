@@ -11,7 +11,7 @@ struct PDFPreviewView: View {
     var body: some View {
         NavigationStack {
             PDFKitView(data: document.data)
-                .navigationTitle(document.filename)
+                .navigationTitle(document.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {

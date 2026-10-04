@@ -27,7 +27,10 @@ class PDFGenerator {
         pitchingConfig: PitchingConfig = PitchingConfig(),
         fairPlayConfig: FairPlayConfig = FairPlayConfig()
     ) -> PDFDocument {
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: Page.width, height: Page.height))
+        let title = Self.title(type: type, teamName: teamName, opponent: lineup.opponent, gameDate: lineup.gameDate)
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = [kCGPDFContextTitle as String: title, kCGPDFContextCreator as String: "Stack the Lineup"]
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: Page.width, height: Page.height), format: format)
         let generatedAt = Date()
 
         let data = renderer.pdfData { ctx in
@@ -41,12 +44,28 @@ class PDFGenerator {
             }
         }
 
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        let dateStr = formatter.string(from: lineup.gameDate).replacingOccurrences(of: "/", with: "-")
-        let filename = type == .battingOrder ? "BattingOrder_\(dateStr).pdf" : "CoachesGuide_\(dateStr).pdf"
+        return PDFDocument(data: data, title: title, filename: filename(title: title))
+    }
 
-        return PDFDocument(data: data, filename: filename)
+    /// "Wilsonville Fall Ball vs Lincoln 2 - Coaches Guide Oct 4", or without an
+    /// opponent "Wilsonville Fall Ball - Coaches Guide Oct 4". The PDF's title,
+    /// the preview's title, and (as a filename) what Share and Print save it as.
+    /// The web names its printouts the same way (pdfTitle in lineupPdf.ts).
+    static func title(type: PDFType, teamName: String, opponent: String, gameDate: Date) -> String {
+        let team = teamName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let opp = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lead = [team, opp.isEmpty ? "" : "vs \(opp)"].filter { !$0.isEmpty }.joined(separator: " ")
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
+        let doc = "\(type == .battingOrder ? "Batting Order" : "Coaches Guide") \(formatter.string(from: gameDate))"
+        return lead.isEmpty ? doc : "\(lead) - \(doc)"
+    }
+
+    /// The title as a filename: characters files can't hold become "-", plus ".pdf".
+    static func filename(title: String) -> String {
+        let unsafe = CharacterSet(charactersIn: "\\/:*?\"<>|").union(.newlines)
+        let cleaned = title.unicodeScalars.map { unsafe.contains($0) ? "-" : String($0) }.joined()
+        return cleaned.split(whereSeparator: \.isWhitespace).joined(separator: " ") + ".pdf"
     }
 
     // MARK: - Page and tokens
