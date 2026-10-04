@@ -15,7 +15,8 @@ class PDFGenerator {
         teamName: String = "",
         teamColor: Color = .blue,
         gameLogs: [GameLog] = [],
-        pitchingConfig: PitchingConfig = PitchingConfig()
+        pitchingConfig: PitchingConfig = PitchingConfig(),
+        fairPlayConfig: FairPlayConfig = FairPlayConfig()
     ) -> PDFDocument {
         let pageWidth: CGFloat = 612   // US Letter
         let pageHeight: CGFloat = 792
@@ -32,7 +33,7 @@ class PDFGenerator {
                 drawCoachesGuide(ctx: ctx, lineup: lineup, players: players,
                                   pageWidth: pageWidth, pageHeight: pageHeight, margin: margin,
                                   teamName: teamName, teamColor: teamColor,
-                                  gameLogs: gameLogs, pitchingConfig: pitchingConfig)
+                                  gameLogs: gameLogs, pitchingConfig: pitchingConfig, fairPlayConfig: fairPlayConfig)
             }
         }
 
@@ -111,7 +112,8 @@ class PDFGenerator {
         teamName: String = "",
         teamColor: Color = .blue,
         gameLogs: [GameLog] = [],
-        pitchingConfig: PitchingConfig = PitchingConfig()
+        pitchingConfig: PitchingConfig = PitchingConfig(),
+        fairPlayConfig: FairPlayConfig = FairPlayConfig()
     ) {
         ctx.beginPage()
         var y: CGFloat = margin
@@ -121,17 +123,50 @@ class PDFGenerator {
                        pageWidth: pageWidth, margin: margin, y: y, teamName: teamName, teamColor: teamColor)
         y += 20
 
+        // By position: a row per field position, then Bench; each cell names
+        // who is there that inning. The web printout (lineupPdf.ts) matches.
+        let positions = lineup.activeFieldPositions(config: fairPlayConfig)
+        let active = lineup.activePlayers(from: players)
         let orderedPlayers = lineup.orderedPlayers(from: players)
-        let allPlayers = orderedPlayers.isEmpty ? players : orderedPlayers
+        let sitOrder = orderedPlayers + active.filter { p in !orderedPlayers.contains(where: { $0.id == p.id }) }
+        let sitters: [[Player]] = lineup.innings.map { inning in
+            sitOrder.filter { p in
+                let pos = inning.position(for: p)
+                return pos == nil || pos == .bench
+            }
+        }
+        // First name, or "Caleb J." when two active players share one (as on the field view).
+        var firstNameCounts: [String: Int] = [:]
+        for p in active { firstNameCounts[p.firstName, default: 0] += 1 }
+        func name(_ p: Player) -> String { (firstNameCounts[p.firstName] ?? 0) > 1 ? p.shortName : p.firstName }
 
         // Grid dimensions
-        let gridLeft = margin + 120    // space for player name
+        let gridLeft = margin + 120    // space for the position label
         let gridRight = pageWidth - margin
         let colWidth = (gridRight - gridLeft) / CGFloat(lineup.innings.count)
         let rowHeight: CGFloat = 26
+        let benchLine: CGFloat = 11
+
+        /// Largest font up to `size` at which `text` fits a cell.
+        func fitted(_ text: String, size: CGFloat, bold: Bool) -> UIFont {
+            var s = size
+            while s > 6 {
+                let font: UIFont = bold ? .boldSystemFont(ofSize: s) : .systemFont(ofSize: s)
+                if (text as NSString).size(withAttributes: [.font: font]).width <= colWidth - 6 { return font }
+                s -= 1
+            }
+            return bold ? .boldSystemFont(ofSize: 6) : .systemFont(ofSize: 6)
+        }
+        func checkOverflow() {
+            if y > pageHeight - margin - 80 {
+                drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
+                ctx.beginPage()
+                y = margin
+            }
+        }
 
         // Draw inning header row
-        drawText("Player", x: margin, y: y + 6, font: .boldSystemFont(ofSize: 10), color: .darkGray)
+        drawText("Position", x: margin, y: y + 6, font: .boldSystemFont(ofSize: 10), color: .darkGray)
 
         for inning in 0..<lineup.innings.count {
             // Inning header cell
@@ -142,39 +177,67 @@ class PDFGenerator {
         }
         y += rowHeight + 4
 
-        // Player rows
-        for (rowIndex, player) in allPlayers.enumerated() {
-            let rowBg = rowIndex % 2 == 0 ? UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0) : UIColor.white
-            let rowRect = CGRect(x: margin, y: y, width: pageWidth - margin * 2, height: rowHeight)
-            rowBg.setFill()
-            UIBezierPath(roundedRect: rowRect, cornerRadius: 3).fill()
+        let evenRow = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
 
-            // Player name + batting order number
-            let orderNum = orderedPlayers.firstIndex(where: { $0.id == player.id }).map { "\($0 + 1)." } ?? "—"
-            drawText(orderNum, x: margin + 4, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .darkGray)
-            drawText(player.displayName, x: margin + 22, y: y + 7, font: .systemFont(ofSize: 10), color: .black)
+        // Position rows
+        for (rowIndex, position) in positions.enumerated() {
+            (rowIndex % 2 == 0 ? evenRow : UIColor.white).setFill()
+            UIBezierPath(roundedRect: CGRect(x: margin, y: y, width: pageWidth - margin * 2, height: rowHeight), cornerRadius: 3).fill()
 
-            // Position cells
+            drawText(position.rawValue, x: margin + 4, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .darkGray)
+            drawText(position.displayName, x: margin + 30, y: y + 7, font: .systemFont(ofSize: 10), color: .black)
+
             for inning in 0..<lineup.innings.count {
-                let cellX = gridLeft + CGFloat(inning) * colWidth
-                let cellRect = CGRect(x: cellX + 1, y: y + 2, width: colWidth - 3, height: rowHeight - 4)
-
-                if let pos = lineup.innings[inning].position(for: player) {
-                    let cellColor: UIColor = pos.isAbsent ? .systemGray : .black
-                    drawCenteredText(pos.rawValue, in: cellRect, font: .boldSystemFont(ofSize: 10), color: cellColor)
+                let cellRect = CGRect(x: gridLeft + CGFloat(inning) * colWidth + 1, y: y + 2, width: colWidth - 3, height: rowHeight - 4)
+                if let player = lineup.innings[inning].player(at: position, in: active) {
+                    let text = name(player)
+                    drawCenteredText(text, in: cellRect, font: fitted(text, size: 10, bold: true), color: .black)
                 } else {
                     drawCenteredText("—", in: cellRect, font: .systemFont(ofSize: 10), color: .lightGray)
                 }
             }
 
             y += rowHeight + 2
+            checkOverflow()
+        }
 
-            // Check page overflow
-            if y > pageHeight - margin - 80 {
+        // Bench: everyone with no field spot that inning, in batting order, one name per line.
+        let most = sitters.map(\.count).max() ?? 0
+        if most > 0 {
+            let height = max(rowHeight, CGFloat(most) * benchLine + 8)
+            if y + height > pageHeight - margin - 80 {
                 drawFooter(pageWidth: pageWidth, pageHeight: pageHeight, margin: margin)
                 ctx.beginPage()
                 y = margin
             }
+            (positions.count % 2 == 0 ? evenRow : UIColor.white).setFill()
+            UIBezierPath(roundedRect: CGRect(x: margin, y: y, width: pageWidth - margin * 2, height: height), cornerRadius: 3).fill()
+            drawText("BN", x: margin + 4, y: y + 7, font: .boldSystemFont(ofSize: 10), color: .darkGray)
+            drawText("Bench", x: margin + 30, y: y + 7, font: .systemFont(ofSize: 10), color: .black)
+
+            for (inning, list) in sitters.enumerated() {
+                let x = gridLeft + CGFloat(inning) * colWidth + 1
+                if list.isEmpty {
+                    drawCenteredText("—", in: CGRect(x: x, y: y + 2, width: colWidth - 3, height: rowHeight - 4),
+                                     font: .systemFont(ofSize: 10), color: .lightGray)
+                }
+                for (k, player) in list.enumerated() {
+                    let text = name(player)
+                    drawCenteredText(text, in: CGRect(x: x, y: y + 4 + CGFloat(k) * benchLine, width: colWidth - 3, height: benchLine),
+                                     font: fitted(text, size: 9, bold: false), color: .black)
+                }
+            }
+            y += height + 2
+            checkOverflow()
+        }
+
+        let absent = players.filter { lineup.absentPlayerIDs.contains($0.id) }
+        if !absent.isEmpty {
+            y += 6
+            drawText("Absent: " + absent.map(\.displayName).joined(separator: ", "), x: margin + 4, y: y,
+                     font: .italicSystemFont(ofSize: 10), color: .gray)
+            y += 14
+            checkOverflow()
         }
 
         // MARK: - Pitch Count Section

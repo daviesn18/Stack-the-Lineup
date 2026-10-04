@@ -66,7 +66,8 @@ enum LineupPDFExport {
                 teamName: store.teamName,
                 teamColor: store.teamColor,
                 gameLogs: store.gameLogs,
-                pitchingConfig: store.pitchingConfig
+                pitchingConfig: store.pitchingConfig,
+                fairPlayConfig: store.fairPlayConfig
             )
         }
     }
