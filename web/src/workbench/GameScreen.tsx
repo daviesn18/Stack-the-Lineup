@@ -31,7 +31,7 @@ export function GameScreen() {
     const show = openPdfTab();   // must happen in the click, before any await
     const input = {
       lineup: w.lineup, players: w.players, gameLogs: w.gameLogs, teamName: w.team.name,
-      teamColorHex: w.team.colorHex, pitchingConfig: w.team.pitchingConfig,
+      teamColorHex: w.team.colorHex, pitchingConfig: w.team.pitchingConfig, fairPlayConfig: w.team.fairPlayConfig,
     };
     (kind === 'battingOrder' ? battingOrderPdf(input) : coachesGuidePdf(input))
       .then((bytes) => { show(bytes, pdfFilename(kind, w.lineup.gameDate)); signal('pdf.exported', { type: kind }); })

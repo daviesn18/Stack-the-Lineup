@@ -13,7 +13,11 @@
 
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
 
-import type { GameLog, Lineup, PitchingConfig, Player } from '@/core/model';
+import { activeFieldPositions, activePlayers } from '@/core/fairPlay';
+import { gridNames } from '@/core/lineupOps';
+import {
+  defaultFairPlayConfig, POSITION_NAMES, type FairPlayConfig, type GameLog, type Lineup, type PitchingConfig, type Player,
+} from '@/core/model';
 import { blocksAssignment, coachesGuideSummary, type PitchEligibilityStatus, type PitchingSummaryRow } from '@/core/pitching';
 
 const PAGE_W = 612;
@@ -27,7 +31,6 @@ const BLACK = gray(0);
 const DARK_GRAY = gray(1 / 3);      // UIColor.darkGray
 const GRAY = gray(0.5);             // UIColor.gray
 const LIGHT_GRAY = gray(2 / 3);     // UIColor.lightGray
-const SYSTEM_GRAY = rgb(0.557, 0.557, 0.576);
 const ROW_EVEN = gray(0.95);
 const HEADER_BG = gray(0.9);
 const WHITE = gray(1);
@@ -40,6 +43,8 @@ export interface PrintInput {
   teamColorHex: string;
   gameLogs: GameLog[];
   pitchingConfig: PitchingConfig;
+  /** Which field positions the guide lists (no P/C, four outfielders). Defaults to the standard nine. */
+  fairPlayConfig?: FairPlayConfig;
   /** For the footer; defaults to now. */
   generatedAt?: Date;
 }
@@ -169,15 +174,34 @@ export async function coachesGuidePdf(input: PrintInput): Promise<Uint8Array> {
   c.newPage();
   let y = header(c, 'Coaches Guide', input, MARGIN) + 20;
 
+  // By position: a row per field position, then Bench; each cell names who is there that inning.
+  const positions = activeFieldPositions(input.fairPlayConfig ?? defaultFairPlayConfig());
+  const active = activePlayers(lineup, input.players);
+  const names = gridNames(active);
+  const nameOf = (p: Player) => names.get(p.id) ?? p.firstName;
   const ordered = orderedPlayers(lineup, input.players);
-  const rows = ordered.length ? ordered : input.players;
+  const sitOrder = [...ordered, ...active.filter((p) => !ordered.includes(p))];
+  const sitters = lineup.innings.map((inn) => sitOrder.filter((p) => { const x = inn.assignments[p.id]; return x === undefined || x === 'Bench'; }));
 
   const gridLeft = MARGIN + 120;
   const gridRight = PAGE_W - MARGIN;
   const colWidth = (gridRight - gridLeft) / lineup.innings.length;
   const rowHeight = 26;
+  const benchLine = 11;
+  /** Largest size up to `max` at which `s` fits the cell. */
+  const fit = (s: string, font: PDFFont, max: number) => {
+    for (let size = max; size > 6; size -= 1) if (c.width(s, size, font) <= colWidth - 6) return size;
+    return 6;
+  };
+  const overflow = () => {
+    if (y > PAGE_H - MARGIN - 80) {
+      footer(c, generatedAt);
+      c.newPage();
+      y = MARGIN;
+    }
+  };
 
-  c.text('Player', MARGIN, y + 6, 10, c.f.bold, DARK_GRAY);
+  c.text('Position', MARGIN, y + 6, 10, c.f.bold, DARK_GRAY);
   lineup.innings.forEach((_, i) => {
     const x = gridLeft + i * colWidth;
     c.roundedRect(x, y, colWidth - 2, rowHeight, 3, HEADER_BG);
@@ -185,24 +209,45 @@ export async function coachesGuidePdf(input: PrintInput): Promise<Uint8Array> {
   });
   y += rowHeight + 4;
 
-  rows.forEach((p, r) => {
+  positions.forEach((pos, r) => {
     c.roundedRect(MARGIN, y, PAGE_W - MARGIN * 2, rowHeight, 3, r % 2 === 0 ? ROW_EVEN : WHITE);
-    const order = ordered.findIndex((x) => x.id === p.id);
-    c.text(order >= 0 ? `${order + 1}.` : '—', MARGIN + 4, y + 7, 10, c.f.bold, DARK_GRAY);
-    c.text(displayName(p), MARGIN + 22, y + 7, 10, c.f.regular, BLACK);
+    c.text(pos, MARGIN + 4, y + 7, 10, c.f.bold, DARK_GRAY);
+    c.text(POSITION_NAMES[pos], MARGIN + 30, y + 7, 10, c.f.regular, BLACK);
     lineup.innings.forEach((inn, i) => {
       const x = gridLeft + i * colWidth + 1;
-      const pos = inn.assignments[p.id];
-      if (pos) c.centered(pos, x, y + 2, colWidth - 3, rowHeight - 4, 10, c.f.bold, pos === 'ABS' ? SYSTEM_GRAY : BLACK);
+      const id = Object.keys(inn.assignments).find((pid) => inn.assignments[pid] === pos && active.some((p) => p.id === pid));
+      const p = id ? active.find((x) => x.id === id) : undefined;
+      if (p) c.centered(nameOf(p), x, y + 2, colWidth - 3, rowHeight - 4, fit(nameOf(p), c.f.bold, 10), c.f.bold, BLACK);
       else c.centered('—', x, y + 2, colWidth - 3, rowHeight - 4, 10, c.f.regular, LIGHT_GRAY);
     });
     y += rowHeight + 2;
-    if (y > PAGE_H - MARGIN - 80) {
-      footer(c, generatedAt);
-      c.newPage();
-      y = MARGIN;
-    }
+    overflow();
   });
+
+  // Bench: everyone with no field spot that inning, in batting order, one name per line.
+  const most = Math.max(0, ...sitters.map((s) => s.length));
+  if (most > 0) {
+    const h = Math.max(rowHeight, most * benchLine + 8);
+    if (y + h > PAGE_H - MARGIN - 80) { footer(c, generatedAt); c.newPage(); y = MARGIN; }
+    c.roundedRect(MARGIN, y, PAGE_W - MARGIN * 2, h, 3, positions.length % 2 === 0 ? ROW_EVEN : WHITE);
+    c.text('BN', MARGIN + 4, y + 7, 10, c.f.bold, DARK_GRAY);
+    c.text('Bench', MARGIN + 30, y + 7, 10, c.f.regular, BLACK);
+    sitters.forEach((list, i) => {
+      const x = gridLeft + i * colWidth + 1;
+      if (!list.length) c.centered('—', x, y + 2, colWidth - 3, rowHeight - 4, 10, c.f.regular, LIGHT_GRAY);
+      list.forEach((p, k) => c.centered(nameOf(p), x, y + 4 + k * benchLine, colWidth - 3, benchLine, fit(nameOf(p), c.f.regular, 9), c.f.regular, BLACK));
+    });
+    y += h + 2;
+    overflow();
+  }
+
+  const absent = input.players.filter((p) => lineup.absentPlayerIDs.includes(p.id));
+  if (absent.length) {
+    y += 6;
+    c.text(`Absent: ${absent.map(displayName).join(', ')}`, MARGIN + 4, y, 10, c.f.italic, GRAY);
+    y += 14;
+    overflow();
+  }
 
   // Pitch counts, as of the GAME date (matches the Pitching view for this game).
   const pitchRows = coachesGuideSummary(input.gameLogs, input.players, input.pitchingConfig, lineup.gameDate) ?? [];
