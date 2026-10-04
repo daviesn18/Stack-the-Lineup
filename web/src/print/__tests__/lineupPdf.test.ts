@@ -53,9 +53,18 @@ describe('printouts', () => {
     await expect(coachesGuidePdf(input(odd))).resolves.toBeInstanceOf(Uint8Array);
   });
 
+  it('titles the PDF with team, opponent, kind and date', async () => {
+    const i = { ...input(roster(9)), teamName: 'Wilsonville Fall Ball' };
+    i.lineup = { ...i.lineup, opponent: 'Lincoln 2', gameDate: new Date(2026, 9, 4, 16) };
+    expect((await PDFDocument.load(await coachesGuidePdf(i))).getTitle()).toBe('Wilsonville Fall Ball vs Lincoln 2 - Coaches Guide Oct 4');
+    expect((await PDFDocument.load(await battingOrderPdf(i))).getTitle()).toBe('Wilsonville Fall Ball vs Lincoln 2 - Batting Order Oct 4');
+  });
+
   it('names files and statuses like iOS', () => {
-    expect(pdfFilename('battingOrder', new Date(2026, 8, 27))).toBe('BattingOrder_9-27-26.pdf');
-    expect(pdfFilename('coachesGuide', new Date(2026, 10, 1))).toBe('CoachesGuide_11-1-26.pdf');
+    expect(pdfFilename('coachesGuide', 'Wilsonville Fall Ball', 'Lincoln 2', new Date(2026, 9, 4)))
+      .toBe('Wilsonville Fall Ball vs Lincoln 2 - Coaches Guide Oct 4.pdf');
+    expect(pdfFilename('battingOrder', 'Tigers', ' ', new Date(2026, 8, 27))).toBe('Tigers - Batting Order Sep 27.pdf');
+    expect(pdfFilename('battingOrder', 'A/B: Team', 'C?', new Date(2026, 10, 1))).toBe('A-B- Team vs C- - Batting Order Nov 1.pdf');
     expect(statusLabel({ kind: 'mustRest', until: new Date(2026, 8, 29) })).toBe('Available Tue 9/29');
     expect(statusLabel({ kind: 'unknownAge' })).toBe('Age not set');
   });

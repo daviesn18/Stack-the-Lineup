@@ -13,7 +13,8 @@ export function openPdfTab(): (bytes: Uint8Array, filename: string) => void {
     tab.document.body.textContent = 'Preparing your PDF…';
   }
   return (bytes, filename) => {
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+    // A File (not a bare Blob) carries the name, for browsers that use it when saving from the viewer.
+    const url = URL.createObjectURL(new File([bytes as BlobPart], filename, { type: 'application/pdf' }));
     if (tab && !tab.closed) {
       tab.location.href = url;
     } else {

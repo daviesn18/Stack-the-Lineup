@@ -34,7 +34,7 @@ export function GameScreen() {
       teamColorHex: w.team.colorHex, pitchingConfig: w.team.pitchingConfig, fairPlayConfig: w.team.fairPlayConfig,
     };
     (kind === 'battingOrder' ? battingOrderPdf(input) : coachesGuidePdf(input))
-      .then((bytes) => { show(bytes, pdfFilename(kind, w.lineup.gameDate)); signal('pdf.exported', { type: kind }); })
+      .then((bytes) => { show(bytes, pdfFilename(kind, w.team.name, w.lineup.opponent, w.lineup.gameDate)); signal('pdf.exported', { type: kind }); })
       .catch((e: Error) => setPrintError(`Couldn't make the printout: ${e.message}`));
   };
 

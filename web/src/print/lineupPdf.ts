@@ -200,7 +200,7 @@ function badge(c: Canvas, label: string, x: number, top: number) {
 // MARK: - Batting order
 
 export async function battingOrderPdf(input: PrintInput): Promise<Uint8Array> {
-  const { doc, c } = await newDoc('Batting Order');
+  const { doc, c } = await newDoc(pdfTitle('battingOrder', input.teamName, input.lineup.opponent, input.lineup.gameDate));
   const generatedAt = input.generatedAt ?? new Date();
   c.newPage();
   const ordered = orderedPlayers(input.lineup, input.players);
@@ -268,7 +268,7 @@ const POS_ROW_H = 25.5;
 const BADGE_COL = 48;
 
 export async function coachesGuidePdf(input: PrintInput): Promise<Uint8Array> {
-  const { doc, c } = await newDoc('Coaches Guide');
+  const { doc, c } = await newDoc(pdfTitle('coachesGuide', input.teamName, input.lineup.opponent, input.lineup.gameDate));
   const generatedAt = input.generatedAt ?? new Date();
   const { lineup } = input;
   c.newPage();
@@ -437,8 +437,20 @@ function pitchCounts(c: Canvas, rows: PitchingSummaryRow[], top: number, rowH: n
   table(M_SIDE + tableW + gap, rows.slice(half), (k) => labels[half + k]);
 }
 
-/** "BattingOrder_9-27-26.pdf" / "CoachesGuide_9-27-26.pdf", as iOS names them. */
-export function pdfFilename(kind: 'battingOrder' | 'coachesGuide', gameDate: Date): string {
-  const d = `${gameDate.getMonth() + 1}-${gameDate.getDate()}-${String(gameDate.getFullYear()).slice(-2)}`;
-  return `${kind === 'battingOrder' ? 'BattingOrder' : 'CoachesGuide'}_${d}.pdf`;
+/**
+ * "Wilsonville Fall Ball vs Lincoln 2 - Coaches Guide Oct 4": the PDF's
+ * title, which browsers show and suggest when printing or saving. Without an
+ * opponent it's "Wilsonville Fall Ball - Coaches Guide Oct 4". iOS names its
+ * printouts the same way (PDFGenerator.title).
+ */
+export function pdfTitle(kind: 'battingOrder' | 'coachesGuide', teamName: string, opponent: string, gameDate: Date): string {
+  const lead = [teamName.trim(), opponent.trim() ? `vs ${opponent.trim()}` : ''].filter(Boolean).join(' ');
+  const date = gameDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const doc = `${kind === 'battingOrder' ? 'Batting Order' : 'Coaches Guide'} ${date}`;
+  return lead ? `${lead} - ${doc}` : doc;
+}
+
+/** The title as a filename: characters files can't hold become "-", plus ".pdf". */
+export function pdfFilename(kind: 'battingOrder' | 'coachesGuide', teamName: string, opponent: string, gameDate: Date): string {
+  return `${pdfTitle(kind, teamName, opponent, gameDate).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ')}.pdf`;
 }
