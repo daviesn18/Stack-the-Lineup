@@ -46,4 +46,7 @@ nonisolated enum Log {
 
     /// App Intent entity lookups — what Siri asked for and what matched.
     static let intents = Logger(subsystem: subsystem, category: "intents")
+
+    /// The PDF printouts (a bundled font that failed to load).
+    static let printouts = Logger(subsystem: subsystem, category: "printouts")
 }
