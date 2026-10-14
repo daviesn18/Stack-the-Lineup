@@ -34,7 +34,7 @@ extension WhatsNewContent {
                     icon: "rectangle.split.2x1.fill",
                     iconColor: .blue,
                     title: "Built for iPhone Duo",
-                    description: "Open iPhone Duo and Stack the Lineup splits right at the fold: your roster on one side, the field and lineup tools on the other. Nothing lands on the hinge, folded or flat.\n\nPlayers, Lineup and Positions all use both halves, including By Position and Pitching."
+                    description: "Open iPhone Duo and Stack the Lineup splits right at the fold: your roster on one side, the field and lineup tools on the other."
                 )
             ]
         ),
