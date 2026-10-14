@@ -37,8 +37,12 @@ export function gameLogFrom(lineup: Lineup, players: Player[], gameInningCount: 
 /** The open lineup cleared for the next game. */
 export function nextGameLineup<L extends Lineup>(lineup: L, gameInningCount: number, next: { opponent: string; gameDate: Date }): L {
   const finalized = lineup.status === 'finalized';
+  // Marking a player absent dropped them from the batting order, so returning
+  // players go back at the bottom, as toggleAbsent does (iOS archiveCurrentLineup).
+  const returning = lineup.absentPlayerIDs.filter((id) => !lineup.battingOrder.includes(id));
   const out: L = {
     ...lineup,
+    battingOrder: [...lineup.battingOrder, ...returning],
     opponent: next.opponent.trim(),
     gameDate: next.gameDate,
     innings: Array.from({ length: gameInningCount }, () => ({ assignments: {} })),

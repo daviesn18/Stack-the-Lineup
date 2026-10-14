@@ -343,9 +343,10 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
         p_lineup_id: lineup.id, p_innings_played: log.inningsPlayed, p_notes: log.notes,
         p_pitch_counts: log.pitchCounts, p_game_log_id: log.id,
       }));
-      // archive_game cleared the cells and reverted to draft; send the rest of the next game.
+      // archive_game cleared the cells and reverted to draft but kept the batting
+      // order and absences; send the rest of the next game.
       const archived = nextGameLineup(now.lineup, count, now.lineup);
-      await saveLineup({ ...archived, absentPlayerIDs: now.lineup.absentPlayerIDs }, lineup);
+      await saveLineup({ ...archived, battingOrder: now.lineup.battingOrder, absentPlayerIDs: now.lineup.absentPlayerIDs }, lineup);
     });
   }, [enqueue]);
 

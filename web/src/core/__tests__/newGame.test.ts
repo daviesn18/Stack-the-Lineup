@@ -49,6 +49,12 @@ describe('new game', () => {
     expect(next.lastFinalizedBy).toBeUndefined();
   });
 
+  it('puts last game\'s absent players back at the bottom of the batting order', () => {
+    const next = nextGameLineup({ ...lineup(), battingOrder: ['A'] }, 6, { opponent: 'Tigard', gameDate: new Date() });
+    expect(next.battingOrder).toEqual(['A', 'B']);
+    expect(next.absentPlayerIDs).toEqual([]);
+  });
+
   it('keeps logs newest first', () => {
     const log = (id: string, day: number) => ({ id, gameDate: new Date(2026, 8, day) }) as GameLog;
     expect(addGameLog([log('x', 20), log('y', 6)], log('z', 13)).map((g) => g.id)).toEqual(['x', 'z', 'y']);
