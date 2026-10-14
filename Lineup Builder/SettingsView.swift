@@ -223,6 +223,16 @@ struct SettingsView: View {
                     .disabled(isGeneratingDiagnostics)
                 }
 
+                #if DEBUG
+                Section {
+                    DebugProOverridePicker()
+                } header: {
+                    Text("Debug")
+                } footer: {
+                    Text("Debug builds only. Forces the Pro entitlement on or off so both versions can be tested without StoreKit.")
+                }
+                #endif
+
                 // MARK: - Data
                 Section {
                     Button(role: .destructive) {
@@ -388,3 +398,41 @@ struct SettingsView: View {
         .environmentObject(LineupStore())
         .environmentObject(PurchaseManager())
 }
+
+
+#if DEBUG
+/// Debug-only control for `PurchaseManager.proTestingOverride`. Re-derives the
+/// entitlement as soon as it changes so the whole app flips without a relaunch.
+private struct DebugProOverridePicker: View {
+    @EnvironmentObject var purchaseManager: PurchaseManager
+
+    private enum Choice: String, CaseIterable {
+        case real = "StoreKit"
+        case pro = "Force Pro"
+        case free = "Force Free"
+    }
+
+    @State private var choice: Choice = {
+        switch PurchaseManager.proTestingOverride {
+        case .some(true):  return .pro
+        case .some(false): return .free
+        case .none:        return .real
+        }
+    }()
+
+    var body: some View {
+        Picker("Pro entitlement", selection: $choice) {
+            ForEach(Choice.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .onChange(of: choice) { _, newValue in
+            switch newValue {
+            case .real: PurchaseManager.setProTestingOverride(nil)
+            case .pro:  PurchaseManager.setProTestingOverride(true)
+            case .free: PurchaseManager.setProTestingOverride(false)
+            }
+            Task { await purchaseManager.checkEntitlement() }
+        }
+    }
+}
+#endif

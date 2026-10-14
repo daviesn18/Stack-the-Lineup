@@ -273,7 +273,13 @@ class PurchaseManager: ObservableObject {
             case .success(let verification):
                 if case .verified(let tx) = verification {
                     await tx.finish()
+                    #if DEBUG
+                    // A test purchase must not undo Force Free, or a free-tier
+                    // check can quietly turn into a Pro one mid-session.
+                    status = Self.proTestingOverride == false ? .free : .pro
+                    #else
                     status = .pro
+                    #endif
                     Analytics.signal("paywall.converted", parameters: ["source": lastPaywallSource])
                 } else {
                     purchaseError = "Couldn't verify that purchase. Try Restore Purchase, and contact support if it still doesn't unlock."

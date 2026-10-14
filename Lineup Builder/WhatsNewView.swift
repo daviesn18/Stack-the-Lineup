@@ -31,16 +31,10 @@ extension WhatsNewContent {
                     description: "Give each hitter a quick scouting card: Power, Gap, or Singles, plus their speed and on-base rating. Set it in the player form under Hitting Archetype.\n\nHitting Archetypes are a Pro feature."
                 ),
                 WhatsNewFeature(
-                    icon: "bolt.fill",
-                    iconColor: .green,
-                    title: "Auto-Fill Respects Rest Days",
-                    description: "With pitching rules on, Auto-Fill won't put a pitcher who still needs rest on the mound. It checks against the game's date, so lineups built ahead of time are right too.\n\nAnd every new game now starts with the whole team marked present."
-                ),
-                WhatsNewFeature(
-                    icon: "doc.text.magnifyingglass",
+                    icon: "rectangle.split.2x1.fill",
                     iconColor: .blue,
-                    title: "Team Files Preview",
-                    description: "Tap a shared team file in Messages or Files and you'll see the team, not a blank page. To bring it in, tap Share, then Copy to Stack the Lineup."
+                    title: "Built for iPhone Duo",
+                    description: "Open iPhone Duo and Stack the Lineup splits right at the fold: your roster on one side, the field and lineup tools on the other. Nothing lands on the hinge, folded or flat.\n\nPlayers, Lineup and Positions all use both halves, including By Position and Pitching."
                 )
             ]
         ),

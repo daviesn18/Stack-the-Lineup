@@ -88,8 +88,9 @@ struct ContentView: View {
     var body: some View {
         Group {
             if horizontalSizeClass == .regular {
-                // iPad — full planning dashboard
-                iPadDashboardView(showingArchive: $showingArchive)
+                // iPad — full planning dashboard. A window with a fold through it
+                // (iPhone Duo's inner display) gets the two-halves version.
+                RegularDashboardView(showingArchive: $showingArchive)
             } else {
                 // iPhone — existing tab bar
                 iPhoneTabView(

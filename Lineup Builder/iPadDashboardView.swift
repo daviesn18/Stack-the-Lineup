@@ -1038,9 +1038,29 @@ struct DetailPaneView: View {
     @Binding var selectedTab: DetailTab
     @Binding var showingAutoFillPopover: Bool
     @Binding var showingArchive: Bool
+    /// Duo inner-display layout: the tab strip lives in the dashboard's own
+    /// header there, and the Positions pane is laid out for half a screen.
+    var duo: Bool = false
+
+    /// Explicit because the private @State below would otherwise make the
+    /// memberwise initializer inaccessible from the Duo dashboard's file.
+    init(
+        selectedTab: Binding<DetailTab>,
+        showingAutoFillPopover: Binding<Bool>,
+        showingArchive: Binding<Bool>,
+        duo: Bool = false
+    ) {
+        self._selectedTab = selectedTab
+        self._showingAutoFillPopover = showingAutoFillPopover
+        self._showingArchive = showingArchive
+        self.duo = duo
+    }
 
     @State private var fillThroughInning: Int = 6
+    /// Duo only: what the last Auto-Fill did, with the lineup to restore.
+    @State private var undoToast: DuoUndoToast?
     @State private var showingClearAllConfirm = false
+    @State private var showingAutoFillPaywall = false
     @State private var showingAutoFillIncomplete = false
     @State private var autoFillIncompleteMessage: String = ""
 
@@ -1069,6 +1089,13 @@ struct DetailPaneView: View {
     /// action, then drives the alerts it implies.
     @MainActor
     private func performAutoFill(through lastInning: Int) async {
+        // Auto-Fill is Pro. The button gates entry; this is the backstop so no
+        // path into the popover can reach the engine on a free team.
+        guard purchaseManager.isPro else {
+            showingAutoFillPopover = false
+            return
+        }
+        let lineupBefore = store.activeTeam.lineup
         let outcome = await autoFill.run(
             scope: .through(lastInning),
             prompt: autoFillPrompt,
@@ -1083,6 +1110,15 @@ struct DetailPaneView: View {
         if outcome.didFill {
             store.activeTeam.lineup = outcome.lineup
             store.save()
+            if duo {
+                let filled = max(0, openSpotCount(lineupBefore) - openSpotCount(outcome.lineup))
+                showUndoToast(
+                    filled == 0
+                        ? "Every spot is already filled"
+                        : "Filled \(filled) open \(filled == 1 ? "spot" : "spots")",
+                    restoring: lineupBefore
+                )
+            }
         }
 
         autoFillPrompt = ""
@@ -1101,58 +1137,80 @@ struct DetailPaneView: View {
         }
     }
 
+    /// Open field spots summed across every inning, for the toast's count.
+    private func openSpotCount(_ lineup: Lineup) -> Int {
+        let active = lineup.activePlayers(from: store.players)
+        return lineup.innings.indices.reduce(0) { total, inning in
+            total + lineup.openPositions(
+                inning: inning, players: active, config: store.fairPlayConfig
+            ).count
+        }
+    }
+
+    @MainActor
+    private func showUndoToast(_ text: String, restoring snapshot: Lineup) {
+        let toast = DuoUndoToast(text: text, snapshot: snapshot)
+        undoToast = toast
+        Task {
+            try? await Task.sleep(for: .seconds(5))
+            if undoToast?.id == toast.id { undoToast = nil }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Tab selector
-            HStack(spacing: 0) {
-                ForEach(DetailTab.allCases, id: \.self) { tab in
-                    Button {
-                        selectedTab = tab
-                        Analytics.signal("ipad.detail.tab.changed", parameters: ["tab": tab.rawValue])
-                    } label: {
-                        Text(tab.rawValue)
-                            .font(.subheadline)
-                            .fontWeight(selectedTab == tab ? .semibold : .regular)
-                            .foregroundColor(selectedTab == tab ? .primary : .secondary)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background(
-                                selectedTab == tab
-                                    ? Color(.systemBackground)
-                                    : Color(.systemGray6)
-                            )
-                    }
-                    .buttonStyle(.plain)
+            if !duo {
+                // Tab selector
+                HStack(spacing: 0) {
+                    ForEach(DetailTab.allCases, id: \.self) { tab in
+                        Button {
+                            selectedTab = tab
+                            Analytics.signal("ipad.detail.tab.changed", parameters: ["tab": tab.rawValue])
+                        } label: {
+                            Text(tab.rawValue)
+                                .font(.subheadline)
+                                .fontWeight(selectedTab == tab ? .semibold : .regular)
+                                .foregroundColor(selectedTab == tab ? .primary : .secondary)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(
+                                    selectedTab == tab
+                                        ? Color(.systemBackground)
+                                        : Color(.systemGray6)
+                                )
+                        }
+                        .buttonStyle(.plain)
 
-                    if tab != DetailTab.allCases.last {
-                        Divider()
-                            .frame(height: 36)
+                        if tab != DetailTab.allCases.last {
+                            Divider()
+                                .frame(height: 36)
+                        }
                     }
-                }
-                Spacer()
+                    Spacer()
 
-                // Hidden keyboard shortcut buttons for Cmd+1 through Cmd+4
-                // These sit at the end of the tab bar and are invisible to the user.
-                Group {
-                    Button("") { selectedTab = .players }
-                        .keyboardShortcut("1", modifiers: .command)
-                        .help("Players (Cmd+1)")
-                    Button("") { selectedTab = .lineup }
-                        .keyboardShortcut("2", modifiers: .command)
-                        .help("Lineup (Cmd+2)")
-                    Button("") { selectedTab = .positions }
-                        .keyboardShortcut("3", modifiers: .command)
-                        .help("Positions (Cmd+3)")
-                    Button("") { selectedTab = .history }
-                        .keyboardShortcut("4", modifiers: .command)
-                        .help("History (Cmd+4)")
+                    // Hidden keyboard shortcut buttons for Cmd+1 through Cmd+4
+                    // These sit at the end of the tab bar and are invisible to the user.
+                    Group {
+                        Button("") { selectedTab = .players }
+                            .keyboardShortcut("1", modifiers: .command)
+                            .help("Players (Cmd+1)")
+                        Button("") { selectedTab = .lineup }
+                            .keyboardShortcut("2", modifiers: .command)
+                            .help("Lineup (Cmd+2)")
+                        Button("") { selectedTab = .positions }
+                            .keyboardShortcut("3", modifiers: .command)
+                            .help("Positions (Cmd+3)")
+                        Button("") { selectedTab = .history }
+                            .keyboardShortcut("4", modifiers: .command)
+                            .help("History (Cmd+4)")
+                    }
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+                    .accessibilityHidden(true)
                 }
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .accessibilityHidden(true)
+                .background(Color(.systemGray6))
+                .overlay(alignment: .bottom) { Divider() }
             }
-            .background(Color(.systemGray6))
-            .overlay(alignment: .bottom) { Divider() }
 
             // Content
             Group {
@@ -1174,7 +1232,13 @@ struct DetailPaneView: View {
 
                         iPadPositionsPane(
                             onAutoFill: {
-                                showingAutoFillPopover = true
+                                if purchaseManager.isPro {
+                                    showingAutoFillPopover = true
+                                } else if purchaseManager.showsLockedUI {
+                                    showingAutoFillPaywall = true
+                                }
+                                // Still resolving: do nothing rather than
+                                // paywall someone who may have already paid.
                             },
                             showingAutoFillPopover: $showingAutoFillPopover,
                             onFillThrough: { lastInning in
@@ -1182,7 +1246,8 @@ struct DetailPaneView: View {
                             },
                             smartDefaultLastInning: smartDefaultLastInning,
                             autoFillPrompt: $autoFillPrompt,
-                            isParsingAutoFillPrompt: autoFill.isParsingPrompt
+                            isParsingAutoFillPrompt: autoFill.isParsingPrompt,
+                            duo: duo
                         )
                         .onChange(of: showingAutoFillPopover) { _, isShowing in
                             if isShowing { autoFill.prewarm(for: store.activeTeam) } else { autoFill.teardown() }
@@ -1237,6 +1302,22 @@ struct DetailPaneView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .overlay(alignment: .bottom) {
+            if duo, let toast = undoToast {
+                DuoUndoToastView(toast: toast) {
+                    store.activeTeam.lineup = toast.snapshot
+                    store.save()
+                    undoToast = nil
+                }
+                .padding(.bottom, 20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.35), value: undoToast?.id)
+        .fullScreenCover(isPresented: $showingAutoFillPaywall) {
+            ProGate(source: "autofill", navTitle: "Auto-Fill")
+                .environmentObject(purchaseManager)
+        }
         .alert("Clear all positions?", isPresented: $showingClearAllConfirm) {
             Button("Clear", role: .destructive) {
                 store.clearPositions()
@@ -1261,7 +1342,7 @@ struct DetailPaneView: View {
 // MARK: - Positions Pane Mode
 
 /// Segmented-control selection for the Positions tab detail pane.
-private enum PositionsPaneMode: String, CaseIterable {
+enum PositionsPaneMode: String, CaseIterable {
     case position = "By Position"
     case inning   = "By Inning"
     case pitching = "Pitching"
@@ -1280,7 +1361,7 @@ private enum PositionsPaneMode: String, CaseIterable {
 /// The Positions tab detail body: a segmented By Position matrix, the
 /// By Inning diamond (default), and a lightweight Pitching table. The diamond
 /// follows the DefensiveGridView field spec applied at iPad dashboard scale.
-private struct iPadPositionsPane: View {
+struct iPadPositionsPane: View {
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var purchaseManager: PurchaseManager
 
@@ -1290,9 +1371,27 @@ private struct iPadPositionsPane: View {
     var smartDefaultLastInning: Int
     @Binding var autoFillPrompt: String
     var isParsingAutoFillPrompt: Bool
+    /// Duo inner display: half-width layout (no large title, inning chips in a
+    /// row, the By Position matrix scrolls sideways).
+    var duo: Bool = false
 
-    @State private var mode: PositionsPaneMode = .inning
-    @State private var selectedInning: Int = 0
+    /// Present only on the Duo, where the left half needs the same mode and
+    /// inning; the iPad keeps them local.
+    @Environment(DuoPositionsModel.self) private var duoModel: DuoPositionsModel?
+    @State private var localMode: PositionsPaneMode = .inning
+    @State private var localInning: Int = 0
+
+    private var modeBinding: Binding<PositionsPaneMode> {
+        Binding(
+            get: { duoModel?.mode ?? localMode },
+            set: { if let duoModel { duoModel.mode = $0 } else { localMode = $0 } }
+        )
+    }
+    private var mode: PositionsPaneMode { modeBinding.wrappedValue }
+    private var selectedInning: Int {
+        get { duoModel?.inning ?? localInning }
+        nonmutating set { if let duoModel { duoModel.inning = newValue } else { localInning = newValue } }
+    }
 
     /// View-only participants in a shared team. The iPhone grid has gated every
     /// mutating control on this since shared teams shipped; this pane never did,
@@ -1349,32 +1448,40 @@ private struct iPadPositionsPane: View {
             GeometryReader { geo in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(mode.title)
-                            .font(.largeTitle.bold())
-                            .padding(.bottom, 16)
+                        if !duo {
+                            Text(mode.title)
+                                .font(.largeTitle.bold())
+                                .padding(.bottom, 16)
+                        }
 
-                        Picker("View", selection: $mode) {
+                        Picker("View", selection: modeBinding) {
                             ForEach(PositionsPaneMode.allCases, id: \.self) { m in
                                 Text(m.rawValue).tag(m)
                             }
                         }
                         .pickerStyle(.segmented)
-                        .padding(.bottom, 20)
+                        .padding(.bottom, duo ? 12 : 20)
                         .tourTip(Tour.positions.currentTip as? PositionsViewModeTip, arrowEdge: .top)
                         .tourTip(Tour.positions.currentTip as? PositionsAssignTip, arrowEdge: .bottom)
 
                         switch mode {
                         case .position:
-                            byPositionMatrix(availableWidth: geo.size.width)
+                            if duo {
+                                // The focused position is on the left; this half
+                                // is the whole game at a glance.
+                                DuoWholeGameGrid()
+                            } else {
+                                byPositionMatrix(availableWidth: geo.size.width)
+                            }
                         case .inning:
-                            byInningDiamond
+                            if duo { byInningDuo } else { byInningDiamond }
                         case .pitching:
-                            pitchingTable
+                            if duo { DuoPitchEligibilityPane() } else { pitchingTable }
                         }
                     }
-                    .padding(.horizontal, paneHorizontalPadding)
-                    .padding(.top, 22)
-                    .padding(.bottom, 26)
+                    .padding(.horizontal, duo ? 16 : paneHorizontalPadding)
+                    .padding(.top, duo ? 12 : 22)
+                    .padding(.bottom, duo ? 16 : 26)
                 }
             }
             .background(Color(.systemBackground))
@@ -1630,6 +1737,67 @@ private struct iPadPositionsPane: View {
         }
     }
 
+    // MARK: - By Inning (Duo, half width)
+
+    /// The same field and bench as the iPad, rearranged for half a screen: the
+    /// inning rail becomes a row of chips and the field takes the half's width.
+    private var byInningDuo: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text("Inning \(clampedInning + 1)")
+                    .font(.system(size: 22, weight: .bold))
+                    .tracking(-0.4)
+                fillStatusLabel
+                Spacer(minLength: 4)
+                if !isReadOnly { autoFillButton }
+            }
+
+            inningChipRow
+
+            diamondField
+                .aspectRatio(1 / 0.82, contentMode: .fit)
+                .frame(maxWidth: 381)
+                .frame(maxWidth: .infinity)
+
+            chipGroup("Bench") { benchChips }
+            chipGroup("Late arrival / early departure") { absentChips }
+        }
+    }
+
+    private var inningChipRow: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<inningCount, id: \.self) { inning in
+                let isSelected = clampedInning == inning
+                Button {
+                    selectedInning = inning
+                } label: {
+                    VStack(spacing: 4) {
+                        Text("\(inning + 1)")
+                            .font(.system(size: 17, weight: .bold).monospacedDigit())
+                            .foregroundColor(isSelected ? .white : .primary)
+                        Circle()
+                            .fill(inningDotColor(inning, isSelected: isSelected))
+                            .frame(width: 6, height: 6)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(isSelected ? Color.blue : Color(.systemGray5))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Green when every spot is filled, orange when partly filled, gray when empty.
+    private func inningDotColor(_ inning: Int, isSelected: Bool) -> Color {
+        if isSelected { return .white }
+        guard !store.lineup.innings[inning].assignments.isEmpty else { return Color(.systemGray3) }
+        let open = store.lineup.openPositions(
+            inning: inning, players: activePlayers, config: store.fairPlayConfig
+        )
+        return open.isEmpty ? .green : .orange
+    }
+
     private var fillStatusLabel: some View {
         let openCount = store.lineup.openPositions(
             inning: clampedInning, players: activePlayers, config: store.fairPlayConfig
@@ -1643,12 +1811,12 @@ private struct iPadPositionsPane: View {
         Button { onAutoFill() } label: {
             HStack(spacing: 8) {
                 Image(systemName: "bolt.fill")
-                Text("Auto-Fill Open Positions")
+                Text(duo ? "Auto-Fill" : "Auto-Fill Open Positions")
             }
             .font(.system(size: 15, weight: .semibold))
             .foregroundColor(.white)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 11)
+            .padding(.horizontal, duo ? 14 : 20)
+            .padding(.vertical, duo ? 8 : 11)
             .background(purchaseManager.isPro ? Color.blue : Color(.systemGray3))
             .cornerRadius(10)
             .shadow(color: purchaseManager.isPro ? Color.blue.opacity(0.35) : .clear, radius: 3, x: 0, y: 1)
@@ -1784,7 +1952,12 @@ private struct iPadPositionsPane: View {
 
         Button {
             guard !isReadOnly else { return }
-            selectedSlot = DefensiveGridView.SlotTarget(position: pos, benchOccupant: nil)
+            if let duoModel {
+                // Duo: the shared picker, centered in this (right) half.
+                duoModel.picker = DuoPickerTarget(position: pos, inning: clampedInning, side: .trailing)
+            } else {
+                selectedSlot = DefensiveGridView.SlotTarget(position: pos, benchOccupant: nil)
+            }
         } label: {
             VStack(spacing: 4) {
                 slotBadge(pos, occupant: occupant)
