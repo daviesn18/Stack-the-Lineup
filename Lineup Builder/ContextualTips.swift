@@ -497,7 +497,21 @@ private struct TourTipModifier<T: Tip>: ViewModifier {
     @Environment(\.tourActive) private var tourActive
 
     func body(content: Content) -> some View {
-        content.popoverTip((enabled && tourActive) ? tip : nil, arrowEdge: arrowEdge) { action in
+        content
+            .task(id: tip?.id) {
+                // The popover's X invalidates with `.tipClosed` and nothing else.
+                // Left alone, the ordered group just presents the next tip, so the
+                // X would read as "next". Treat it as leaving the tour instead.
+                guard enabled, tourActive, let tip else { return }
+                for await status in tip.statusUpdates {
+                    if case .invalidated(.tipClosed) = status {
+                        TipsConfigurator.exitTour(closedTipID: tip.id)
+                        onAdvance?()
+                        break
+                    }
+                }
+            }
+            .popoverTip((enabled && tourActive) ? tip : nil, arrowEdge: arrowEdge) { action in
             Analytics.signal("tour.tip.action", parameters: [
                 "tip": String(describing: T.self),
                 "action": action.id,
@@ -588,6 +602,37 @@ enum TipsConfigurator {
         PositionsAssignTip().invalidate(reason: .actionPerformed)
         PositionsAutoFillTip().invalidate(reason: .actionPerformed)
         PositionsWarningsTip().invalidate(reason: .actionPerformed)
+    }
+
+    /// Ids of the arc-2 tips, matched against a closed tip to decide which arc
+    /// the coach just walked out of.
+    private static let arcTwoTipIDs: Set<String> = [
+        ReuseSaveTemplateTip().id,
+        ReuseApplyTemplateTip().id,
+        HistoryCopyGameTip().id,
+        HistorySeasonViewsTip().id,
+        AutoFillConstraintsTip().id,
+        AskSiriTip().id,
+        ShareTeamTip().id,
+    ]
+
+    /// Coach tapped a tip's X (or Skip on the welcome cards): end the arc they
+    /// were in rather than advancing to the next tip. Arc 1 also sets
+    /// `didSkipArcOne` so it stays retired across launches.
+    static func exitTour(closedTipID: String) {
+        if arcTwoTipIDs.contains(closedTipID) {
+            suppressArcTwo()
+        } else if closedTipID != TourInSettingsTip().id {
+            exitArcOne()
+        }
+        Analytics.signal("tour.exited", parameters: ["tip": closedTipID])
+    }
+
+    /// Retires arc 1 for good. Leaves `TourInSettingsTip` alone so a coach who
+    /// bails still learns where Take the Tour lives.
+    static func exitArcOne() {
+        UserDefaults.standard.set(true, forKey: "didSkipArcOne")
+        suppressArcOne()
     }
 
     /// Arc 2 and the advanced/anchored tips — everything that isn't arc 1.

@@ -55,8 +55,9 @@ struct WelcomeCardsView: View {
                         Spacer()
                         Button("Skip") {
                             UserDefaults.standard.set(true, forKey: "hasCompletedTutorial")
-                            // Arms the one tip that points at the Settings
-                            // re-entry row. The tour itself still runs.
+                            // Skip leaves the tour: retire arc 1, and arm the one
+                            // tip that points at the Settings re-entry row.
+                            TipsConfigurator.exitArcOne()
                             TourState.welcomeSkipped = true
                             Analytics.signal("tour.welcome.skipped")
                             dismiss()
