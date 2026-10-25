@@ -25,6 +25,14 @@ describe('place (assign with swap)', () => {
     expect(place(lineup(), 'A', 0, 'Bench').innings[0].assignments).toEqual({ A: 'Bench', B: '2B', C: 'Bench' });
     expect(place(lineup(), 'A', 0, null).innings[0].assignments).toEqual({ B: '2B', C: 'Bench' });
   });
+  it('ABS opens the player\'s field spot and is shared like Bench', () => {
+    const l = place(place(lineup(), 'A', 0, 'ABS'), 'C', 0, 'ABS');
+    expect(l.innings[0].assignments).toEqual({ A: 'ABS', B: '2B', C: 'ABS' });
+  });
+  it('a holder displaced by a player coming off ABS goes to Bench, not ABS', () => {
+    const l = place(place(lineup(), 'A', 0, 'ABS'), 'A', 0, '2B');
+    expect(l.innings[0].assignments).toEqual({ A: '2B', B: 'Bench', C: 'Bench' });
+  });
   it('only touches that inning, and returns a finalized lineup to draft', () => {
     const l = place({ ...lineup(), status: 'finalized' }, 'B', 0, 'SS');
     expect(l.innings[1].assignments).toEqual({ A: 'P', B: 'SS' });

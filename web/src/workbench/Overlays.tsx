@@ -5,7 +5,7 @@
 import { useState } from 'react';
 
 import { keepForRemaining, toggleAbsent } from '@/core/lineupOps';
-import { isInfield, POSITION_NAMES, type Player } from '@/core/model';
+import { isInfield, isNonFielding, POSITION_NAMES, type Player } from '@/core/model';
 
 import { useWorkbench } from './state';
 import { badgeColor, C, playerAvatar, TIER_RANK, TIER_STYLE, tint } from './theme';
@@ -31,7 +31,9 @@ function Picker() {
   const w = useWorkbench();
   const pk = w.picker!;
   const [query, setQuery] = useState('');
-  const current = w.holder(pk.inning, pk.pos);
+  // Bench and ABS hold any number of players, so there's no one to swap with.
+  const shared = isNonFielding(pk.pos);
+  const current = shared ? undefined : w.holder(pk.inning, pk.pos);
   const q = query.trim().toLowerCase();
   const rows = w.active
     .filter((p) => !q || `${p.firstName} ${p.lastName}`.toLowerCase().includes(q))
@@ -50,7 +52,9 @@ function Picker() {
         <span style={{ minWidth: 32, fontSize: 13, fontWeight: 700, color: '#fff', padding: '6px 4px', borderRadius: 6, background: badgeColor(pk.pos), textAlign: 'center' }}>{pk.pos}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 600 }}>{POSITION_NAMES[pk.pos]} · Inning {pk.inning + 1}</div>
-          <div className="ellipsis" style={{ fontSize: 12, color: C.label2 }}>{current ? `Currently ${current.firstName} ${current.lastName}` : 'Open position'}</div>
+          <div className="ellipsis" style={{ fontSize: 12, color: C.label2 }}>
+            {pk.pos === 'ABS' ? 'Late arrival or early departure' : current ? `Currently ${current.firstName} ${current.lastName}` : 'Open position'}
+          </div>
         </div>
         <span style={{ fontSize: 11, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: C.label2, background: C.gray6, borderRadius: 4, padding: '2px 5px' }}>esc</span>
       </div>
@@ -60,7 +64,7 @@ function Picker() {
           style={{ width: '100%', height: 32, background: C.gray6, borderRadius: 8, border: 'none', outline: 'none', padding: '0 10px', fontSize: 15 }} />
       </div>
       <div style={{ maxHeight: 330, overflowY: 'auto', borderTop: C.hair }}>
-        {rows.map(({ p, tier, now }) => {
+        {rows.filter(({ now }) => !(shared && now === pk.pos)).map(({ p, tier, now }) => {
           const av = playerAvatar(p);
           const prev = pk.inning > 0 ? `Inn ${pk.inning}: ${w.posOf(p.id, pk.inning - 1) ?? '—'}` : p.number ? `#${p.number}` : '';
           return (
@@ -82,7 +86,9 @@ function Picker() {
         {rows.length === 0 && <div style={{ padding: '12px 14px', fontSize: 14, color: C.label2 }}>No one matches.</div>}
       </div>
       <div style={{ borderTop: C.hair, padding: '8px 14px', fontSize: 11, color: C.label2 }}>
-        Picking a player swaps them with whoever is currently at {pk.pos}.
+        {pk.pos === 'ABS'
+          ? 'Absent this inning only. Their spot opens up, and Auto-Fill leaves them out.'
+          : `Picking a player swaps them with whoever is currently at ${pk.pos}.`}
       </div>
     </div>
   );
@@ -122,9 +128,20 @@ function ContextMenu() {
       </button>
       <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, null, 'menu')}>Unassign this inning</button>
       <div style={{ height: 0.5, background: C.sep, margin: '4px 9px' }} />
+      {now === 'ABS'
+        ? (
+          <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, 'Bench', 'menu')}>
+            Here this inning (to bench)
+          </button>
+        ) : (
+          <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, 'ABS', 'menu')}
+            title="Late arrival or early departure">
+            Absent this inning<span style={{ marginLeft: 'auto', opacity: 0.6 }}>A</span>
+          </button>
+        )}
       <button role="menuitem" className="menu-item danger" style={{ ...item, color: C.red }}
         onClick={() => { w.closeOverlays(); w.edit((l) => toggleAbsent(l, p.id), `${p.firstName} marked absent`); }}>
-        Mark absent
+        Absent all game
       </button>
     </div>
   );

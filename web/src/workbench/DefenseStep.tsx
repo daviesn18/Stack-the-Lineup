@@ -1,6 +1,8 @@
 // Game › Defense: the Field view (one inning on a diamond), the By Position
 // grid (every inning), and Pitching, with a right rail of bench and playing
-// time. Click a spot to pick, drag to swap, right-click for more.
+// time. Click a spot to pick, drag to swap, right-click for more. ABS (late
+// arrival / early departure) is per inning, as on iOS, and is separate from
+// marking a player absent for the whole game.
 
 import { type CSSProperties } from 'react';
 
@@ -37,6 +39,7 @@ export function DefenseStep() {
         {w.defView !== 'pitching' && (
           <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {w.defView === 'field' && <BenchBox />}
+            {w.defView === 'field' && <AbsentBox />}
             <Totals />
           </div>
         )}
@@ -160,18 +163,27 @@ function benched(w: ReturnType<typeof useWorkbench>, inning: number): Player[] {
   return w.active.filter((p) => { const x = w.posOf(p.id, inning); return x === undefined || x === 'Bench'; });
 }
 
+/** Active players marked ABS (late arrival / early departure) in an inning. */
+function absentIn(w: ReturnType<typeof useWorkbench>, inning: number): Player[] {
+  return w.active.filter((p) => w.posOf(p.id, inning) === 'ABS');
+}
+
+/** A bench or ABS chip: drag to move, right-click for the menu. */
 function BenchChip({ p, inning, size }: { p: Player; inning: number; size: 'lg' | 'sm' }) {
   const w = useWorkbench();
   const b2b = useBackToBack().get(p.id)?.has(inning);
-  const unassigned = w.posOf(p.id, inning) === undefined;
+  const now = w.posOf(p.id, inning);
+  const unassigned = now === undefined;
+  const abs = now === 'ABS';
   const border = b2b ? `1.5px solid ${C.red}` : unassigned ? `1px dashed ${C.gray2}` : '1px solid rgba(60,60,67,0.14)';
+  const color = abs ? C.label2 : C.label;
   return (
     <span {...w.dragProps(p.id, 'cell')} onContextMenu={(e) => w.openMenu(e, p.id, inning)}
-      title={b2b ? `${p.firstName} sits back to back` : unassigned ? `${p.firstName} has no spot yet this inning` : undefined}
+      title={b2b ? `${p.firstName} sits back to back` : unassigned ? `${p.firstName} has no spot yet this inning` : abs ? `${p.firstName} isn't here this inning` : undefined}
       className="ellipsis"
       style={size === 'lg'
-        ? { fontSize: 15, fontWeight: 500, background: '#fff', borderRadius: 999, padding: '5px 14px', border }
-        : { fontSize: 13, background: '#fff', borderRadius: 6, padding: '4px 6px', textAlign: 'center', border }}>
+        ? { fontSize: 15, fontWeight: 500, background: '#fff', borderRadius: 999, padding: '5px 14px', border, color }
+        : { fontSize: 13, background: '#fff', borderRadius: 6, padding: '4px 6px', textAlign: 'center', border, color }}>
       {w.nameOf(p)}
     </span>
   );
@@ -254,6 +266,26 @@ function BenchBox() {
   );
 }
 
+/** Late arrival / early departure for the selected inning: drop a player here, or "+ Absent" to pick one. */
+function AbsentBox() {
+  const w = useWorkbench();
+  const list = absentIn(w, w.inning);
+  return (
+    <div {...w.dropProps('abs', (src) => w.place(src.pid, w.inning, 'ABS', 'drag'))}
+      style={{ background: C.gray6, borderRadius: 12, padding: '10px 12px', boxShadow: w.dropKey === 'abs' ? `inset 0 0 0 2px ${C.blue}` : undefined }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', color: SUB, textTransform: 'uppercase', marginBottom: 8 }}>Late arrival / early departure</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {list.map((p) => <BenchChip key={p.id} p={p} inning={w.inning} size="lg" />)}
+        <button onClick={(e) => w.openPicker(e.currentTarget, w.inning, 'ABS')}
+          style={{ fontSize: 14, fontWeight: 600, color: C.blue, borderRadius: 999, padding: '5px 12px', border: `1.5px dashed ${C.gray3}` }}>
+          + Absent
+        </button>
+      </div>
+      <div style={{ fontSize: 12, lineHeight: '16px', color: C.label3, marginTop: 8 }}>Not here this inning. Doesn&apos;t count as bench or against playing time.</div>
+    </div>
+  );
+}
+
 // MARK: - Right rail totals
 
 function Totals() {
@@ -329,6 +361,11 @@ function GridView() {
         <span style={{ fontSize: 12, lineHeight: '16px', color: C.label3, paddingTop: 4 }}>Drop here to bench</span>
         {innings.map((i) => <BenchColumn key={i} inning={i} />)}
       </div>
+      <SectionLabel dot={C.gray3}>Late arrival / early departure</SectionLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 5, alignItems: 'start' }}>
+        <span style={{ fontSize: 12, lineHeight: '16px', color: C.label3, paddingTop: 4 }}>Drop here if not at the game that inning</span>
+        {innings.map((i) => <BenchColumn key={i} inning={i} absent />)}
+      </div>
     </div>
   );
 }
@@ -358,13 +395,14 @@ function GridCell({ inning, pos }: { inning: number; pos: FieldPosition }) {
   );
 }
 
-function BenchColumn({ inning }: { inning: number }) {
+/** One inning's Bench (or, with `absent`, ABS) drop column in the grid. */
+function BenchColumn({ inning, absent }: { inning: number; absent?: boolean }) {
   const w = useWorkbench();
-  const key = `b-${inning}`;
+  const key = `${absent ? 'a' : 'b'}-${inning}`;
   return (
-    <div {...w.dropProps(key, (src) => w.place(src.pid, inning, 'Bench', 'drag'))}
+    <div {...w.dropProps(key, (src) => w.place(src.pid, inning, absent ? 'ABS' : 'Bench', 'drag'))}
       style={{ background: FILL, borderRadius: 8, padding: 4, display: 'flex', flexDirection: 'column', gap: 4, minHeight: 36, boxShadow: w.dropKey === key ? `inset 0 0 0 2px ${C.blue}` : undefined }}>
-      {benched(w, inning).map((p) => <BenchChip key={p.id} p={p} inning={inning} size="sm" />)}
+      {(absent ? absentIn(w, inning) : benched(w, inning)).map((p) => <BenchChip key={p.id} p={p} inning={inning} size="sm" />)}
     </div>
   );
 }

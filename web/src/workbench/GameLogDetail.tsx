@@ -171,11 +171,11 @@ function Cell({ pos, played, label }: { pos: FieldPosition | undefined; played: 
   if (!played || !pos) {
     return <span role="cell" aria-label={`${label}: ${played ? 'unassigned' : 'not played'}`} style={{ textAlign: 'center', fontSize: 13, color: C.label3 }}>—</span>;
   }
-  const bench = pos === 'Bench';
+  const bench = pos === 'Bench' || pos === 'ABS';
   return (
     <span role="cell" aria-label={`${label}: ${pos}`}
       style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, borderRadius: 6, padding: '5px 0', background: bench ? 'transparent' : tint(pos), color: bench ? C.label2 : badgeColor(pos) }}>
-      {bench ? 'Bench' : pos}
+      {pos === 'Bench' ? 'Bench' : pos}
     </span>
   );
 }

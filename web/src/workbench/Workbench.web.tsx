@@ -64,7 +64,7 @@ function Frame({ demo }: { demo?: boolean }) {
   );
 }
 
-/** Esc closes overlays; ⌘Z/Ctrl+Z undoes while the undo toast is up; on the Field view, 1-9 and the arrows switch innings; B benches from the menu. */
+/** Esc closes overlays; ⌘Z/Ctrl+Z undoes while the undo toast is up; on the Field view, 1-9 and the arrows switch innings; B benches and A marks absent this inning from the menu. */
 function useKeyboard() {
   const w = useWorkbench();
   useEffect(() => {
@@ -75,6 +75,7 @@ function useKeyboard() {
       if (!typing && w.toast?.before && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); w.undo(); return; }
       if (typing || e.metaKey || e.ctrlKey || e.altKey || w.playerModal || w.newGameOpen || w.pendingLeave) return;
       if (w.menu && e.key.toLowerCase() === 'b') { e.preventDefault(); w.place(w.menu.pid, w.menu.inning, 'Bench', 'key'); return; }
+      if (w.menu && e.key.toLowerCase() === 'a') { e.preventDefault(); w.place(w.menu.pid, w.menu.inning, 'ABS', 'key'); return; }
       if (w.screen === 'game' && w.step === 3 && w.defView === 'field' && !w.picker && !w.menu) {
         if (/^[1-9]$/.test(e.key) && Number(e.key) <= w.lineup.innings.length) w.setInning(Number(e.key) - 1);
         else if (e.key === 'ArrowRight') { e.preventDefault(); w.setInning(w.inning + 1); }
