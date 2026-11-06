@@ -113,7 +113,12 @@ export function toImportPayload(team: Team, newId: () => string = () => crypto.r
   let droppedCells = 0;
   let dedupedCells = 0;
   const lineupRow = (l: Lineup, scheduledGameId: string | null) => {
-    const inningCount = clamp(l.innings.length || team.gameInningCount, 1, 9);
+    // A lineup with no positions takes the team's game length. iOS writes a blank
+    // Lineup() at its default 7 innings (the export blanks the open lineup, and
+    // a newly picked game starts from one), which would give a 6-inning team a
+    // 7-inning lineup. A lineup with positions keeps its own length, as iOS uses it.
+    const hasCells = l.innings.some((inn) => Object.keys(inn.assignments).length > 0);
+    const inningCount = clamp(hasCells ? l.innings.length || team.gameInningCount : team.gameInningCount, 1, 9);
     const cells: Record<string, Record<string, FieldPosition>> = {};
     for (let i = 0; i < inningCount; i++) {
       const known: Record<string, FieldPosition> = {};

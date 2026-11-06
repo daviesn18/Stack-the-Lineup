@@ -36,7 +36,9 @@ export function NewGameDialog() {
   const close = () => w.setNewGameOpen(false);
   const canArchive = hasGameDetails(l);
   const [archive, setArchive] = useState(false);
-  const [innings, setInnings] = useState(l.innings.length);
+  // archive_game caps innings played at the team's game length, so offer no more than that.
+  const maxInnings = Math.min(l.innings.length, w.team.gameInningCount);
+  const [innings, setInnings] = useState(maxInnings);
   const [pitchers, setPitchers] = useState<string[]>(() => pitchersIn(l).filter((id) => w.byId.has(id)));
   const [counts, setCounts] = useState<Counts>({});
   const [notes, setNotes] = useState('');
@@ -96,7 +98,7 @@ export function NewGameDialog() {
             {archiving && (
               <>
                 <Row label="Innings played" help="Only innings played count toward season stats.">
-                  <Stepper value={innings} min={1} max={l.innings.length} onChange={setInnings} label="Innings played" />
+                  <Stepper value={innings} min={1} max={maxInnings} onChange={setInnings} label="Innings played" />
                 </Row>
                 <Row label="Pitch counts" stacked help="Pitches thrown today.">
                   <PitchCountList
