@@ -28,17 +28,28 @@ env:
 jobs:
   unit-tests:
     name: Unit tests
-    runs-on: macos-latest
+    # macos-latest (macOS 26) only carries Xcode 26.x; Xcode 27 is on the
+    # xcode-27 image (public preview as of Nov 2026).
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 27 (if present) and show version
+      - name: Select Xcode 27 and show version
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode_27.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_27.app
-          fi
+          # v3.5 uses iOS 27 SDK APIs (iPhone Duo), so the 26.x toolchains
+          # can't compile it. Prefer the newest 27.x on the image.
+          for x in Xcode_27.2 Xcode_27.1 Xcode_27; do
+            if [ -d "/Applications/$x.app" ]; then
+              sudo xcode-select -s "/Applications/$x.app"
+              break
+            fi
+          done
           xcodebuild -version
+          if ! xcodebuild -version | grep -q '^Xcode 27'; then
+            echo "::error::Xcode 27 is required (iOS 27 SDK) but isn't selected on this runner."
+            exit 1
+          fi
           echo "Available schemes:"
           xcodebuild -list -project "$PROJECT" || true
 
@@ -122,7 +133,9 @@ jobs:
 
   intent-tests:
     name: AppIntentsTesting (informational)
-    runs-on: macos-latest
+    # macos-latest (macOS 26) only carries Xcode 26.x; Xcode 27 is on the
+    # xcode-27 image (public preview as of Nov 2026).
+    runs-on: xcode-27
     # AppIntentsTesting launches the app out-of-process and needs an iOS 27
     # simulator; keep it non-blocking until it's confirmed green on the runner,
     # then set this to false to make it a required check.
@@ -130,13 +143,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 27 (if present) and show version
+      - name: Select Xcode 27 and show version
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode_27.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_27.app
-          fi
+          # v3.5 uses iOS 27 SDK APIs (iPhone Duo), so the 26.x toolchains
+          # can't compile it. Prefer the newest 27.x on the image.
+          for x in Xcode_27.2 Xcode_27.1 Xcode_27; do
+            if [ -d "/Applications/$x.app" ]; then
+              sudo xcode-select -s "/Applications/$x.app"
+              break
+            fi
+          done
           xcodebuild -version
+          if ! xcodebuild -version | grep -q '^Xcode 27'; then
+            echo "::error::Xcode 27 is required (iOS 27 SDK) but isn't selected on this runner."
+            exit 1
+          fi
 
       - name: Pick an iOS 27 simulator (required for this suite)
         id: sim
