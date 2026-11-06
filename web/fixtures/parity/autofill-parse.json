@@ -1,0 +1,1589 @@
+{
+  "benchPairingConfirmationMessage" : "Bench pairing is on: once a player sits, they'll sit the next inning too, as long as enough others are available to field every spot.",
+  "cases" : [
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "SS"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake at short",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "position",
+              "position" : "C"
+            }
+          },
+          {
+            "inningRange" : [
+              1,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake pitches and Owen catches",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              1
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              2,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake pitches the first 2 innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "bench"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake starts on the bench then plays outfield",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000004",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000005",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000006",
+            "target" : {
+              "kind" : "infield"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Marcus, Drew and Eli play infield",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000008",
+            "target" : {
+              "kind" : "bench"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Nate starts on the bench",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "position",
+              "position" : "C"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Owen catches",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Sam pitches the first inning",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              2,
+              4
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000003",
+            "target" : {
+              "kind" : "position",
+              "position" : "2B"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Tyler plays second base innings 3 to 5",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000005",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "don't let Drew pitch",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000002",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000003",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000004",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000005",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000006",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000008",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000009",
+            "target" : {
+              "kind" : "infield"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000010",
+            "target" : {
+              "kind" : "infield"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "everyone plays infield",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "give the twins a breather up the middle",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000008",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "keep Nate off pitcher",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Caleb pitches the first two innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              1
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              2,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Pitch Owen the first two innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Keep Zachary at catcher all game",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "any player who sits must sit 2 consecutive innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Any player who sits, must sit 2 consecutive innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "anyone who is benched sits two consecutive innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "anyone who sits, benches the next one too",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "have players sit two in a row",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "have players sit two innings in a row",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "double up the bench",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "if a player sits one inning, have them sit the next too",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "if someone sits, they sit the next inning as well",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : true,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "enable bench pairing",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "avoid back-to-back",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "avoid sitting players back to back",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "disable bench pairing",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "don't sit anyone two innings in a row",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "never sit a player consecutive innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Caleb plays two consecutive innings at shortstop",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              1,
+              3
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000009",
+            "target" : {
+              "kind" : "position",
+              "position" : "LCF"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Leo plays left center field innings 2-4",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              3,
+              5
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000010",
+            "target" : {
+              "kind" : "position",
+              "position" : "C"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Cam catches innings 4 through 6",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000006",
+            "target" : {
+              "kind" : "infield"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "keep Eli out of the infield",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Connor plays third",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              4,
+              5
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000004",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              3
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000004",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Marcus pitches innings 5 and 6",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000005",
+            "target" : {
+              "kind" : "position",
+              "position" : "RF"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Drew rf 1-3",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              2
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000003",
+            "target" : {
+              "kind" : "position",
+              "position" : "SS"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Tyler ss first 3 innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              2
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              2
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              3,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              3,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake pitches the first 2 innings. Owen catches innings 1 to 3",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000008",
+            "target" : {
+              "kind" : "bench"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000009",
+            "target" : {
+              "kind" : "position",
+              "position" : "CF"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Nate starts on the bench\nLeo plays center field",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "SS"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "JAKE AT SHORT",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "1B"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000002",
+            "target" : {
+              "kind" : "position",
+              "position" : "2B"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "jake at 1b and connor at 2b",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              1,
+              2
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000007",
+            "target" : {
+              "kind" : "position",
+              "position" : "C"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Owen behind the plate innings 2-3",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              1,
+              5
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake on the mound",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              5
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000005",
+            "target" : {
+              "kind" : "outfield"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "put Drew in the outfield all game",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              0
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000006",
+            "target" : {
+              "kind" : "position",
+              "position" : "1B"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Eli plays first base",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Cam plays right center",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              5
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000002",
+            "target" : {
+              "kind" : "position",
+              "position" : "LF"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Connor plays left field innings 1-6",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              5,
+              5
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              0,
+              4
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake pitches innings 7 to 9",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake at short",
+      "roster" : "duplicateFirstNames"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+
+        ],
+        "hasUnresolvedInstruction" : true,
+        "shouldTrustDeterministic" : false
+      },
+      "inningCount" : 6,
+      "prompt" : "Jake pitches the first 2 innings",
+      "roster" : "duplicateFirstNames"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              0,
+              1
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          },
+          {
+            "inningRange" : [
+              2,
+              3
+            ],
+            "intent" : "avoid",
+            "playerID" : "00000000-0000-4000-8000-000000000001",
+            "target" : {
+              "kind" : "position",
+              "position" : "P"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 4,
+      "prompt" : "Jake pitches the first 2 innings",
+      "roster" : "demo"
+    },
+    {
+      "expected" : {
+        "benchInConsecutivePairs" : false,
+        "constraints" : [
+          {
+            "inningRange" : [
+              2,
+              3
+            ],
+            "intent" : "assign",
+            "playerID" : "00000000-0000-4000-8000-000000000003",
+            "target" : {
+              "kind" : "position",
+              "position" : "2B"
+            }
+          }
+        ],
+        "hasUnresolvedInstruction" : false,
+        "shouldTrustDeterministic" : true
+      },
+      "inningCount" : 4,
+      "prompt" : "Tyler plays second base innings 3 to 5",
+      "roster" : "demo"
+    }
+  ],
+  "generatedBy" : "Lineup BuilderTests\/ParityFixtureWriter.swift",
+  "rosters" : {
+    "demo" : [
+      {
+        "firstName" : "Jake",
+        "id" : "00000000-0000-4000-8000-000000000001",
+        "lastName" : "Rivera",
+        "leagueAge" : 12,
+        "number" : "4",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "2B" : "Capable",
+          "C" : "Never",
+          "LF" : "Emergency",
+          "P" : "Strength"
+        }
+      },
+      {
+        "firstName" : "Connor",
+        "id" : "00000000-0000-4000-8000-000000000002",
+        "lastName" : "Walsh",
+        "leagueAge" : 11,
+        "number" : "7",
+        "positionPreferences" : {
+          "2B" : "Capable",
+          "3B" : "Strength",
+          "CF" : "Capable",
+          "SS" : "Strength"
+        }
+      },
+      {
+        "firstName" : "Tyler",
+        "id" : "00000000-0000-4000-8000-000000000003",
+        "lastName" : "Nguyen",
+        "leagueAge" : 10,
+        "number" : "11",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "C" : "Strength",
+          "P" : "Emergency",
+          "RF" : "Never"
+        }
+      },
+      {
+        "firstName" : "Marcus",
+        "id" : "00000000-0000-4000-8000-000000000004",
+        "lastName" : "Bell",
+        "leagueAge" : 12,
+        "number" : "2",
+        "positionPreferences" : {
+          "C" : "Never",
+          "CF" : "Strength",
+          "LF" : "Strength",
+          "P" : "Never",
+          "RF" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Drew",
+        "id" : "00000000-0000-4000-8000-000000000005",
+        "lastName" : "Santos",
+        "leagueAge" : 11,
+        "number" : "9",
+        "positionPreferences" : {
+          "1B" : "Strength",
+          "3B" : "Capable",
+          "CF" : "Emergency",
+          "P" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Eli",
+        "id" : "00000000-0000-4000-8000-000000000006",
+        "lastName" : "Park",
+        "leagueAge" : 10,
+        "number" : "14",
+        "positionPreferences" : {
+          "2B" : "Strength",
+          "3B" : "Capable",
+          "C" : "Never",
+          "SS" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Owen",
+        "id" : "00000000-0000-4000-8000-000000000007",
+        "lastName" : "Fischer",
+        "leagueAge" : 11,
+        "number" : "5",
+        "positionPreferences" : {
+          "C" : "Never",
+          "CF" : "Strength",
+          "LF" : "Capable",
+          "RF" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Nate",
+        "id" : "00000000-0000-4000-8000-000000000008",
+        "lastName" : "Coleman",
+        "leagueAge" : 13,
+        "number" : "18",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "P" : "Strength",
+          "SS" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Leo",
+        "id" : "00000000-0000-4000-8000-000000000009",
+        "lastName" : "Huang",
+        "leagueAge" : 12,
+        "number" : "3",
+        "positionPreferences" : {
+          "2B" : "Capable",
+          "3B" : "Strength",
+          "LF" : "Capable",
+          "P" : "Never"
+        }
+      },
+      {
+        "firstName" : "Cam",
+        "id" : "00000000-0000-4000-8000-000000000010",
+        "lastName" : "Torres",
+        "leagueAge" : 10,
+        "number" : "21",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "C" : "Never",
+          "CF" : "Capable",
+          "P" : "Never",
+          "RF" : "Strength"
+        }
+      }
+    ],
+    "duplicateFirstNames" : [
+      {
+        "firstName" : "Jake",
+        "id" : "00000000-0000-4000-8000-000000000001",
+        "lastName" : "Rivera",
+        "leagueAge" : 12,
+        "number" : "4",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "2B" : "Capable",
+          "C" : "Never",
+          "LF" : "Emergency",
+          "P" : "Strength"
+        }
+      },
+      {
+        "firstName" : "Jake",
+        "id" : "00000000-0000-4000-8000-000000000099",
+        "lastName" : "Other",
+        "leagueAge" : 11,
+        "number" : "99",
+        "positionPreferences" : {
+
+        }
+      },
+      {
+        "firstName" : "Tyler",
+        "id" : "00000000-0000-4000-8000-000000000003",
+        "lastName" : "Nguyen",
+        "leagueAge" : 10,
+        "number" : "11",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "C" : "Strength",
+          "P" : "Emergency",
+          "RF" : "Never"
+        }
+      },
+      {
+        "firstName" : "Marcus",
+        "id" : "00000000-0000-4000-8000-000000000004",
+        "lastName" : "Bell",
+        "leagueAge" : 12,
+        "number" : "2",
+        "positionPreferences" : {
+          "C" : "Never",
+          "CF" : "Strength",
+          "LF" : "Strength",
+          "P" : "Never",
+          "RF" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Drew",
+        "id" : "00000000-0000-4000-8000-000000000005",
+        "lastName" : "Santos",
+        "leagueAge" : 11,
+        "number" : "9",
+        "positionPreferences" : {
+          "1B" : "Strength",
+          "3B" : "Capable",
+          "CF" : "Emergency",
+          "P" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Eli",
+        "id" : "00000000-0000-4000-8000-000000000006",
+        "lastName" : "Park",
+        "leagueAge" : 10,
+        "number" : "14",
+        "positionPreferences" : {
+          "2B" : "Strength",
+          "3B" : "Capable",
+          "C" : "Never",
+          "SS" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Owen",
+        "id" : "00000000-0000-4000-8000-000000000007",
+        "lastName" : "Fischer",
+        "leagueAge" : 11,
+        "number" : "5",
+        "positionPreferences" : {
+          "C" : "Never",
+          "CF" : "Strength",
+          "LF" : "Capable",
+          "RF" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Nate",
+        "id" : "00000000-0000-4000-8000-000000000008",
+        "lastName" : "Coleman",
+        "leagueAge" : 13,
+        "number" : "18",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "P" : "Strength",
+          "SS" : "Capable"
+        }
+      },
+      {
+        "firstName" : "Leo",
+        "id" : "00000000-0000-4000-8000-000000000009",
+        "lastName" : "Huang",
+        "leagueAge" : 12,
+        "number" : "3",
+        "positionPreferences" : {
+          "2B" : "Capable",
+          "3B" : "Strength",
+          "LF" : "Capable",
+          "P" : "Never"
+        }
+      },
+      {
+        "firstName" : "Cam",
+        "id" : "00000000-0000-4000-8000-000000000010",
+        "lastName" : "Torres",
+        "leagueAge" : 10,
+        "number" : "21",
+        "positionPreferences" : {
+          "1B" : "Capable",
+          "C" : "Never",
+          "CF" : "Capable",
+          "P" : "Never",
+          "RF" : "Strength"
+        }
+      }
+    ]
+  },
+  "timeZone" : "America\/Los_Angeles"
+}

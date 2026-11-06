@@ -1,0 +1,15 @@
+// Cloudflare Worker that serves the static web export (replaces vercel.json).
+// Cloudflare's Git build runs `npx expo export -p web`, then `npx wrangler deploy`.
+// Security and cache headers live in public/_headers. EXPO_PUBLIC_* values
+// are build variables set in the Worker's build settings, not here.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stack-the-lineup-web",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    // Any path that isn't a file gets index.html, so Expo Router deep links
+    // (/team/…, /history/…) load the app (was the Vercel rewrite).
+    "not_found_handling": "single-page-application"
+  }
+}
