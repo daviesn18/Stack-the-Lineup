@@ -11,6 +11,17 @@ import { join } from 'node:path';
 import type { FieldPosition, GameLog, Lineup, Player } from '../src/core/model';
 import { battingOrderPdf, coachesGuidePdf, type PrintInput } from '../src/print/lineupPdf';
 
+// The printouts fetch their fonts from /fonts/*.ttf, which only resolves in a
+// browser. Serve those paths from public/fonts so this script renders Barlow
+// like the app does, instead of falling back to Helvetica.
+const realFetch = globalThis.fetch;
+globalThis.fetch = (async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+  if (typeof url === 'string' && url.startsWith('/fonts/')) {
+    return new Response(readFileSync(join(__dirname, '../public', url)));
+  }
+  return realFetch(url, init);
+}) as typeof fetch;
+
 const dir = join(__dirname, '../fixtures/print');
 const j = JSON.parse(readFileSync(join(dir, 'print-input.json'), 'utf8'));
 
