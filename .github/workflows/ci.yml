@@ -6,13 +6,17 @@ name: CI
 #                    the newest iPhone runtime on the runner. Also scans the
 #                    built app for isolated deinits, which crash on iOS 26.0-26.3
 #                    (see scripts/check-isolated-deinits.sh).
-#   * intent-tests — the AppIntentsTesting UI suite. Informational at first
-#                    (continue-on-error) until it's proven stable on the runner;
-#                    flip `continue-on-error` to false to make it a hard gate.
+#   * intent-tests — the AppIntentsTesting UI suite. Informational
+#                    (continue-on-error) and manual-only: run it from the
+#                    Actions tab ("Run workflow") before a release. It needs the
+#                    preview xcode-27 runners and never gates a merge.
+#
+# Triggers: pull requests and pushes to main. Branch pushes without a PR don't
+# run (a PR branch push used to start a duplicate push + pull_request run).
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -140,6 +144,7 @@ jobs:
     # simulator; keep it non-blocking until it's confirmed green on the runner,
     # then set this to false to make it a required check.
     continue-on-error: true
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
