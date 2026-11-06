@@ -12,6 +12,7 @@ import { GameScreen } from './GameScreen';
 import { HistoryScreen } from './HistoryScreen';
 import { HomeScreen } from './HomeScreen';
 import { NewGameDialog } from './NewGameDialog';
+import { Intro } from './IntroDialog';
 import { Overlays } from './Overlays';
 import { PlayerPanel, RosterScreen } from './RosterScreen';
 import { LeaveDialog, SettingsScreen } from './SettingsScreen';
@@ -59,6 +60,7 @@ function Frame({ demo }: { demo?: boolean }) {
       {w.newGameOpen && <NewGameDialog />}
       {w.pendingLeave && <LeaveDialog />}
       {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
+      <Intro forced={w.intro} onClosed={() => w.setIntro(null)} />
       {saving && <span aria-live="polite" style={{ position: 'fixed', right: 14, bottom: 10, fontSize: 12, color: C.label3 }}>Saving…</span>}
     </div>
   );

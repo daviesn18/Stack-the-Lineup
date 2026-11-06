@@ -6,9 +6,11 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
+import { scheduledTitle, upcomingGames } from '@/core/schedule';
 import { useAuth } from '@/data/auth';
 import { supabase } from '@/data/supabase';
 import { listTeams, type TeamSummary } from '@/data/teams';
+import { useTeam } from '@/data/teamStore';
 
 import { Icon } from './Icon';
 import { gameStatus, gameTitle, seasonLabel } from './gameStatus';
@@ -195,6 +197,7 @@ function TeamMenu({ demo, onClose }: { demo?: boolean; onClose(): void }) {
  */
 function JumpPalette({ onClose }: { onClose(): void }) {
   const w = useWorkbench();
+  const team = useTeam();
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const ref = useRef<HTMLInputElement>(null);
@@ -202,10 +205,17 @@ function JumpPalette({ onClose }: { onClose(): void }) {
     const all: { key: string; label: string; meta: string; run(): void }[] = [
       { key: 'game', label: gameTitle(w.lineup), meta: 'Game', run: () => w.goStep(w.step) },
       { key: 'new-game', label: 'New game', meta: 'Action', run: () => w.leave(() => w.setNewGameOpen(true)) },
+      ...upcomingGames(team.data?.scheduledGames ?? []).filter((g) => g.id !== team.data?.currentGameId).map((g) => ({
+        key: `sched-${g.id}`, label: scheduledTitle(g),
+        meta: `Scheduled · ${g.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+        run: () => w.leave(() => { team.openScheduledGame(g.id).then(() => w.showToast(`Opened ${scheduledTitle(g)}`)); }),
+      })),
       { key: 'home', label: 'Home', meta: 'Page', run: () => w.go('home') },
       { key: 'roster', label: 'Roster', meta: 'Page', run: () => w.go('roster') },
       { key: 'stats', label: 'Season stats', meta: 'Page', run: () => w.go('stats') },
       { key: 'settings', label: 'Team settings', meta: 'Page', run: () => w.go('settings') },
+      { key: 'whats-new', label: "What's new", meta: 'Help', run: () => w.setIntro('whatsNew') },
+      { key: 'welcome', label: 'Welcome tour', meta: 'Help', run: () => w.setIntro('welcome') },
       ...w.players.map((p) => ({
         key: p.id, label: `${p.firstName} ${p.lastName}`, meta: p.number ? `Player · #${p.number}` : 'Player',
         run: () => w.leave(() => { w.go('roster'); w.setPlayerModal({ id: p.id }); }),
@@ -213,7 +223,7 @@ function JumpPalette({ onClose }: { onClose(): void }) {
     ];
     const t = q.trim().toLowerCase();
     return (t ? all.filter((i) => i.label.toLowerCase().includes(t)) : all).slice(0, 8);
-  }, [q, w]);
+  }, [q, w, team]);
   const pick = (i: number) => { const it = items[i]; if (!it) return; onClose(); it.run(); };
   return (
     <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}

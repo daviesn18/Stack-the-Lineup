@@ -27,10 +27,42 @@ export function Overlays() {
 
 const initials = (p: Player) => `${p.firstName.charAt(0)}${p.lastName.charAt(0)}`.toUpperCase();
 
+/**
+ * Quick Set's "Apply to innings" (QuickSetSheet): which innings a pick applies
+ * to. Starts with the inning that was clicked.
+ */
+function InningChips({ inning, selected, onChange }: { inning: number; selected: number[]; onChange(next: number[]): void }) {
+  const w = useWorkbench();
+  const count = w.lineup.innings.length;
+  const all = Array.from({ length: count }, (_, i) => i);
+  const toggle = (i: number) => {
+    const next = selected.includes(i) ? selected.filter((x) => x !== i) : [...selected, i].sort((a, b) => a - b);
+    onChange(next.length ? next : [inning]);
+  };
+  const chip = (on: boolean) => ({
+    minWidth: 26, height: 24, borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '0 6px',
+    background: on ? C.blue : C.gray6, color: on ? '#fff' : C.label2,
+  } as const);
+  return (
+    <div role="group" aria-label="Apply to innings" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 11, color: C.label2, marginRight: 4 }}>Innings</span>
+      {all.map((i) => (
+        <button key={i} type="button" aria-pressed={selected.includes(i)} onClick={() => toggle(i)} style={chip(selected.includes(i))}>{i + 1}</button>
+      ))}
+      <button type="button" className="h-link" onClick={() => onChange(selected.length === count ? [inning] : all)}
+        style={{ marginLeft: 'auto', fontSize: 12, color: C.blue }}>
+        {selected.length === count ? 'Just this one' : 'All'}
+      </button>
+    </div>
+  );
+}
+
 function Picker() {
   const w = useWorkbench();
   const pk = w.picker!;
   const [query, setQuery] = useState('');
+  const [innings, setInnings] = useState<number[]>([pk.inning]);
+  const pick = (pid: string, via: 'picker' | 'key') => w.placeMany(pid, innings, pk.pos, via);
   // Bench and ABS hold any number of players, so there's no one to swap with.
   const shared = isNonFielding(pk.pos);
   const current = shared ? undefined : w.holder(pk.inning, pk.pos);
@@ -60,15 +92,18 @@ function Picker() {
       </div>
       <div style={{ padding: '0 12px 10px' }}>
         <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Type a name" aria-label="Search players"
-          onKeyDown={(e) => { if (e.key === 'Enter' && rows[0]) w.place(rows[0].p.id, pk.inning, pk.pos, 'key'); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && rows[0]) pick(rows[0].p.id, 'key'); }}
           style={{ width: '100%', height: 32, background: C.gray6, borderRadius: 8, border: 'none', outline: 'none', padding: '0 10px', fontSize: 15 }} />
+      </div>
+      <div style={{ padding: '0 14px 10px' }}>
+        <InningChips inning={pk.inning} selected={innings} onChange={setInnings} />
       </div>
       <div style={{ maxHeight: 330, overflowY: 'auto', borderTop: C.hair }}>
         {rows.filter(({ now }) => !(shared && now === pk.pos)).map(({ p, tier, now }) => {
           const av = playerAvatar(p);
           const prev = pk.inning > 0 ? `Inn ${pk.inning}: ${w.posOf(p.id, pk.inning - 1) ?? '—'}` : p.number ? `#${p.number}` : '';
           return (
-            <button key={p.id} className="pick-row" onClick={() => w.place(p.id, pk.inning, pk.pos, 'picker')}
+            <button key={p.id} className="pick-row" onClick={() => pick(p.id, 'picker')}
               style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 14px', opacity: tier === 'Never' ? 0.45 : 1, background: p.id === current?.id ? 'rgba(0,122,255,0.06)' : 'transparent' }}>
               <span style={{ width: 28, height: 28, borderRadius: 14, background: av.bg, color: av.fg, fontSize: 11, fontWeight: 600, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{initials(p)}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -88,7 +123,9 @@ function Picker() {
       <div style={{ borderTop: C.hair, padding: '8px 14px', fontSize: 11, color: C.label2 }}>
         {pk.pos === 'ABS'
           ? 'Absent this inning only. Their spot opens up, and Auto-Fill leaves them out.'
-          : `Picking a player swaps them with whoever is currently at ${pk.pos}.`}
+          : innings.length > 1
+            ? `Puts them at ${pk.pos} in ${innings.length} innings, swapping with whoever is there.`
+            : `Picking a player swaps them with whoever is currently at ${pk.pos}.`}
       </div>
     </div>
   );
@@ -97,19 +134,23 @@ function Picker() {
 function ContextMenu() {
   const w = useWorkbench();
   const m = w.menu!;
+  const [innings, setInnings] = useState<number[]>([m.inning]);
   const p = w.byId.get(m.pid);
   if (!p) return null;
   const now = w.posOf(p.id, m.inning);
   const item = { display: 'flex', width: '100%', padding: '6px 9px', borderRadius: 6, fontSize: 14 } as const;
   return (
     <div role="menu" aria-label={`${p.firstName} ${p.lastName}, inning ${m.inning + 1}`} className="pop"
-      style={{ position: 'fixed', left: m.x, top: m.y, width: 236, zIndex: 31, background: 'rgba(255,255,255,0.98)', borderRadius: 10, padding: 5, boxShadow: '0 10px 30px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.14)' }}>
+      style={{ position: 'fixed', left: m.x, top: m.y, width: 264, zIndex: 31, background: 'rgba(255,255,255,0.98)', borderRadius: 10, padding: 5, boxShadow: '0 10px 30px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.14)' }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: C.label2, padding: '5px 9px 6px' }}>{p.firstName} {p.lastName} · Inning {m.inning + 1}</div>
+      <div style={{ padding: '0 9px 8px' }}>
+        <InningChips inning={m.inning} selected={innings} onChange={setInnings} />
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, padding: '0 4px 6px' }}>
         {w.positions.map((pos) => {
           const never = p.positionPreferences[pos] === 'Never';
           return (
-            <button key={pos} className="menu-tile" onClick={() => w.place(p.id, m.inning, pos, 'menu')} title={never ? `${p.firstName} is marked Never at ${pos}` : undefined}
+            <button key={pos} className="menu-tile" onClick={() => w.placeMany(p.id, innings, pos, 'menu')} title={never ? `${p.firstName} is marked Never at ${pos}` : undefined}
               style={{ fontSize: 12, fontWeight: 700, borderRadius: 6, padding: '6px 0', textAlign: 'center',
                 background: never ? C.gray5 : tint(pos), color: never ? C.label3 : isInfield(pos) ? TIER_STYLE.Capable.fg : TIER_STYLE.Strength.fg,
                 boxShadow: now === pos ? `inset 0 0 0 2px ${C.blue}` : 'none' }}>
@@ -119,7 +160,7 @@ function ContextMenu() {
         })}
       </div>
       <div style={{ height: 0.5, background: C.sep, margin: '2px 9px 4px' }} />
-      <button role="menuitem" className="menu-item" style={item} onClick={() => w.place(p.id, m.inning, 'Bench', 'menu')}>
+      <button role="menuitem" className="menu-item" style={item} onClick={() => w.placeMany(p.id, innings, 'Bench', 'menu')}>
         Move to bench<span style={{ marginLeft: 'auto', opacity: 0.6 }}>B</span>
       </button>
       <button role="menuitem" className="menu-item" style={item} disabled={m.inning === w.lineup.innings.length - 1}

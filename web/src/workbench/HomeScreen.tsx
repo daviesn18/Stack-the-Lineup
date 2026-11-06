@@ -1,10 +1,12 @@
 // Home: how ready the next game is, plus the season so far (innings played
 // by zone, the schedule and position coverage), from archived games.
 
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 
 import { shortName } from '@/core/lineupOps';
 import { POSITION_NAMES, type FieldPosition } from '@/core/model';
+import { scheduledTitle, upcomingGames } from '@/core/schedule';
+import { useTeam } from '@/data/teamStore';
 
 import { seasonTotals } from './HistoryScreen';
 import { Icon } from './Icon';
@@ -76,18 +78,7 @@ export function HomeScreen() {
             {w.gameLogs.length === 0 ? <Empty>Archive a game and innings accumulate.</Empty> : <ZoneBars totals={totals} />}
           </section>
 
-          <section style={card} aria-label="Schedule">
-            <CardTitle right={<span title="Coming soon" style={{ color: C.blue, opacity: 0.4, fontSize: 14 }}>Sync calendar</span>}>Schedule</CardTitle>
-            <div style={{ marginTop: 10 }}>
-              <ScheduleRow date={w.lineup.gameDate} upcoming title={gameTitle(w.lineup)} onClick={() => w.goStep(1)}
-                meta={gameWhen(w.lineup.gameDate).split(' · ')[1]}
-                pill={st.finalized ? ['green', 'Finalized'] : !st.started ? ['gray', 'Not started'] : st.fpOk ? ['green', 'Ready'] : ['red', plural(st.issueCount, 'issue')]} />
-              {w.gameLogs.map((g) => (
-                <ScheduleRow key={g.id} date={g.gameDate} title={g.opponent ? `vs ${g.opponent}` : 'Game'}
-                  meta={`${g.inningsPlayed} innings`} pill={['teal', 'Archived']} />
-              ))}
-            </div>
-          </section>
+          <ScheduleCard pill={st.finalized ? ['green', 'Finalized'] : !st.started ? ['gray', 'Not started'] : st.fpOk ? ['green', 'Ready'] : ['red', plural(st.issueCount, 'issue')]} />
 
           <section style={card} aria-label="Position coverage">
             <CardTitle>Position coverage</CardTitle>
@@ -97,6 +88,57 @@ export function HomeScreen() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Upcoming games from the imported schedule (SchedulePickerView), the open lineup, and games already played. */
+function ScheduleCard({ pill }: { pill: [PillKind, string] }) {
+  const w = useWorkbench();
+  const { data, openScheduledGame } = useTeam();
+  const [opening, setOpening] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const games = upcomingGames(data?.scheduledGames ?? []);
+  const currentId = data?.currentGameId;
+  const openIsListed = !!currentId && games.some((g) => g.id === currentId);
+  const shown = showAll ? games : games.slice(0, 5);
+  const open = (id: string, title: string) => w.leave(() => {
+    setOpening(id);
+    openScheduledGame(id).then(() => { setOpening(null); w.showToast(`Opened ${title}`); });
+  });
+  const current = (
+    <ScheduleRow date={w.lineup.gameDate} upcoming title={gameTitle(w.lineup)} onClick={() => w.goStep(1)}
+      meta={`${gameWhen(w.lineup.gameDate).split(' · ')[1]} · Open now`} pill={pill} />
+  );
+  return (
+    <section style={card} aria-label="Schedule">
+      <CardTitle right={<span title="Coming soon" style={{ color: C.blue, opacity: 0.4, fontSize: 14 }}>Sync calendar</span>}>Schedule</CardTitle>
+      {games.length > 0 && (
+        <div style={{ fontSize: 13, color: SUB, marginTop: 2 }}>Each game keeps its own lineup. Pick one to build it.</div>
+      )}
+      <div style={{ marginTop: 10 }}>
+        {!openIsListed && current}
+        {shown.map((g) => {
+          const title = scheduledTitle(g);
+          if (g.id === currentId) return <div key={g.id}>{current}</div>;
+          const saved = data?.savedGames[g.id];
+          const time = g.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+          return (
+            <ScheduleRow key={g.id} date={g.date} title={title} onClick={opening ? undefined : () => open(g.id, title)}
+              meta={opening === g.id ? 'Opening…' : g.location ? `${time} · ${g.location}` : time}
+              pill={saved?.hasContent ? (saved.status === 'finalized' ? ['green', 'Finalized'] : ['gray', 'Draft']) : undefined} />
+          );
+        })}
+        {games.length > shown.length && (
+          <button className="h-link" onClick={() => setShowAll(true)} style={{ fontSize: 14, color: C.blue, padding: '10px 0 2px' }}>
+            Show {plural(games.length - shown.length, 'more game')}
+          </button>
+        )}
+        {w.gameLogs.slice(0, 3).map((g) => (
+          <ScheduleRow key={g.id} date={g.gameDate} title={g.opponent ? `vs ${g.opponent}` : 'Game'}
+            meta={`${g.inningsPlayed} innings`} pill={['teal', 'Archived']} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -152,7 +194,7 @@ function ZoneBars({ totals }: { totals: Totals }) {
 }
 
 function ScheduleRow({ date, title, meta, pill, upcoming, onClick }: {
-  date: Date; title: string; meta: string; pill: [PillKind, string]; upcoming?: boolean; onClick?(): void;
+  date: Date; title: string; meta: string; pill?: [PillKind, string]; upcoming?: boolean; onClick?(): void;
 }) {
   const body = (
     <>
@@ -164,7 +206,7 @@ function ScheduleRow({ date, title, meta, pill, upcoming, onClick }: {
         <span className="ellipsis" style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{title}</span>
         <span style={{ display: 'block', fontSize: 13, color: SUB }}>{date.toLocaleDateString('en-US', { weekday: 'short' })} · {meta}</span>
       </span>
-      <Pill kind={pill[0]}>{pill[1]}</Pill>
+      {pill && <Pill kind={pill[0]}>{pill[1]}</Pill>}
     </>
   );
   const style = { display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '11px 0', borderTop: HAIR } as const;

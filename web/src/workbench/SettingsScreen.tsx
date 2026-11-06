@@ -9,6 +9,8 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import { activeFieldPositions } from '@/core/fairPlay';
 import { lastAssignedInning } from '@/core/lineupOps';
 import { POSITION_NAMES, type FairPlayConfig, type FieldPosition } from '@/core/model';
+import { signal } from '@/data/analytics';
+import { downloadTeamFile } from '@/data/teamExport';
 import { deleteTeam } from '@/data/teams';
 import { useTeam } from '@/data/teamStore';
 
@@ -148,6 +150,11 @@ function TeamSection({ d, set }: SectionProps) {
       <Group label="Games">
         <Row label="Game length" help="Changes the lineup you're building now. Archived games keep their original inning count.">
           <GameLength value={d.gameLen} onChange={(n) => set({ gameLen: n, fair: clampToGame(d.fair, n) })} />
+        </Row>
+      </Group>
+      <Group label="Export">
+        <Row label="Export team" help="Downloads a .stlteam file with the roster, rules, schedule, templates and game history. Import it in Stack the Lineup on iPhone, or back here. The lineup you're building isn't included.">
+          <ExportTeamButton />
         </Row>
       </Group>
       <Group label="Delete team">
@@ -360,6 +367,26 @@ function BracketLine({ r, mine, onChange, onRemove }: { r: BracketRow; mine: boo
 // MARK: - Pieces
 
 /** "Discard unsaved changes?" when leaving Team settings with edits. */
+function ExportTeamButton() {
+  const { data } = useTeam();
+  const w = useWorkbench();
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    if (!data || busy) return;
+    setBusy(true);
+    try {
+      const name = await downloadTeamFile(data);
+      signal('team.exported', { player_count: String(data.players.length), game_count: String(data.gameLogs.length) });
+      w.showToast(`Downloaded ${name}`);
+    } catch {
+      w.showToast("Couldn't export the team. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <HeaderButton onClick={run} disabled={busy}>{busy ? 'Exporting…' : 'Export .stlteam'}</HeaderButton>;
+}
+
 export function LeaveDialog() {
   const w = useWorkbench();
   useEffect(() => {

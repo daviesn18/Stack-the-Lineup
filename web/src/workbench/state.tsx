@@ -70,6 +70,9 @@ export interface Workbench extends TeamData {
   setPlayerModal(m: PlayerModal): void;
   /** The New game dialog (archive this game, set up the next). */
   newGameOpen: boolean;
+  /** Welcome or What's New reopened from the palette (they open themselves when due). */
+  intro: 'welcome' | 'whatsNew' | null;
+  setIntro(kind: 'welcome' | 'whatsNew' | null): void;
   setNewGameOpen(open: boolean): void;
   /** Team settings reports unsaved changes here, so leaving the page can ask first. */
   setSettingsDirty(dirty: boolean): void;
@@ -81,6 +84,8 @@ export interface Workbench extends TeamData {
 
   /** Assign with swap (see lineupOps.place); closes overlays. */
   place(pid: string, inning: number, pos: FieldPosition | null, via: AssignVia): void;
+  /** Quick Set: the same placement across several innings at once. */
+  placeMany(pid: string, innings: number[], pos: FieldPosition | null, via: AssignVia): void;
   /** Any lineup edit; with `toast`, shows it with Undo for `ms` (default 5s). */
   edit(fn: (l: Lineup) => Lineup, toast?: string, ms?: number): void;
   toast: ToastState | null;
@@ -113,6 +118,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [playerModal, setPlayerModal] = useState<PlayerModal>(null);
   const [newGameOpen, setNewGameOpen] = useState(false);
+  const [intro, setIntro] = useState<'welcome' | 'whatsNew' | null>(null);
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
   const settingsDirty = useRef(false);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -203,7 +209,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       const H = window.innerHeight;
       let x = r.left + r.width / 2 - 160;
       let y = r.bottom + 6;
-      if (y + 470 > H) y = Math.max(8, r.top - 476);
+      if (y + 510 > H) y = Math.max(8, r.top - 516);
       x = Math.max(8, Math.min(x, W - 328));
       setMenu(null);
       setPicker({ inning: i, pos, x, y });
@@ -213,12 +219,13 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       e.preventDefault();
       if (!pid) return;
       setPicker(null);
-      setMenu({ pid, inning: i, x: Math.max(8, Math.min(e.clientX, window.innerWidth - 246)), y: Math.max(8, Math.min(e.clientY, window.innerHeight - 300)) });
+      setMenu({ pid, inning: i, x: Math.max(8, Math.min(e.clientX, window.innerWidth - 274)), y: Math.max(8, Math.min(e.clientY, window.innerHeight - 340)) });
     },
     closeOverlays,
 
     playerModal, setPlayerModal,
     newGameOpen, setNewGameOpen: (open) => { closeOverlays(); setNewGameOpen(open); },
+    intro, setIntro: (kind) => { closeOverlays(); setIntro(kind); },
     setSettingsDirty: (d) => { settingsDirty.current = d; },
     leave, pendingLeave,
     resolveLeave: (discard) => {
@@ -228,6 +235,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     },
 
     place: (pid, i, pos, via) => { closeOverlays(); setDropKey(null); tally(`assign.${via}`); editLineup((l) => place(l, pid, i, pos)); },
+    placeMany: (pid, innings, pos, via) => {
+      closeOverlays(); setDropKey(null); tally(`assign.${via}`);
+      if (innings.length > 1) signal('quickset.applied', { inningCount: innings.length });
+      editLineup((l) => innings.reduce((acc, i) => place(acc, pid, i, pos), l));
+    },
     edit,
     toast, showToast,
     undo: () => {

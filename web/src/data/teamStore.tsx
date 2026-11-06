@@ -12,8 +12,9 @@ import {
 } from '../core/lineupOps';
 import {
   defaultFairPlayConfig, defaultPitchingConfig, type FairPlayConfig, type FieldPosition, type GameLog, type Lineup,
-  type PitchingConfig, type Player,
+  type PitchingConfig, type Player, type ScheduledGame,
 } from '../core/model';
+import { planOpenGame, type SavedGameLineup } from '../core/schedule';
 import { addGameLog, gameLogFrom, nextGameLineup, type ArchiveInput } from '../core/newGame';
 import { signal, takeTallies, teamOpened } from './analytics';
 import { supabase } from './supabase';
@@ -36,6 +37,21 @@ export interface TeamData {
   lineup: Lineup & { id: string };
   /** Archived games, newest first, with pitch counts (pitch rules read these). */
   gameLogs: GameLog[];
+  /** The imported schedule, soonest first (iOS Team.scheduledGames). */
+  scheduledGames: ScheduledGame[];
+  /** The scheduled game the open lineup belongs to (iOS currentGameID); unset for an ad-hoc lineup. */
+  currentGameId?: string;
+  /** Other scheduled games' saved lineups, by game id (iOS gameLineups). */
+  savedGames: Record<string, SavedGameLineup>;
+}
+
+function toScheduledGame(g: Row): ScheduledGame {
+  return {
+    id: upperId(g.id), icalUID: g.ical_uid, date: new Date(g.starts_at), rawSummary: g.raw_summary,
+    isCancelled: g.is_cancelled, lastSyncedAt: new Date(g.last_synced_at ?? g.starts_at),
+    ...(g.opponent !== null ? { opponent: g.opponent } : {}),
+    ...(g.location !== null ? { location: g.location } : {}),
+  };
 }
 
 type Row = Record<string, any>;
@@ -59,7 +75,7 @@ function toPlayer(r: Row): Player {
   return p;
 }
 
-function toLineup(r: Row): Lineup & { id: string } {
+export function toLineup(r: Row): Lineup & { id: string } {
   const innings = Array.from({ length: r.inning_count }, () => ({ assignments: {} as Record<string, FieldPosition> }));
   for (const c of r.lineup_cells ?? []) {
     if (innings[c.inning]) innings[c.inning].assignments[upperId(c.player_id)] = c.position;
@@ -104,13 +120,26 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
     await must(supabase.from('lineups').insert({ id: lineupId, team_id: teamId, inning_count: t.game_inning_count }));
     await must(supabase.from('teams').update({ current_lineup_id: lineupId }).eq('id', teamId));
   }
-  const [players, lineup, logs] = await Promise.all([
+  const [players, lineup, logs, games, gameLineups] = await Promise.all([
     must(supabase.from('players').select('*').eq('team_id', teamId).is('deleted_at', null)
       .order('roster_order').order('created_at')),
     must(supabase.from('lineups').select('*, lineup_cells(inning, player_id, position)').eq('id', lineupId).single()),
     must(supabase.from('game_logs').select('*, pitch_counts(player_id, pitches)').eq('team_id', teamId)
       .is('deleted_at', null).order('game_date', { ascending: false })),
+    must(supabase.from('scheduled_games').select('*').eq('team_id', teamId).is('deleted_at', null).order('starts_at')),
+    must(supabase.from('lineups').select('id, scheduled_game_id, status, batting_order, lineup_cells(inning)').eq('team_id', teamId)
+      .is('deleted_at', null).not('scheduled_game_id', 'is', null).order('updated_at', { ascending: false })),
   ]);
+  const savedGames: Record<string, SavedGameLineup> = {};
+  for (const r of gameLineups as Row[]) {
+    const gameId = upperId(r.scheduled_game_id);
+    // Newest first, so a game with two rows keeps the one edited last.
+    if (upperId(r.id) === upperId(lineupId) || savedGames[gameId]) continue;
+    savedGames[gameId] = {
+      lineupId: upperId(r.id), status: r.status,
+      hasContent: (r.batting_order ?? []).length > 0 || (r.lineup_cells ?? []).length > 0,
+    };
+  }
   const roster = (players as Row[]).map(toPlayer);
   const saved = toLineup(lineup);
   const complete = { ...completeBattingOrder(saved, roster), id: saved.id };
@@ -134,6 +163,9 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
     players: roster,
     lineup: benched,
     gameLogs: (logs as Row[]).map(toGameLog),
+    scheduledGames: (games as Row[]).map(toScheduledGame),
+    ...(lineup.scheduled_game_id ? { currentGameId: upperId(lineup.scheduled_game_id) } : {}),
+    savedGames,
   };
 }
 
@@ -193,6 +225,11 @@ interface TeamStore {
   updateGameLog(id: string, change: { notes?: string; pitchCounts?: Record<string, number> }): void;
   /** Removes an archived game from history, stats and pitcher rest (a soft delete). */
   deleteGameLog(id: string): void;
+  /**
+   * Opens a scheduled game's lineup (iOS applyScheduledGame), saving first and
+   * then reloading the team. Resolves once the game is open.
+   */
+  openScheduledGame(gameId: string): Promise<void>;
   reload(): Promise<void>;
 }
 
@@ -330,7 +367,10 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       ...archive, id: crypto.randomUUID().toUpperCase(), archivedAt: new Date(),
     });
     const lineup = nextGameLineup(now.lineup, count, next);
-    set({ ...now, lineup, gameLogs: log ? addGameLog(now.gameLogs, log) : now.gameLogs });
+    // The next game is an ad-hoc lineup: a scheduled game that was open has been
+    // played (archive) or set aside, so its slot is let go, as on iOS.
+    const { currentGameId: wasGame, ...rest } = now;
+    set({ ...rest, lineup, gameLogs: log ? addGameLog(now.gameLogs, log) : now.gameLogs });
     if (log) {
       signal('game.archived', {
         inningsPlayed: log.inningsPlayed, playerCount: log.battingOrder.length,
@@ -338,7 +378,11 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       });
     }
     enqueue(async () => {
-      if (!log) { await saveLineup(now.lineup, lineup); return; }
+      if (!log) {
+        if (wasGame) await must(supabase.from('lineups').update({ scheduled_game_id: null }).eq('id', lineup.id));
+        await saveLineup(now.lineup, lineup);
+        return;
+      }
       await must(supabase.rpc('archive_game', {
         p_lineup_id: lineup.id, p_innings_played: log.inningsPlayed, p_notes: log.notes,
         p_pitch_counts: log.pitchCounts, p_game_log_id: log.id,
@@ -378,9 +422,49 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     });
   }, [enqueue]);
 
+  const openScheduledGame = useCallback((gameId: string) => new Promise<void>((resolve) => {
+    const now = current.current;
+    const game = now?.scheduledGames.find((g) => g.id === gameId);
+    if (!now || !game || demo) { resolve(); return; }
+    const plan = planOpenGame(gameId, now.currentGameId, now.savedGames);
+    if (plan.kind === 'noop') { resolve(); return; }
+    signal('schedule.game.applied');
+    enqueue(async () => {
+      try {
+        let target = now.lineup.id;
+        if (plan.kind === 'reopen') {
+          target = plan.lineupId;
+          // iOS replaces an ad-hoc lineup outright when a saved game is opened.
+          if (!now.currentGameId) {
+            await must(supabase.from('lineups').update({ deleted_at: new Date().toISOString() }).eq('id', now.lineup.id));
+          }
+        } else if (plan.kind === 'stamp') {
+          // Stamping the game onto the lineup is an edit, so a finalized lineup reverts to draft.
+          await must(supabase.from('lineups').update({
+            scheduled_game_id: gameId, game_date: game.date.toISOString(),
+            ...(game.opponent !== undefined ? { opponent: game.opponent } : {}),
+            ...(now.lineup.status === 'finalized' ? { status: 'draft', last_finalized_by: null, last_finalized_at: null } : {}),
+          }).eq('id', now.lineup.id));
+        } else {
+          target = crypto.randomUUID().toUpperCase();
+          await must(supabase.from('lineups').insert({
+            id: target, team_id: now.team.id, scheduled_game_id: gameId, game_date: game.date.toISOString(),
+            opponent: game.opponent ?? '', inning_count: now.team.gameInningCount,
+          }));
+        }
+        if (target !== now.lineup.id) {
+          await must(supabase.from('teams').update({ current_lineup_id: target }).eq('id', now.team.id));
+        }
+        set(await loadTeam(teamId));
+      } finally {
+        resolve();
+      }
+    });
+  }), [enqueue, demo, teamId]);
+
   const store: TeamStore = {
     data, loadError, saveError, saving: pending > 0, dismissSaveError: () => setSaveError(null),
-    editLineup, addPlayer, updatePlayer, deletePlayer, updateTeam, startNewGame, updateGameLog, deleteGameLog, reload,
+    editLineup, addPlayer, updatePlayer, deletePlayer, updateTeam, startNewGame, updateGameLog, deleteGameLog, openScheduledGame, reload,
   };
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

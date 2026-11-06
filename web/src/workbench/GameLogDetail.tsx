@@ -3,12 +3,16 @@
 // inning, and notes. Pitch counts and notes can be added or fixed later, and
 // the game can be deleted. Innings after the last one played are dimmed.
 //
+// The Recap card is iOS's Game Recap ("How did we do?"), with Copy for texting it on.
+//
 // Not on the web yet: iOS's "Reuse this game" (copy to the current game, save
 // as a template), which waits for templates in the spring.
 
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { buildRecap, issueSentence, pitchingSentence, recapSummary } from '@/core/gameRecap';
 import { displayName, type FieldPosition, type GameLog } from '@/core/model';
+import { signal } from '@/data/analytics';
 import { useTeam } from '@/data/teamStore';
 
 import { Dialog, HeaderButton, Row } from './controls';
@@ -72,6 +76,8 @@ export function GameLogDetail({ log }: { log: GameLog }) {
             </Info>
           </Section>
 
+          <RecapSection log={log} />
+
           <Section title="Pitch counts" action={pitches.length ? 'Edit' : 'Add'} onAction={() => setOpen('pitches')}>
             {pitches.length === 0
               ? <Empty icon="figure.baseball.pitcher" onClick={() => setOpen('pitches')}>No pitch counts recorded. Add them so this game counts toward pitcher rest.</Empty>
@@ -111,14 +117,48 @@ export function GameLogDetail({ log }: { log: GameLog }) {
   );
 }
 
-function Section({ title, action, onAction, children }: { title: string; action?: string; onAction?(): void; children: ReactNode }) {
+/** iOS Game Recap (the "How did we do?" intent): what a coach repeats to a parent, counted from the game. */
+function RecapSection({ log }: { log: GameLog }) {
+  const w = useWorkbench();
+  const r = buildRecap(log, w.team.fairPlayConfig);
+  const copy = () => {
+    navigator.clipboard.writeText(recapSummary(r)).then(
+      () => { w.showToast('Recap copied'); signal('recap.copied', { issueCount: r.fairPlayIssues.length }); },
+      () => w.showToast("Couldn't copy the recap"),
+    );
+  };
+  const lead = `${log.inningsPlayed === 1 ? '1 inning' : `${log.inningsPlayed} innings`} played.`;
+  return (
+    <Section title="Recap" action="Copy" actionIcon="square.and.arrow.up" onAction={copy}>
+      <div style={{ padding: '12px 16px', fontSize: 15, lineHeight: 1.45 }}>
+        {lead} {pitchingSentence(r) ?? 'No pitchers recorded.'}
+      </div>
+      {r.fieldingMinimumSkipped && (
+        <RecapLine icon="info.circle" color={C.gray1}>Too short to judge against your fielding-innings minimum.</RecapLine>
+      )}
+      {r.fairPlayIssues.length === 0
+        ? <RecapLine icon="checkmark.circle.fill" color={C.green}>{r.fieldingMinimumSkipped ? 'Nothing else was flagged.' : 'Everyone met your fair play rules.'}</RecapLine>
+        : r.fairPlayIssues.map((i) => <RecapLine key={i.predicate} icon="exclamationmark.triangle.fill" color={C.orange}>{issueSentence(i)}</RecapLine>)}
+    </Section>
+  );
+}
+
+function RecapLine({ icon, color, children }: { icon: string; color: string; children: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 16px', fontSize: 14, lineHeight: 1.4 }}>
+      <Icon name={icon} size={17} color={color} style={{ flexShrink: 0, marginTop: 1 }} />{children}
+    </div>
+  );
+}
+
+function Section({ title, action, actionIcon, onAction, children }: { title: string; action?: string; actionIcon?: string; onAction?(): void; children: ReactNode }) {
   return (
     <section>
       <div style={{ display: 'flex', alignItems: 'baseline', margin: '0 4px 8px' }}>
         <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
         {action && (
           <button className="h-link" onClick={onAction} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 500, color: C.blue }}>
-            <Icon name={action === 'Add' ? 'plus.circle' : 'pencil'} size={14} color={C.blue} />{action}
+            <Icon name={actionIcon ?? (action === 'Add' ? 'plus.circle' : 'pencil')} size={14} color={C.blue} />{action}
           </button>
         )}
       </div>

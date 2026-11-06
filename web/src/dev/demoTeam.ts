@@ -4,7 +4,7 @@
 
 import { applyLittleLeaguePreset } from '@/core/pitching';
 import {
-  defaultFairPlayConfig, defaultPitchingConfig, emptyLineup, type FieldPosition, type GameLog, type Player,
+  defaultFairPlayConfig, defaultPitchingConfig, emptyLineup, type FieldPosition, type GameLog, type ScheduledGame, type Player,
   type PositionPreferenceTier,
 } from '@/core/model';
 import type { TeamData } from '@/data/teamStore';
@@ -58,6 +58,14 @@ export function demoTeam(): TeamData {
     pitchCounts: g === 0 ? { [id('of')]: 35 } : {},
   }));
 
+  // A few upcoming games (one a practice the picker hides) so Home's schedule has rows.
+  const daysAhead = (n: number) => { const d = new Date(gameDate); d.setDate(d.getDate() + n); return d; };
+  const scheduledGames: ScheduledGame[] = [['Mudcats', 0], ['Pirates', 3], [undefined, 5], ['Sharks', 9]].map(([opp, n], g) => ({
+    id: `00000000-0000-4000-8000-00000000000${g}`, icalUID: `demo-${g}`, date: daysAhead(n as number),
+    rawSummary: opp ? `Test Team vs ${opp}` : 'Team Practice', isCancelled: false, lastSyncedAt: new Date(),
+    ...(opp ? { opponent: opp as string } : {}),
+  }));
+
   return {
     team: {
       id: 'DEMO', name: 'Test Team', colorHex: 'FF9500', coachName: 'Coach',
@@ -65,7 +73,10 @@ export function demoTeam(): TeamData {
       pitchingConfig: applyLittleLeaguePreset({ ...defaultPitchingConfig(), rulesEnabled: true }),
     },
     players,
-    lineup,
+    lineup: { ...lineup, opponent: 'Mudcats' },
     gameLogs,
+    scheduledGames,
+    currentGameId: scheduledGames[0].id,
+    savedGames: { [scheduledGames[1].id]: { lineupId: 'DEMO-LINEUP-2', status: 'draft', hasContent: true } },
   };
 }

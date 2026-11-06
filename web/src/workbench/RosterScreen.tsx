@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
-import { isInfield, type FieldPosition, type Player, type PositionPreferenceTier } from '@/core/model';
+import { isInfield, type FieldPosition, type HittingArchetype, type Player, type PositionPreferenceTier } from '@/core/model';
 import { matchKey, parseRosterCsv, ROSTER_CSV_ERRORS, type ImportedPlayer } from '@/core/rosterCsv';
 import { signal } from '@/data/analytics';
 import { useTeam } from '@/data/teamStore';
@@ -368,6 +368,7 @@ export function PlayerPanel() {
   const [num, setNum] = useState(existing?.number ?? '');
   const [age, setAge] = useState(existing?.leagueAge === undefined ? '' : String(existing.leagueAge));
   const [prefs, setPrefs] = useState<Player['positionPreferences']>({ ...(existing?.positionPreferences ?? {}) });
+  const [arch, setArch] = useState<HittingArchetype>({ ...(existing?.hittingArchetype ?? {}) });
   const [confirmRemove, setConfirmRemove] = useState(false);
   const totals = useMemo(() => seasonTotals(w.players, w.gameLogs), [w.players, w.gameLogs]);
   const close = () => w.setPlayerModal(null);
@@ -379,7 +380,7 @@ export function PlayerPanel() {
     const fields: Omit<Player, 'id'> = {
       firstName: first.trim(), lastName: last.trim(), number: num.trim(), positionPreferences: prefs,
       ...(age ? { leagueAge: Number(age) } : {}),
-      ...(existing?.hittingArchetype ? { hittingArchetype: existing.hittingArchetype } : {}),
+      ...(arch.hitting || arch.speed || arch.onBase ? { hittingArchetype: arch } : {}),
     };
     if (existing) updatePlayer({ ...fields, id: existing.id }); else addPlayer(fields);
     const tiers = Object.values(prefs);
@@ -475,6 +476,7 @@ export function PlayerPanel() {
               Auto-Fill prioritizes Strength and Capable positions. Emergency is used as a last resort. Never positions are never assigned.
             </p>
           </div>
+          <ArchetypeSection value={arch} onChange={setArch} />
           <button type="submit" hidden />
         </form>
 
@@ -491,6 +493,52 @@ export function PlayerPanel() {
           </span>
         </footer>
       </aside>
+    </div>
+  );
+}
+
+// MARK: - Hitting Archetype (mirrors PlayersView's section: three optional axes)
+
+const ARCHETYPE_AXES = [
+  { key: 'hitting', label: 'Hitting', options: ['Power', 'Gap', 'Singles'] },
+  { key: 'speed', label: 'Speed', options: ['Fast', 'Medium', 'Slow'] },
+  { key: 'onBase', label: 'OBP', options: ['High', 'Medium', 'Low'] },
+] as const;
+
+function ArchetypeSection({ value, onChange }: { value: HittingArchetype; onChange(v: HittingArchetype): void }) {
+  const set = (key: keyof HittingArchetype, opt: string | undefined) => {
+    const next = { ...value } as Record<string, string | undefined>;
+    if (opt) next[key] = opt; else delete next[key];
+    onChange(next as HittingArchetype);
+  };
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: SUB }}>Hitting archetype</span>
+        <button type="button" className="h-link" onClick={() => onChange({})} style={{ marginLeft: 'auto', fontSize: 13, color: C.blue }}>Clear all</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {ARCHETYPE_AXES.map(({ key, label, options }) => (
+          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ width: 56, fontSize: 13, color: C.label, flexShrink: 0 }}>{label}</span>
+            <div role="radiogroup" aria-label={label} style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', background: C.gray6, borderRadius: 8, padding: 2 }}>
+              {([...options, undefined] as (string | undefined)[]).map((opt) => {
+                const on = value[key] === opt;
+                return (
+                  <button key={opt ?? 'none'} type="button" role="radio" aria-checked={on} onClick={() => set(key, opt)}
+                    style={{ height: 28, borderRadius: 6, fontSize: 11, fontWeight: on ? 600 : 400, textAlign: 'center', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                      background: on ? '#fff' : 'transparent', color: on ? C.label : SUB }}>
+                    {opt ?? 'No pref'}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: 12, lineHeight: '17px', color: SUB, margin: '10px 0 0' }}>
+        Describe each player&apos;s hitting style, speed, and OBP.
+      </p>
     </div>
   );
 }
