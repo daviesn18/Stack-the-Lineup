@@ -12,7 +12,7 @@
 //     leaves the browser. Signed out, nothing is sent.
 //   * Development builds and tests send nothing (as the iOS simulator sends
 //     nothing). A production build on any host other than the live ones (a
-//     Vercel preview, a local export) sends in TelemetryDeck's Test Mode.
+//     workers.dev preview, a local export) sends in TelemetryDeck's Test Mode.
 //
 // Analytics must never break the app: every failure (an ad blocker, no
 // network, no crypto) is swallowed.
@@ -20,7 +20,7 @@
 import TelemetryDeck from '@telemetrydeck/sdk';
 
 const APP_ID = 'F6A09F00-2EFC-4DAD-9137-3350F267E78A';   // same app as iOS (LineupBuilderApp.swift)
-const LIVE_HOSTS = ['app.stackthelineup.com', 'stack-the-lineup.vercel.app'];
+const LIVE_HOSTS = ['app.stackthelineup.com'];
 
 export type SignalParameters = Record<string, string | number | boolean>;
 

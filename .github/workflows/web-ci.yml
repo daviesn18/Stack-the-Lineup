@@ -1,7 +1,7 @@
 name: Web CI
 
 # Web pilot (web/): lint, typecheck, Jest (incl. Swift/TypeScript parity
-# fixtures), the PGlite database tests, and the static web export Vercel ships.
+# fixtures), the PGlite database tests, and the static web export Cloudflare serves.
 # The iOS workflow (ci.yml) is separate and never runs for web-only changes.
 
 on:
@@ -32,7 +32,7 @@ jobs:
     env:
       # src/data/supabase.ts throws at import without these. CI never talks to
       # Supabase, so placeholders are enough; the real (publishable) values live
-      # in Vercel's environment settings.
+      # in the stack-the-lineup-web Worker's build variables (Cloudflare).
       EXPO_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
       EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
     steps:

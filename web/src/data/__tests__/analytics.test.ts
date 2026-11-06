@@ -70,10 +70,11 @@ describe('analytics', () => {
   });
 
   it('uses Test Mode off the live hosts', () => {
-    const a = load(false, 'stack-the-lineup-git-some-branch.vercel.app');
+    const a = load(false, 'abc123-stack-the-lineup-web.stackthelineup.workers.dev');
     a.setAnalyticsUser('coach-1');
     expect(sent[0].testMode).toBe(true);
-    expect(a.isTestHost('stack-the-lineup.vercel.app')).toBe(false);
+    expect(a.isTestHost('app.stackthelineup.com')).toBe(false);
+    expect(a.isTestHost('stack-the-lineup-web.stackthelineup.workers.dev')).toBe(true);
     expect(a.isTestHost('localhost')).toBe(true);
     expect(a.isTestHost(undefined)).toBe(true);
   });
