@@ -212,6 +212,8 @@ final class ParityFixtureWriter: XCTestCase {
         case .neverPreferences: return "neverPreferences"
         case .pitcherReentry: return "pitcherReentry"
         case .pitchCapacityLimited: return "pitchCapacityLimited"
+        case .pitchersResting: return "pitchersResting"
+        case .avoidInstructions: return "avoidInstructions"
         }
     }
 
