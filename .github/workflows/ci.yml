@@ -63,7 +63,7 @@ jobs:
           # fixed 2026-09-25 with explicit nonisolated deinits, so any iOS
           # runtime is fair game now. Prefer 27 (the 3.5 SDK target).
           UDID=$(xcrun simctl list devices available --json \
-            | jq -r '[.devices | to_entries[] | select(.key|test("iOS-27")) | .value[] | select(.name|test("iPhone"))][0].udid // empty')
+            | jq -r '[.devices | to_entries[] | select(.key|test("iOS-27")) ] | sort_by(.key | capture("iOS-(?<v>[0-9-]+)").v | split("-") | map(tonumber)) | reverse | [.[].value[] | select(.name|test("iPhone"))][0].udid // empty')
           if [ -z "$UDID" ]; then
             UDID=$(xcrun simctl list devices available --json \
               | jq -r '[.devices | to_entries[] | select(.key|test("iOS-")) ] | sort_by(.key) | reverse | [.[].value[] | select(.name|test("iPhone"))][0].udid // empty')
@@ -165,8 +165,10 @@ jobs:
         run: |
           set -euo pipefail
           # STLAppIntentsTests is @available(iOS 27.0, *) — it needs a 27 runtime.
+          # Take the newest 27.x: an older runtime than the SDK fails to load
+          # the test bundle (missing AppIntents symbols).
           UDID=$(xcrun simctl list devices available --json \
-            | jq -r '[.devices | to_entries[] | select(.key|test("iOS-27")) | .value[] | select(.name|test("iPhone"))][0].udid // empty')
+            | jq -r '[.devices | to_entries[] | select(.key|test("iOS-27")) ] | sort_by(.key | capture("iOS-(?<v>[0-9-]+)").v | split("-") | map(tonumber)) | reverse | [.[].value[] | select(.name|test("iPhone"))][0].udid // empty')
           if [ -z "$UDID" ]; then
             echo "::warning::No iOS 27 iPhone runtime on this runner — the AppIntentsTesting suite cannot run here."
             echo "skip=true" >> "$GITHUB_OUTPUT"
