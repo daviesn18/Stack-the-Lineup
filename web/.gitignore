@@ -48,3 +48,6 @@ fixtures/private/
 
 # Rendered by scripts/compare-print.ts for side-by-side checks; the ios-* files are the reference.
 fixtures/print/web-*.pdf
+
+# Wrangler local dev state
+.wrangler/
