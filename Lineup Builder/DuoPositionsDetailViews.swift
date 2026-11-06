@@ -33,6 +33,11 @@ final class DuoPositionsModel {
     /// By Position's focused position. Persists across view switches.
     var focusedPosition: FieldPosition = .shortstop
     var picker: DuoPickerTarget?
+
+    /// A synthesized isolated deinit aborts on iOS 26.0-26.3 when this is
+    /// released (see AutoFillNLConstraintService). Keep until the floor
+    /// moves past 26.3.
+    nonisolated deinit {}
 }
 
 extension FieldPosition {
