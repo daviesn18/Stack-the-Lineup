@@ -22,7 +22,9 @@ export interface ConstraintSet {
   patternRules: { benchInConsecutivePairs: boolean };
 }
 
-export type UnfilledReason = 'rosterTooSmall' | 'neverPreferences' | 'pitcherReentry' | 'pitchCapacityLimited';
+export type UnfilledReason =
+  | 'rosterTooSmall' | 'neverPreferences' | 'pitcherReentry' | 'pitchCapacityLimited'
+  | 'pitchersResting' | 'avoidInstructions';
 export type OverrideReason =
   | 'pitcherSoftCapBypassed'
   | 'pitcherSoftCapBypassedByFallback'

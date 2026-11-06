@@ -7,19 +7,19 @@
 // within each priority tier, so two runs give two valid lineups; `random` can
 // be injected for tests.
 //
-// Deliberately STRICTER than iOS (decided 2026-09-23; iOS tickets filed in the
-// 3.5 section):
+// Two pitcher rules the web shipped first (decided 2026-09-23), which iOS 3.5
+// adopted in 930db45, so both engines now behave the same:
 //  1. With pitching rules on, a pitcher whose eligibility status blocks
-//     assignment (owes rest days, or has no league age) is never auto-placed,
-//     and an explicit "X pitches" instruction for them is rejected with a
-//     reason instead of honored. iOS only checks daily max / weekly cap here.
+//     assignment (owes rest days, weekly cap spent, or no league age) is never
+//     auto-placed, and an explicit "X pitches" instruction for them is
+//     rejected with a reason instead of honored.
 //  2. The last-resort pitcher fill honors every avoid instruction, including
-//     zone avoids ("keep X out of the infield"). iOS only skips exact
-//     avoid-pitcher instructions there.
-// Both stay inside the ranges iOS produced, so parity holds.
+//     zone avoids ("keep X out of the infield").
+// When P stays open because of either rule, the slot says so
+// ('pitchersResting', 'avoidInstructions') instead of a generic reason.
 //
-// `referenceDate` is explicit (iOS reads today's date internally); the web
-// coordinator passes the lineup's game date.
+// `referenceDate` is explicit; the coordinator passes the lineup's game date,
+// which is what iOS checks pitch rules against too.
 //
 // Parity: fixtures/parity/autofill.json (rules held in every iOS run).
 
@@ -317,7 +317,7 @@ function fillInning(inningIndex: number, lineup: Lineup, ctx: Context) {
     }
     if (target === 'P' && restBlocked(player)) {
       rejections.push({ inningIndex, playerID: player.id, target: c.target,
-        reason: 'Needs rest under your pitch count rules (or has no league age set), so they can\'t pitch today.' });
+        reason: 'Needs rest days under your pitch count rules, or has no league age set.' });
       continue;
     }
     place(player, target);
@@ -452,10 +452,19 @@ function fillInning(inningIndex: number, lineup: Lineup, ctx: Context) {
   const unfilled: Unfilled[] = open.map((position) => {
     let reason: UnfilledReason;
     if (position === 'P') {
+      // Same order as iOS: the most specific cause wins.
       const allNever = active.every((p) => prefsOf(p).P === 'Never');
-      const anyBase = active.some(isPitcherBaseEligible);
+      // "Base" here means every hard rule, rest included (iOS's isPitcherBaseEligible).
+      const passesHardRules = (p: Player) => isPitcherBaseEligible(p) && !restBlocked(p);
+      const anyBase = active.some(passesHardRules);
       const anyFull = active.some(isPitcherEligible);
       reason = allNever ? 'neverPreferences'
+        // Everyone who could have pitched was told to stay off the mound
+        // (directly or by an infield avoid).
+        : anyFull && active.every((p) => !isPitcherEligible(p) || avoidedPositions(p).has('P'))
+          ? 'avoidInstructions'
+        // Nobody passes the hard rules, and someone would if not for rest / no age.
+        : !anyBase && active.some((p) => isPitcherBaseEligible(p) && restBlocked(p)) ? 'pitchersResting'
         : anyBase && !anyFull ? 'pitchCapacityLimited'
         : !anyBase ? 'pitcherReentry'
         : 'rosterTooSmall';

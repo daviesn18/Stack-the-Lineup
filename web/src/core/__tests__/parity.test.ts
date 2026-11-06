@@ -155,20 +155,6 @@ describe('Auto-Fill prompt parser (exact)', () => {
   });
 });
 
-// Web Auto-Fill is deliberately stricter than iOS about pitchers (rest days,
-// no league age, avoid instructions in the last-resort pitcher fill), so in
-// scenarios where that can bite, pitcher-shaped metrics are allowed to differ.
-// The stricter rules are asserted directly instead.
-const STRICTER_PITCHER_METRICS = new Set([
-  'blockedPitcherInnings', 'maxPitcherInnings', 'distinctPitchers', 'filledCount', 'unfilledCount',
-  'constraintRejections', 'overrides.pitcherSoftCapBypassedByFallback', 'overrides.pitcherSoftCapBypassed',
-]);
-// With an infield avoid, iOS's leak puts the player at pitcher (an infield
-// position) in ~57% of fills, so iOS averages 3 - 0.57 = 2.43 players without
-// infield where the web, keeping the instruction, is always 3. Zone counts
-// shift by exactly that leak; everything else must still match.
-const STRICTER_AVOID_METRICS = new Set(['playersWithoutInfield', 'playersWithoutOutfield', 'implicatedPlayers']);
-
 /** Deterministic PRNG (mulberry32) so a failure reproduces exactly. */
 function seeded(name: string): () => number {
   let a = [...name].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 2654435761) >>> 0, 2166136261);
@@ -214,10 +200,6 @@ describe('Auto-Fill (rules held in every iOS run, same distributions)', () => {
     const filled: [number, number] =
       scope.kind === 'game' ? [0, lineup.innings.length - 1]
       : scope.kind === 'through' ? [0, scope.inning] : [scope.inning, scope.inning];
-    const hasAvoid = constraints.playerConstraints.some((c) => c.intent === 'avoid');
-    const stricterApplies = !!pitchingConfig?.rulesEnabled || hasAvoid;
-    const allowedDrift = (k: string) =>
-      (stricterApplies && STRICTER_PITCHER_METRICS.has(k)) || (hasAvoid && STRICTER_AVOID_METRICS.has(k));
     const random = seeded(s.name);
     const samples: Record<string, number[]> = {};
     const outcomes = new Set<string>();
@@ -231,27 +213,24 @@ describe('Auto-Fill (rules held in every iOS run, same distributions)', () => {
         players, before: lineup, result, config, pitching: pitchingConfig, gameLogs, constraints,
         filledInnings: filled, referenceDate,
       });
-      // Every guarantee iOS kept in all runs, plus the two web-only rules.
-      const required = new Set<string>([...s.invariants, 'avoidConstraintsRespected']);
-      const broken = [...required].filter((name) => check.violated.has(name));
+      // Every guarantee iOS kept in all runs. Since iOS 3.5 (930db45) that
+      // includes rest days and avoid instructions at pitcher, so no carve-outs.
+      const broken = (s.invariants as string[]).filter((name) => check.violated.has(name));
       expect({ run, broken }).toEqual({ run, broken: [] });
-      expect({ run, blockedPitcherInnings: check.metrics.blockedPitcherInnings })
-        .toEqual({ run, blockedPitcherInnings: 0 });
 
       for (const [k, v] of Object.entries(check.metrics)) (samples[k] ??= []).push(v);
       for (const u of result.unfilledSlots) {
-        if (!stricterApplies) expect(s.unfilledReasons).toContain(u.reason);
+        expect(s.unfilledReasons).toContain(u.reason);
       }
       outcomes.add(result.unfilledSlots.map((u) => `${u.inningIndex}:${u.position}:${u.reason}`).sort().join(','));
     }
 
     // Where iOS was deterministic (one outcome in 500 runs), the web must be too.
-    if (s.unfilledOutcomes.length === 1 && !stricterApplies) expect([...outcomes]).toEqual(s.unfilledOutcomes);
+    if (s.unfilledOutcomes.length === 1) expect([...outcomes]).toEqual(s.unfilledOutcomes);
 
     // Averages match iOS within statistical tolerance.
     const drift: string[] = [];
     for (const [k, ios] of Object.entries(s.metrics) as [string, { mean: number; sd: number }][]) {
-      if (allowedDrift(k)) continue;
       const web = meanSd(samples[k]);
       const diff = Math.abs(web.mean - ios.mean);
       if (ios.sd === 0 && web.sd === 0) {

@@ -557,8 +557,10 @@ final class ParityFixtureWriter: XCTestCase {
     }
 
     func testWriteAutoFillFixture() throws {
-        let now = Date()
-        let refDate = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970))
+        // The engine checks pitch rules against the lineup's game date (930db45),
+        // so the reference date IS that date, and the fixture no longer changes
+        // with the day it's written.
+        let refDate = Self.date(2026, 10, 10)
         var scenarios: [AutoFillScenario] = []
         let demo = Self.demoRoster()
 
@@ -627,8 +629,8 @@ final class ParityFixtureWriter: XCTestCase {
         scenarios.append(.init(name: "fill-single-inning-2", players: partialRoster, lineup: partial,
                                scope: .inning(1)))
 
-        // Pitch-count capacity. Logs are relative to "now" because the engine
-        // reads today's date internally; the fixture records the reference.
+        // Pitch-count capacity and rest. Logs are relative to the game date
+        // (refDate), which is what the engine checks against.
         let cal = Calendar.current
         var pitchRoster = Self.plainRoster(11, age: 10)
         pitchRoster[9].leagueAge = nil                       // no age: capacity unlimited
@@ -649,6 +651,35 @@ final class ParityFixtureWriter: XCTestCase {
         var pcNoWeekly = pc; pcNoWeekly.weeklyLimitEnabled = false
         scenarios.append(.init(name: "resting-pitcher-no-weekly-cap", players: pitchRoster,
                                lineup: Self.emptyLineup(pitchRoster), pitching: pcNoWeekly, gameLogs: recent))
+        // An explicit "X pitches" for a player who owes rest is rejected, not honored.
+        scenarios.append(.init(name: "resting-pitcher-explicit-assign", players: pitchRoster,
+                               lineup: Self.emptyLineup(pitchRoster), pitching: pc, gameLogs: recent,
+                               constraints: AutoFillConstraintSet(playerConstraints: [
+                                AutoFillPlayerConstraint(playerID: pitchRoster[2].id, target: .position(.pitcher),
+                                                         inningRange: 0...1, intent: .assign),
+                               ])))
+
+        // Every pitcher owes rest or has no league age: P stays open as .pitchersResting.
+        var restingRoster = Self.plainRoster(10, age: 10)
+        restingRoster[9].leagueAge = nil
+        let allPitchedYesterday = [
+            GameLog(id: Self.pid(903), gameDate: yesterday, opponent: "Opponent", inningsPlayed: 6, battingOrder: [],
+                    innings: [], playerSnapshot: [], archivedAt: yesterday,
+                    pitchCounts: Dictionary(uniqueKeysWithValues: restingRoster.prefix(9).map { ($0.id.uuidString, 60) })),
+        ]
+        scenarios.append(.init(name: "all-pitchers-resting", players: restingRoster,
+                               lineup: Self.emptyLineup(restingRoster), pitching: pc, gameLogs: allPitchedYesterday))
+
+        // The only possible pitcher is kept out of the infield: P stays open as
+        // .avoidInstructions instead of the avoid leaking onto the mound.
+        var avoidRoster = Self.plainRoster(10)
+        for i in 0..<9 { avoidRoster[i].positionPreferences[.pitcher] = .never }
+        scenarios.append(.init(name: "infield-avoid-blocks-pitcher", players: avoidRoster,
+                               lineup: Self.emptyLineup(avoidRoster),
+                               constraints: AutoFillConstraintSet(playerConstraints: [
+                                AutoFillPlayerConstraint(playerID: avoidRoster[9].id, target: .infield,
+                                                         inningRange: 0...5, intent: .avoid),
+                               ])))
 
         // Natural-language constraints, resolved by the deterministic parser.
         func parsed(_ prompt: String, _ players: [Player], innings: Int = 6) -> AutoFillConstraintSet {

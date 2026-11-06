@@ -115,7 +115,13 @@ export function incompleteMessage(result: AutoFillResult, multiInning: boolean):
     parts.push(`${label(of('pitcherReentry'))} could not be filled. All eligible pitchers have already left the mound this game and cannot re-enter. Assign pitcher manually.`);
   }
   if (of('pitchCapacityLimited').length) {
-    parts.push(`${label(of('pitchCapacityLimited'))} could not be filled. Every eligible pitcher either needs rest under your pitch count rules or has reached their estimated pitch limit for this game. Assign pitcher manually or check pitch counts on the Pitching tab.`);
+    parts.push(`${label(of('pitchCapacityLimited'))} could not be filled. All eligible pitchers have reached their estimated pitch count limit for this game. Assign pitcher manually or check pitch counts on the Pitching tab.`);
+  }
+  if (of('pitchersResting').length) {
+    parts.push(`${label(of('pitchersResting'))} could not be filled. Every available pitcher either needs rest days under your pitch count rules or has no league age set. Set league ages on the Roster tab, or assign pitcher manually.`);
+  }
+  if (of('avoidInstructions').length) {
+    parts.push(`${label(of('avoidInstructions'))} could not be filled without breaking your instructions. The only players left who could pitch were asked to stay off Pitcher or out of the infield. Change the instruction, or assign pitcher manually.`);
   }
   if (of('neverPreferences').length) {
     parts.push(`${label(of('neverPreferences'))} could not be filled. All remaining players have those positions set to Never in their preferences. Update preferences on the Roster tab, or assign manually.`);
