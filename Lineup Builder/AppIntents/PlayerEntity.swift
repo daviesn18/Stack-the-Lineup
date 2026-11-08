@@ -73,7 +73,8 @@ nonisolated struct PlayerEntity: AppEntity, IndexedEntity, URLRepresentableEntit
     // require converting the fields below to @Property wrappers — a refactor of
     // this shipping entity. Deliberately NOT done: whether the classic path
     // already feeds the 27 semantic index is a device question, gated in
-    // V3.5_P1_DEVICE_TEST_CHECKLIST.md §6 before any refactor.
+    // V3.5_P1_DEVICE_TEST_CHECKLIST.md §6 (removed; see git show bb4bfb8:V3.5_P1_DEVICE_TEST_CHECKLIST.md)
+    // before any refactor.
 
     /// Spotlight matches the query against keywords as well as the title, so this
     /// is what makes "12", "number 12" and "Tigers" find a player whose displayed

@@ -11,7 +11,8 @@ import XCTest
 // the JSON blob) and gates the overwrite on `shouldApplyServerTeam`.
 //
 // These pin the pure decision function and the blob contract. The end-to-end
-// two-device behavior still needs a device run (see V3.5_P1_DEVICE_TEST_CHECKLIST).
+// two-device behavior still needs a device run (see V3.5_P1_DEVICE_TEST_CHECKLIST,
+// removed; git show bb4bfb8:V3.5_P1_DEVICE_TEST_CHECKLIST.md).
 
 final class CloudKitMergeRecencyTests: XCTestCase {
 
