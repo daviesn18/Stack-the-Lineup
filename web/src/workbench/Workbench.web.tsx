@@ -14,6 +14,7 @@ import { HomeScreen } from './HomeScreen';
 import { NewGameDialog } from './NewGameDialog';
 import { Intro } from './IntroDialog';
 import { Overlays } from './Overlays';
+import { ProProvider } from './pro';
 import { PlayerPanel, RosterScreen } from './RosterScreen';
 import { LeaveDialog, SettingsScreen } from './SettingsScreen';
 import { Sidebar } from './Shell';
@@ -23,8 +24,10 @@ import { C, CSS } from './theme';
 export function Workbench({ demo }: { demo?: boolean }) {
   return (
     <WorkbenchProvider>
-      <style>{CSS}</style>
-      <Frame demo={demo} />
+      <ProProvider demo={demo}>
+        <style>{CSS}</style>
+        <Frame demo={demo} />
+      </ProProvider>
     </WorkbenchProvider>
   );
 }

@@ -9,6 +9,7 @@ import { isInfield, isOutfield, type FieldPosition, type GameLog, type Player } 
 
 import { GameLogDetail, gameTitle } from './GameLogDetail';
 import { Icon } from './Icon';
+import { LockedPanel, useGate } from './pro';
 import { useWorkbench } from './state';
 import { C, TIER_STYLE } from './theme';
 import { PageHeader } from './Shell';
@@ -37,8 +38,25 @@ export function seasonTotals(players: Player[], logs: GameLog[]) {
 
 export function HistoryScreen() {
   const w = useWorkbench();
+  const season = useGate('game_history');
   const open = w.gameLogs.find((g) => g.id === w.gameLogId);
+  if (!season.open) return <HistoryLocked />;
   return open ? <GameLogDetail log={open} /> : <SeasonStats />;
+}
+
+/** Game History is Pro (iOS GameLogsView's teaser). Archived games are still saved, and come back with Pro. */
+function HistoryLocked() {
+  const w = useWorkbench();
+  const n = w.gameLogs.length;
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: C.grouped }}>
+      <PageHeader><span style={{ fontSize: 15, fontWeight: 600 }}>Season stats</span></PageHeader>
+      <div style={{ maxWidth: 640, width: '100%', margin: '0 auto', padding: '24px 24px 36px' }}>
+        <LockedPanel feature="game_history" onGray title="Game History is a Pro feature"
+          text={`${n ? `You have ${n} archived ${n === 1 ? 'game' : 'games'}, and they're kept. ` : 'Archiving a game is free, and every game you archive is kept. '}Pro shows the season: each player's innings and bench time, position coverage, and every game's lineup, notes and recap.`} />
+      </div>
+    </div>
+  );
 }
 
 function SeasonStats() {

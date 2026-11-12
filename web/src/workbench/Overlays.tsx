@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { keepForRemaining, toggleAbsent } from '@/core/lineupOps';
 import { isInfield, isNonFielding, POSITION_NAMES, type Player } from '@/core/model';
 
+import { useGate } from './pro';
 import { useWorkbench } from './state';
 import { badgeColor, C, playerAvatar, TIER_RANK, TIER_STYLE, tint } from './theme';
 
@@ -67,10 +68,12 @@ function Picker() {
   const shared = isNonFielding(pk.pos);
   const current = shared ? undefined : w.holder(pk.inning, pk.pos);
   const q = query.trim().toLowerCase();
+  // Preference hints are Pro (iOS shows no tier badges to a free coach).
+  const prefsOn = useGate('player_preferences').open;
   const rows = w.active
     .filter((p) => !q || `${p.firstName} ${p.lastName}`.toLowerCase().includes(q))
     .map((p) => {
-      const tier = p.positionPreferences[pk.pos];
+      const tier = prefsOn ? p.positionPreferences[pk.pos] : undefined;
       const now = w.posOf(p.id, pk.inning);
       const benched = now === undefined || now === 'Bench';
       return { p, tier, now, rank: TIER_RANK[tier ?? 'none'] * 10 + (benched ? 0 : 1) + (p.id === current?.id ? 100 : 0) };
@@ -135,6 +138,7 @@ function ContextMenu() {
   const w = useWorkbench();
   const m = w.menu!;
   const [innings, setInnings] = useState<number[]>([m.inning]);
+  const prefsOn = useGate('player_preferences').open;
   const p = w.byId.get(m.pid);
   if (!p) return null;
   const now = w.posOf(p.id, m.inning);
@@ -148,7 +152,7 @@ function ContextMenu() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, padding: '0 4px 6px' }}>
         {w.positions.map((pos) => {
-          const never = p.positionPreferences[pos] === 'Never';
+          const never = prefsOn && p.positionPreferences[pos] === 'Never';
           return (
             <button key={pos} className="menu-tile" onClick={() => w.placeMany(p.id, innings, pos, 'menu')} title={never ? `${p.firstName} is marked Never at ${pos}` : undefined}
               style={{ fontSize: 12, fontWeight: 700, borderRadius: 6, padding: '6px 0', textAlign: 'center',

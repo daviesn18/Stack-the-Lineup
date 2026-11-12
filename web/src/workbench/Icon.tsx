@@ -5,7 +5,7 @@ import type { CSSProperties } from 'react';
 
 import {
   Archive, ArrowRight, Calendar, Check, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, CircleMinus, CirclePlus, Diamond, Download,
-  FileText, GripVertical, History, Info, ListOrdered, Pencil, PersonStanding, Plus, Settings, Share, ShieldCheck, Trash2, TriangleAlert, UserPlus, Users, Zap,
+  FileText, GripVertical, History, Info, Layers, ListOrdered, Lock, Pencil, Star, PersonStanding, Plus, Settings, Share, ShieldCheck, Trash2, TriangleAlert, UserPlus, Users, Zap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -42,6 +42,9 @@ const MAP: Record<string, LucideIcon> = {
   grip: GripVertical,
   'figure.baseball.pitcher': PersonStanding,
   pencil: Pencil,
+  'lock.fill': Lock,
+  'star.fill': Star,
+  'square.stack.3d.up.fill': Layers,
   trash: Trash2,
 };
 

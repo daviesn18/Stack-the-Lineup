@@ -14,6 +14,7 @@ import { statusLabel } from '@/print/lineupPdf';
 
 import { Icon } from './Icon';
 import { playingTime } from './fairPlayIssues';
+import { useGate } from './pro';
 import { BORDER, FILL, StepTitle, SUB } from './Shell';
 import { useWorkbench, type DefView } from './state';
 import { badgeColor, C, tint } from './theme';
@@ -70,10 +71,12 @@ function ViewSwitch() {
 function AutoFillExtras() {
   const w = useWorkbench();
   const notes = w.fillNotes;
+  // Instructions are part of Auto-Fill (Natural Language Auto-Fill is Pro on iOS).
+  const fill = useGate('autofill');
   return (
     <div style={{ marginTop: -8, marginBottom: 14 }}>
       <div style={{ display: 'flex', gap: 16, fontSize: 13 }}>
-        <details style={{ flex: 1 }}>
+        {fill.open ? <details style={{ flex: 1 }}>
           <summary style={{ color: C.blue, cursor: 'pointer', width: 'fit-content' }}>{w.prompt.trim() ? 'Auto-Fill instructions (set)' : 'Auto-Fill instructions'}</summary>
           <div style={{ marginTop: 8, borderRadius: 10, border: `1px solid ${BORDER}`, padding: '8px 10px', maxWidth: 560 }}>
             <textarea value={w.prompt} onChange={(e) => w.setPrompt(e.target.value)} rows={3} aria-label="Auto-Fill instructions"
@@ -81,7 +84,7 @@ function AutoFillExtras() {
               style={{ width: '100%', border: 'none', outline: 'none', resize: 'vertical', fontSize: 14, lineHeight: '19px', background: 'transparent' }} />
             <div style={{ fontSize: 12, color: SUB }}>Auto-Fill follows these, fills open spots only, and keeps anything you&apos;ve set.</div>
           </div>
-        </details>
+        </details> : <span style={{ flex: 1 }} />}
         <button className="h-link" onClick={() => w.edit((l) => clearPositions(l), 'All positions cleared')}
           style={{ alignSelf: 'flex-start', color: C.red, fontSize: 13 }}>Clear positions</button>
       </div>
@@ -144,10 +147,11 @@ function InningMark({ state, onBlue }: { state: InningState; onBlue?: boolean })
 /** A field spot in one inning: click for the picker, right-click for the menu, drag to swap. */
 function useSpot(inning: number, pos: FieldPosition, key: string) {
   const w = useWorkbench();
+  const prefsOn = useGate('player_preferences').open;
   const p = w.holder(inning, pos);
   return {
     p,
-    never: !!p && p.positionPreferences[pos] === 'Never',
+    never: prefsOn && !!p && p.positionPreferences[pos] === 'Never',
     ring: w.dropKey === key ? `inset 0 0 0 2px ${C.blue}` : undefined,
     handlers: {
       onClick: (e: { currentTarget: Element }) => w.openPicker(e.currentTarget, inning, pos),
@@ -411,10 +415,11 @@ function BenchColumn({ inning, absent }: { inning: number; absent?: boolean }) {
 
 function Pitching() {
   const w = useWorkbench();
+  const prefsOn = useGate('player_preferences').open;
   const rules = w.team.pitchingConfig.rulesEnabled;
   const rows = w.active
     .map((p) => ({ p, n: w.lineup.innings.filter((inn) => inn.assignments[p.id] === 'P').length }))
-    .filter((r) => r.n > 0 || canPitch(r.p))
+    .filter((r) => r.n > 0 || (prefsOn && canPitch(r.p)))
     .sort((a, b) => b.n - a.n);
   const rest = (p: Player) => {
     if (!rules) return { text: '—', warn: false };

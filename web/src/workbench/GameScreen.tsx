@@ -11,6 +11,7 @@ import { downloadPdf, openPdfTab } from '@/print/openPdf';
 
 import { dateValue, DateTimeInputs, Dialog, fromInputs, Group, Row, TextInput, timeValue } from './controls';
 import { DefenseStep } from './DefenseStep';
+import { LockBadge, useGate } from './pro';
 import { Icon } from './Icon';
 import { gameStatus, gameTitle, gameWhen, plural } from './gameStatus';
 import { BORDER, FairPlayBox, PageHeader, Pill, PrimaryButton, SecondaryButton, StepTitle, SUB } from './Shell';
@@ -25,9 +26,12 @@ export function GameScreen() {
   const [gameOpen, setGameOpen] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
   const n = w.lineup.innings.length;
+  const fill = useGate('autofill');
+  const guide = useGate('pdf_export');
 
   /** Opens the printout in a new tab, or with `download`, saves it as a named file. */
   const print = (kind: 'battingOrder' | 'coachesGuide', download = false) => {
+    if (kind === 'coachesGuide' && !guide.open) { if (guide.state === 'locked') guide.ask(); return; }
     setPrintError(null);
     const show = download ? downloadPdf : openPdfTab();   // the tab must open in the click, before any await
     const input = {
@@ -54,8 +58,14 @@ export function GameScreen() {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#fff' }}>
       <PageHeader right={<>
-        <SecondaryButton icon="bolt.fill" iconColor={C.blue} onClick={w.autoFill} title="Fill every open spot in every inning">Auto-Fill</SecondaryButton>
-        <SecondaryButton icon="doc.richtext.fill" onClick={() => print('coachesGuide')}>Coaches Guide</SecondaryButton>
+        <SecondaryButton icon="bolt.fill" iconColor={C.blue} disabled={fill.state === 'pending'}
+          onClick={fill.open ? w.autoFill : fill.ask} title={fill.open ? 'Fill every open spot in every inning' : 'Auto-Fill is a Pro feature'}>
+          Auto-Fill{fill.state === 'locked' && <LockBadge />}
+        </SecondaryButton>
+        <SecondaryButton icon="doc.richtext.fill" disabled={guide.state === 'pending'} onClick={() => print('coachesGuide')}
+          title={guide.state === 'locked' ? 'The Coaches Guide is a Pro feature' : undefined}>
+          Coaches Guide{guide.state === 'locked' && <LockBadge />}
+        </SecondaryButton>
       </>}>
         <button className="h-link" onClick={() => w.go('home')} style={{ fontSize: 14, color: SUB }}>Games</button>
         <Icon name="chevron.right" size={12} color={SUB} />
@@ -220,6 +230,7 @@ function BattingOrder() {
 // MARK: - Step 4: Review
 
 function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide', download?: boolean): void }) {
+  const guide = useGate('pdf_export');
   const w = useWorkbench();
   const st = gameStatus(w);
   const rows: { label: string; meta: string; ok: boolean; todo?: boolean; step: Step }[] = [
@@ -244,7 +255,8 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide', downlo
         ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
-        <ExportCard icon="doc.richtext.fill" title="Coaches Guide PDF" detail="Defensive assignments for every inning."
+        <ExportCard icon="doc.richtext.fill" title="Coaches Guide PDF" locked={guide.state === 'locked'}
+          detail={guide.state === 'locked' ? 'Defensive assignments for every inning. A Pro feature.' : 'Defensive assignments for every inning.'}
           onClick={() => print('coachesGuide')} onDownload={() => print('coachesGuide', true)} />
         <ExportCard icon="doc.text" title="Lineup card" detail="Print the batting order."
           onClick={() => print('battingOrder')} onDownload={() => print('battingOrder', true)} />
@@ -269,15 +281,15 @@ function Review({ print }: { print(kind: 'battingOrder' | 'coachesGuide', downlo
 }
 
 /** Click to open the printout; Download saves it as a named file. */
-function ExportCard({ icon, title, detail, onClick, onDownload }: {
-  icon: string; title: string; detail: string; onClick(): void; onDownload(): void;
+function ExportCard({ icon, title, detail, locked, onClick, onDownload }: {
+  icon: string; title: string; detail: string; locked?: boolean; onClick(): void; onDownload(): void;
 }) {
   return (
     <div style={{ position: 'relative', display: 'flex' }}>
       <button onClick={onClick} className="h-ring" style={{ flex: 1, display: 'flex', gap: 14, alignItems: 'flex-start', padding: 18, paddingBottom: 40, borderRadius: 12, border: `1px solid ${BORDER}`, textAlign: 'left' }}>
         <Icon name={icon} size={24} color={C.blue} />
         <span>
-          <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{title}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, fontWeight: 600 }}>{title}{locked && <LockBadge size={13} />}</span>
           <span style={{ display: 'block', fontSize: 13, color: SUB, marginTop: 2 }}>{detail}</span>
         </span>
       </button>

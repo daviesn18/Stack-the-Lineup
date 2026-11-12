@@ -10,6 +10,7 @@ import { useTeam } from '@/data/teamStore';
 
 import { seasonTotals } from './HistoryScreen';
 import { Icon } from './Icon';
+import { LockedPanel, useGate } from './pro';
 import { gameStatus, gameTitle, gameWhen, plural } from './gameStatus';
 import { PageHeader, Pill, PrimaryButton, SUB, type PillKind } from './Shell';
 import { useWorkbench, type Step } from './state';
@@ -22,6 +23,7 @@ export function HomeScreen() {
   const w = useWorkbench();
   const st = gameStatus(w);
   const totals = useMemo(() => seasonTotals(w.players, w.gameLogs), [w.players, w.gameLogs]);
+  const season = useGate('game_history');
   const days = Math.round((startOfDay(w.lineup.gameDate) - startOfDay(new Date())) / 86_400_000);
   const when = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days > 1 ? `In ${days} days` : `${-days} day${days === -1 ? '' : 's'} ago`;
 
@@ -75,7 +77,7 @@ export function HomeScreen() {
           <section style={card} aria-label="Innings this season">
             <CardTitle right={plural(w.gameLogs.length, 'game')}>Innings this season</CardTitle>
             <div style={{ fontSize: 13, color: SUB, marginTop: 2, marginBottom: 14 }}>Infield, outfield and bench innings in archived games.</div>
-            {w.gameLogs.length === 0 ? <Empty>Archive a game and innings accumulate.</Empty> : <ZoneBars totals={totals} />}
+            {!season.open ? <SeasonLocked /> : w.gameLogs.length === 0 ? <Empty>Archive a game and innings accumulate.</Empty> : <ZoneBars totals={totals} />}
           </section>
 
           <ScheduleCard pill={st.finalized ? ['green', 'Finalized'] : !st.started ? ['gray', 'Not started'] : st.fpOk ? ['green', 'Ready'] : ['red', plural(st.issueCount, 'issue')]} />
@@ -83,7 +85,7 @@ export function HomeScreen() {
           <section style={card} aria-label="Position coverage">
             <CardTitle>Position coverage</CardTitle>
             <div style={{ fontSize: 13, color: SUB, marginTop: 2, marginBottom: 16 }}>How many players have played each position this season.</div>
-            {w.gameLogs.length === 0 ? <Empty>Coverage fills in as you archive games.</Empty> : <Coverage totals={totals} />}
+            {!season.open ? <SeasonLocked /> : w.gameLogs.length === 0 ? <Empty>Coverage fills in as you archive games.</Empty> : <Coverage totals={totals} />}
           </section>
         </div>
       </div>
@@ -143,6 +145,12 @@ function ScheduleCard({ pill }: { pill: [PillKind, string] }) {
 }
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/** Season numbers are Game History, a Pro feature. Archiving stays free, so nothing is lost. */
+function SeasonLocked() {
+  return <LockedPanel feature="game_history" compact title="Game History is a Pro feature"
+    text="Your archived games are kept. Pro shows the season: innings, bench time and position coverage." />;
+}
 
 function CardTitle({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (

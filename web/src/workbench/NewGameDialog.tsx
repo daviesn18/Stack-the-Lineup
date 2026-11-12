@@ -16,6 +16,7 @@ import {
 } from './controls';
 import { gameWhen } from './gameStatus';
 import { countsToSave, MAX_PITCHES, overLimit, PitchCountList, type Counts } from './PitchCounts';
+import { LockBadge, useGate } from './pro';
 import { PrimaryButton, SecondaryButton, SUB } from './Shell';
 import { useWorkbench } from './state';
 
@@ -42,13 +43,15 @@ export function NewGameDialog() {
   const [pitchers, setPitchers] = useState<string[]>(() => pitchersIn(l).filter((id) => w.byId.has(id)));
   const [counts, setCounts] = useState<Counts>({});
   const [notes, setNotes] = useState('');
+  // Pitch counts are Pro (iOS ArchiveGameSheet hides the section). Archiving and notes stay free.
+  const pitch = useGate('pitch_tracking');
   const next = defaultNextDate(l.gameDate);
   const [opponent, setOpponent] = useState('');
   const [date, setDate] = useState(dateValue(next));
   const [time, setTime] = useState(timeValue(next));
 
   const gameDate = fromInputs(date, time);
-  const tooMany = overLimit(pitchers, counts);
+  const tooMany = pitch.open ? overLimit(pitchers, counts) : [];
   const ready = !!gameDate && (!archive || !canArchive || tooMany.length === 0);
   const addable = useMemo(() => w.players.filter((p) => !pitchers.includes(p.id)), [w.players, pitchers]);
   const nextTitle = opponent.trim() ? `vs ${opponent.trim()}` : 'the next game';
@@ -59,7 +62,7 @@ export function NewGameDialog() {
 
   const start = () => {
     if (!ready || !gameDate) return;
-    const pitchCounts = countsToSave(pitchers, counts);
+    const pitchCounts = pitch.open ? countsToSave(pitchers, counts) : {};
     startNewGame({ opponent, gameDate }, archiving ? { inningsPlayed: innings, notes, pitchCounts } : undefined);
     close();
     w.goStep(1);
@@ -86,7 +89,7 @@ export function NewGameDialog() {
         {canArchive && (
           <Group label={l.opponent ? `Last game · vs ${l.opponent}, ${day}` : `Last game · ${day}`}>
             <Row label={`Archive ${thisGame}`}
-              help={archiving ? 'Saves its positions, innings played and pitch counts to season history.'
+              help={archiving ? `Saves its positions, innings played${pitch.open ? ' and pitch counts' : ''} to season history.`
                 : 'Season stats and pitcher rest only count archived games.'}>
               <Toggle on={archiving} label={`Archive ${thisGame}`} onChange={() => setArchive(!archive)} />
             </Row>
@@ -100,7 +103,15 @@ export function NewGameDialog() {
                 <Row label="Innings played" help="Only innings played count toward season stats.">
                   <Stepper value={innings} min={1} max={maxInnings} onChange={setInnings} label="Innings played" />
                 </Row>
-                <Row label="Pitch counts" stacked help="Pitches thrown today.">
+                {pitch.state === 'locked' && (
+                  <Row label="Pitch counts" help="Track weekly limits and rest days by age. A Pro feature.">
+                    <button type="button" className="h-link" onClick={pitch.ask}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#007AFF' }}>
+                      <LockBadge />See Pro
+                    </button>
+                  </Row>
+                )}
+                {pitch.open && <Row label="Pitch counts" stacked help="Pitches thrown today.">
                   <PitchCountList
                     pitchers={pitchers.flatMap((id) => {
                       const p = w.byId.get(id);
@@ -111,7 +122,7 @@ export function NewGameDialog() {
                     onRemove={(id) => setPitchers(pitchers.filter((x) => x !== id))}
                     onAdd={(id) => setPitchers([...pitchers, id])}
                     empty="Nobody pitched in this lineup. Add a pitcher to record a count." />
-                </Row>
+                </Row>}
                 <Row label="Notes" stacked>
                   <textarea className="field" aria-label="Game notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
                     placeholder="Score, standout moments, reminders (optional)"

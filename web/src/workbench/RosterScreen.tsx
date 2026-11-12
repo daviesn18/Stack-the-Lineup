@@ -13,6 +13,7 @@ import { useTeam } from '@/data/teamStore';
 import { Field, Input } from './controls';
 import { seasonTotals } from './HistoryScreen';
 import { Icon } from './Icon';
+import { LockBadge, LockedPanel, useGate } from './pro';
 import { parseRosterList } from './rosterList';
 import { BORDER, BORDER2, Kbd, PageHeader, PrimaryButton, SecondaryButton, SUB } from './Shell';
 import { useWorkbench } from './state';
@@ -121,13 +122,18 @@ function Avatar({ p, size }: { p: Player | { firstName: string; lastName: string
 
 function PlayersTable({ players, totals }: { players: Player[]; totals: Totals }) {
   const w = useWorkbench();
+  // A free coach's existing preferences and season numbers stay saved, just not shown (as on iOS).
+  const prefsOn = useGate('player_preferences');
+  const seasonOn = useGate('game_history');
   if (!players.length) return null;
   const maxBench = Math.max(0, ...w.players.map((p) => totals.get(p.id)?.bench ?? 0));
   const head: CSSProperties = { fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: SUB };
   return (
     <div role="table" style={{ borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
       <div role="row" style={{ display: 'grid', gridTemplateColumns: LIST_COLS, gap: 12, height: 34, alignItems: 'center', padding: '0 14px', background: '#F7F7FA', borderBottom: `1px solid ${BORDER}` }}>
-        <span style={head}>#</span><span style={head}>Player</span><span style={head}>Age</span><span style={head}>Plays well</span><span style={head}>Never</span><span style={head}>This season</span><span />
+        <span style={head}>#</span><span style={head}>Player</span><span style={head}>Age</span><span style={head}>Plays well{prefsOn.state === 'locked' && <> <LockBadge size={10} /></>}</span>
+        <span style={head}>Never{prefsOn.state === 'locked' && <> <LockBadge size={10} /></>}</span>
+        <span style={head}>This season{seasonOn.state === 'locked' && <> <LockBadge size={10} /></>}</span><span />
       </div>
       {players.map((p, i) => {
         const prefs = Object.entries(p.positionPreferences) as [FieldPosition, PositionPreferenceTier][];
@@ -145,6 +151,7 @@ function PlayersTable({ players, totals }: { players: Player[]; totals: Totals }
               <span className="ellipsis" style={{ fontSize: 14, fontWeight: 500 }}>{p.firstName} {p.lastName}</span>
             </span>
             <span className="num" style={{ fontSize: 13 }}>{p.leagueAge ?? ''}</span>
+            {!prefsOn.open ? <><span /><span /></> : <>
             <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {prefs.length === 0 ? <span style={{ fontSize: 12, color: 'rgb(133,79,10)' }}>No preferences set</span>
                 : good.length === 0 ? <span style={{ fontSize: 12, color: C.label3 }}>None</span>
@@ -153,8 +160,9 @@ function PlayersTable({ players, totals }: { players: Player[]; totals: Totals }
             <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {never.length ? never.map(([pos]) => <TierPill key={pos} tier="Never">{pos}</TierPill>) : <span style={{ fontSize: 12, color: C.label3 }}>None</span>}
             </span>
+            </>}
             <span>
-              {games === 0 ? <span style={{ fontSize: 11, color: SUB }}>No games yet</span> : (
+              {!seasonOn.open ? null : games === 0 ? <span style={{ fontSize: 11, color: SUB }}>No games yet</span> : (
                 <>
                   <span style={{ display: 'flex', height: 6, borderRadius: 3, background: C.gray6, overflow: 'hidden' }}>
                     <span style={{ width: `${(s.infield / games) * 100}%`, background: C.blue }} />
@@ -180,6 +188,15 @@ function PlayersTable({ players, totals }: { players: Player[]; totals: Totals }
 const CYCLE: (PositionPreferenceTier | undefined)[] = [undefined, 'Strength', 'Capable', 'Emergency', 'Never'];
 
 function PrefsMatrix({ players }: { players: Player[] }) {
+  const prefsOn = useGate('player_preferences');
+  if (!prefsOn.open) {
+    return <LockedPanel feature="player_preferences" title="Position Preferences is a Pro feature"
+      text="Tag what each player can handle: Strength, Capable, Emergency or Never. Auto-Fill places them accordingly." />;
+  }
+  return <PrefsMatrixGrid players={players} />;
+}
+
+function PrefsMatrixGrid({ players }: { players: Player[] }) {
   const w = useWorkbench();
   const { updatePlayer } = useTeam();
   const positions = w.positions;
@@ -411,6 +428,8 @@ export function PlayerPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [w]);
 
+  const prefsOn = useGate('player_preferences');
+  const seasonOn = useGate('game_history');
   const s = existing ? totals.get(existing.id) : undefined;
   const maxBench = Math.max(0, ...w.players.map((p) => totals.get(p.id)?.bench ?? 0));
   const hasSeason = !!s && s.infield + s.outfield + s.bench > 0;
@@ -440,7 +459,7 @@ export function PlayerPanel() {
             <span style={{ fontSize: 12, color: SUB, paddingBottom: 10 }}>Used for pitch count rules.</span>
           </div>
 
-          {hasSeason && (
+          {hasSeason && seasonOn.open && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
               <Tile value={s!.infield} label="Infield innings" />
               <Tile value={s!.outfield} label="Outfield innings" />
@@ -448,7 +467,10 @@ export function PlayerPanel() {
             </div>
           )}
 
-          <div>
+          {/* Locked: the section is replaced, and saving keeps whatever was already set (iOS PlayersView). */}
+          <LockedPanel feature="player_preferences" compact title="Position Preferences and Hitting Archetypes"
+            text="Tag what each player can handle, and give each hitter a scouting card. A Pro feature." />
+          {prefsOn.open && <div>
             <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: SUB }}>Positions</span>
               <button type="button" className="h-link" onClick={() => setPrefs({})} style={{ marginLeft: 'auto', fontSize: 13, color: C.blue }}>Clear all</button>
@@ -475,8 +497,8 @@ export function PlayerPanel() {
             <p style={{ fontSize: 12, lineHeight: '17px', color: SUB, margin: '10px 0 0' }}>
               Auto-Fill prioritizes Strength and Capable positions. Emergency is used as a last resort. Never positions are never assigned.
             </p>
-          </div>
-          <ArchetypeSection value={arch} onChange={setArch} />
+          </div>}
+          {prefsOn.open && <ArchetypeSection value={arch} onChange={setArch} />}
           <button type="submit" hidden />
         </form>
 
