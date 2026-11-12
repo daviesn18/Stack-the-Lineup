@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { scheduledTitle, upcomingGames } from '@/core/schedule';
 import { useAuth } from '@/data/auth';
 import { supabase } from '@/data/supabase';
+import { openSupportEmail } from '@/data/support';
 import { listTeams, type TeamSummary } from '@/data/teams';
 import { useTeam } from '@/data/teamStore';
 
@@ -120,7 +121,7 @@ export function Sidebar({ demo, onAccount }: { demo?: boolean; onAccount(): void
   );
 }
 
-/** Opens from the coach in the sidebar footer: who's signed in, all teams, the account, sign out. */
+/** Opens from the coach in the sidebar footer: who's signed in, all teams, the account, support, sign out. */
 function AccountMenu({ demo, onClose, onAccount }: { demo?: boolean; onClose(): void; onAccount(): void }) {
   const router = useRouter();
   const w = useWorkbench();
@@ -137,6 +138,7 @@ function AccountMenu({ demo, onClose, onAccount }: { demo?: boolean; onClose(): 
         <div style={{ height: 0.5, background: C.sep, margin: '5px 9px' }} />
         <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); w.leave(() => router.push('/')); }}>All teams</button>
         <button role="menuitem" className="menu-item" style={item} disabled={demo} onClick={() => { onClose(); onAccount(); }}>Account…</button>
+        <button role="menuitem" className="menu-item" style={item} onClick={() => { onClose(); openSupportEmail(); }}>Contact support…</button>
         <button role="menuitem" className="menu-item" style={item} disabled={demo}
           onClick={() => { onClose(); w.leave(() => { void supabase.auth.signOut({ scope: 'local' }); }); }}>Sign out</button>
       </div>

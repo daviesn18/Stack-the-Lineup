@@ -6,7 +6,7 @@
 import { useState, type ReactNode } from 'react';
 
 import { deleteAccount, useAuth } from '@/data/auth';
-import { buildLabel, SUPPORT_EMAIL, supportMailto } from '@/data/support';
+import { buildLabel, openSupportEmail, SUPPORT_EMAIL } from '@/data/support';
 
 import { Dialog, Group, HeaderButton, Row, TextInput } from './controls';
 import { Icon } from './Icon';
@@ -36,9 +36,7 @@ export function AccountDialog({ onClose }: { onClose(): void }) {
       </Group>
       <Group label="Support">
         <Row label="Email support" help={`${SUPPORT_EMAIL} · ${buildLabel()}`}>
-          <HeaderButton onClick={() => {
-            window.location.href = supportMailto({ userAgent: navigator.userAgent, host: window.location.host });
-          }}>Email us</HeaderButton>
+          <HeaderButton onClick={openSupportEmail}>Email us</HeaderButton>
         </Row>
       </Group>
       <Group label="Delete account">
