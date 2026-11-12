@@ -1,11 +1,12 @@
 // The Account dialog (team list header and the sidebar's account menu): who
-// is signed in, and Delete account. Deleting asks the coach to type DELETE,
+// is signed in, Support (email with the build id), and Delete account. Deleting asks the coach to type DELETE,
 // because it erases every team and can't be undone. Also the shared
 // type-DELETE confirmation that Delete team uses.
 
 import { useState, type ReactNode } from 'react';
 
 import { deleteAccount, useAuth } from '@/data/auth';
+import { buildLabel, SUPPORT_EMAIL, supportMailto } from '@/data/support';
 
 import { Dialog, Group, HeaderButton, Row, TextInput } from './controls';
 import { Icon } from './Icon';
@@ -32,6 +33,13 @@ export function AccountDialog({ onClose }: { onClose(): void }) {
       footer={<span style={{ marginLeft: 'auto' }}><HeaderButton onClick={onClose}>Done</HeaderButton></span>}>
       <Group label="Signed in as">
         <Row label={email || 'Unknown'} help="To change your password, sign out and choose Forgot password.">{null}</Row>
+      </Group>
+      <Group label="Support">
+        <Row label="Email support" help={`${SUPPORT_EMAIL} · ${buildLabel()}`}>
+          <HeaderButton onClick={() => {
+            window.location.href = supportMailto({ userAgent: navigator.userAgent, host: window.location.host });
+          }}>Email us</HeaderButton>
+        </Row>
       </Group>
       <Group label="Delete account">
         <Row label="Delete my account and data" help="Erases your sign-in and every team you have on the web. Teams in the iPhone app are not affected.">
