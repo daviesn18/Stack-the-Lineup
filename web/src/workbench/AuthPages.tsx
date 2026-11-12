@@ -89,3 +89,13 @@ export function SetPasswordPage() {
     </Page>
   );
 }
+
+/** Email links open on the web, not in the Android app, so this only says so. */
+export function ConfirmPage() {
+  return (
+    <Page width={440}>
+      <Title>Open this link on the web</Title>
+      <Body muted>Sign-in links from Stack the Lineup emails open at app.stackthelineup.com.</Body>
+    </Page>
+  );
+}

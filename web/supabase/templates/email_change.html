@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Confirm your new email</title>
+</head>
+<body style="margin:0;padding:0;background:#f2f2f7;">
+<div style="display:none;max-height:0;overflow:hidden;">Confirm your new email address for Stack the Lineup.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f2f7;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:14px;">
+<tr><td style="padding:28px 28px 8px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0"><tr>
+<td style="vertical-align:middle;"><img src="https://app.stackthelineup.com/app-icon.png" width="36" height="36" alt="" style="display:block;border-radius:9px;"></td>
+<td style="vertical-align:middle;padding-left:10px;font-size:16px;font-weight:600;color:#000000;">Stack the Lineup</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:16px 28px 0 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#000000;">
+<h1 style="margin:0 0 12px 0;font-size:22px;line-height:28px;font-weight:700;">Confirm your new email</h1>
+<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;">Confirm that you want to change your Stack the Lineup email from <strong>{{ .Email }}</strong> to <strong>{{ .NewEmail }}</strong>.</p>
+</td></tr>
+<tr><td style="padding:20px 28px 8px 28px;">
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change" style="display:inline-block;background:#007aff;color:#ffffff;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;line-height:20px;padding:12px 22px;border-radius:8px;">Confirm new email</a>
+</td></tr>
+<tr><td style="padding:12px 28px 28px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#6b6b70;">
+<p style="margin:0;">This link works once, for 24 hours. If you didn't ask for this, ignore this email and nothing changes.</p>
+<p style="margin:12px 0 0 0;">If the button doesn't work, copy this link into your browser:<br><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change" style="color:#007aff;word-break:break-all;">{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change</a></p>
+</td></tr>
+</table>
+<p style="max-width:480px;margin:16px auto 0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:17px;color:#8e8e93;text-align:center;">You got this email because an email change was requested on Stack the Lineup.<br>Stack the Lineup · <a href="https://www.stackthelineup.com" style="color:#8e8e93;">stackthelineup.com</a> · <a href="mailto:support@stackthelineup.com" style="color:#8e8e93;">support@stackthelineup.com</a></p>
+</td></tr>
+</table>
+</body>
+</html>

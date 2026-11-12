@@ -43,6 +43,8 @@ function Routes() {
       <Stack.Protected guard={!session}>
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
+      {/* Email links: open signed in or out; the page moves on once the link is used. */}
+      <Stack.Screen name="auth/confirm" />
       {/* Development-only preview on a made-up in-memory team (renders nothing in production). */}
       <Stack.Protected guard={__DEV__}>
         <Stack.Screen name="dev-grid" />

@@ -4,9 +4,11 @@
 // password is its own view of the same form, and ends on a "check your email"
 // confirmation.
 
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { useAuth } from '@/data/auth';
+import { needsPassword, parseConfirmLink } from '@/data/confirmLink';
 import { arrivedVia, oauthError, supabase } from '@/data/supabase';
 
 import { Field, Input } from './controls';
@@ -127,6 +129,59 @@ export function SetPasswordPage() {
         {error && <ErrorNote>{error}</ErrorNote>}
         <Submit busy={busy} disabled={!password || !confirm}>{invited ? 'Save and continue' : 'Save password'}</Submit>
       </form>
+    </Frame>
+  );
+}
+
+// MARK: - Email links
+
+/**
+ * Finishes the sign-in from an auth email (data/confirmLink): verifies the
+ * one-time token here, in the page, then moves on to Choose a password or
+ * the app. A used or expired link explains itself instead of failing silently.
+ */
+export function ConfirmPage() {
+  const router = useRouter();
+  const { session, passwordSet } = useAuth();
+  const [verified, setVerified] = useState(false);
+  // Read once. The token stays in the address bar (Expo Router keeps the URL), but it works only once.
+  const [link] = useState(() => parseConfirmLink(window.location.pathname, window.location.search));
+  const [error, setError] = useState<string | null>(link ? null : "This link isn't complete. Open it again from the email, or sign in.");
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (!link || started.current) return;   // once, even when React runs effects twice in development
+    started.current = true;
+    void supabase.auth.verifyOtp({ token_hash: link.tokenHash, type: link.type }).then(({ error }) => {
+      if (error) {
+        passwordSet();   // a failed link mustn't leave a signed-in coach stuck on Choose a password
+        setError(/expired|invalid/i.test(error.message)
+          ? 'This link has expired or was already used. Links work once, for 24 hours.'
+          : `This link didn't work: ${error.message}`);
+        return;
+      }
+      setVerified(true);
+    });
+  }, [link, passwordSet]);
+
+  // Move on once the new session has reached the app, so the route guards let the coach through.
+  useEffect(() => {
+    if (verified && link && session) router.replace(needsPassword(link.type) ? '/set-password' : '/');
+  }, [verified, link, session, router]);
+
+  return (
+    <Frame>
+      {error ? (
+        <div style={FORM}>
+          <Heading title="That link didn't work" sub={error} />
+          {link?.type === 'recovery' && <p style={{ margin: 0, fontSize: 14, color: SUB }}>Ask for a new one from Forgot password on the sign-in page.</p>}
+          <LinkButton onClick={() => router.replace(session ? '/' : '/sign-in')}>{session ? 'Go to the app' : 'Go to sign in'}</LinkButton>
+        </div>
+      ) : (
+        <div style={FORM}>
+          <Heading title="One moment…" sub={link && needsPassword(link.type) ? 'Checking your link. Next, you choose a password.' : 'Checking your link.'} />
+        </div>
+      )}
     </Frame>
   );
 }

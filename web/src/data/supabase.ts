@@ -5,6 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 
+import { parseConfirmLink } from './confirmLink';
+
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 if (!url || !key) {
@@ -18,6 +20,10 @@ if (!url || !key) {
  */
 export const arrivedVia: 'invite' | 'recovery' | null = (() => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  // Our own links (/auth/confirm?token_hash=…&type=…, see confirmLink).
+  const link = parseConfirmLink(window.location.pathname, window.location.search);
+  if (link) return link.type === 'invite' || link.type === 'recovery' ? link.type : null;
+  // Supabase's verify links, which land with the session in the hash.
   const type = new URLSearchParams(window.location.hash.slice(1)).get('type');
   return type === 'invite' || type === 'recovery' ? type : null;
 })();
