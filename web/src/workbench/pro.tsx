@@ -8,7 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuth } from '@/data/auth';
-import { signal } from '@/data/analytics';
+import { setAnalyticsTier, signal } from '@/data/analytics';
 import { supabase } from '@/data/supabase';
 
 import { Dialog, HeaderButton } from './controls';
@@ -49,6 +49,9 @@ export function ProProvider({ demo, children }: { demo?: boolean; children: Reac
 
   const entitlement: Entitlement = demo ? 'pro'
     : userId && loaded?.userId === userId ? (loaded.isPro ? 'pro' : 'free') : 'loading';
+
+  // Every signal carries tier, as on iOS.
+  useEffect(() => { setAnalyticsTier(entitlement === 'loading' ? null : entitlement); }, [entitlement]);
 
   const ask = useCallback((feature: ProFeature) => {
     signal('paywall.shown', { source: feature });

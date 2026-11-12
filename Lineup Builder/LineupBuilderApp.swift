@@ -9,6 +9,7 @@ import os
 struct LineupBuilderApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var purchaseManager = PurchaseManager()
+    @StateObject private var account = AccountManager.shared
 
     init() {
         let config = TelemetryDeck.Config(appID: "F6A09F00-2EFC-4DAD-9137-3350F267E78A")
@@ -17,14 +18,25 @@ struct LineupBuilderApp: App {
         // Must run before any tip can be displayed. Also migrates coaches off
         // the pre-TipKit onboarding flags.
         TipsConfigurator.configure()
+
+        // Coach-type parameters on every signal (see CoachContext).
+        CoachContext.set("platform", UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios")
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(purchaseManager)
+                .environmentObject(account)
                 .task {
                     await purchaseManager.checkEntitlement()
+                }
+                .task {
+                    // Optional sign-in (Merge 0): follow the stored session.
+                    account.start()
+                }
+                .onChange(of: purchaseManager.isPro, initial: true) { _, isPro in
+                    CoachContext.set("tier", isPro ? "pro" : "free")
                 }
                 .task {
                     // Covers the first launch after installing a build that adds

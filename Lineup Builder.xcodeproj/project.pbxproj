@@ -12,6 +12,8 @@
 		720774532FDCAAE500D4E8CE /* STLWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		720CE3CF2F68AEC400116C0A /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 720CE3CE2F68AEC400116C0A /* FoundationModels.framework */; };
 		72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = 72546BC92F80860600EE5B9E /* TelemetryDeck */; };
+		7A10C0DE0000000000000003 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10C0DE0000000000000002 /* Supabase */; };
+		7A10C0DE0000000000000006 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10C0DE0000000000000005 /* GoogleSignIn */; };
 		A1F0000000000000000000ED /* STLTeamPreviewExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1F0000000000000000000E1 /* STLTeamPreviewExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -159,6 +161,8 @@
 			files = (
 				720CE3CF2F68AEC400116C0A /* FoundationModels.framework in Frameworks */,
 				72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */,
+				7A10C0DE0000000000000003 /* Supabase in Frameworks */,
+				7A10C0DE0000000000000006 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -290,6 +294,8 @@
 			name = "Lineup Builder";
 			packageProductDependencies = (
 				72546BC92F80860600EE5B9E /* TelemetryDeck */,
+				7A10C0DE0000000000000002 /* Supabase */,
+				7A10C0DE0000000000000005 /* GoogleSignIn */,
 			);
 			productName = "Lineup Builder";
 			productReference = 720846F72F53C48900F70E89 /* Stack the Lineup.app */;
@@ -381,6 +387,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				72546BC82F80860600EE5B9E /* XCRemoteSwiftPackageReference "SwiftSDK" */,
+				7A10C0DE0000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 720846F82F53C48900F70E89 /* Products */;
@@ -1014,6 +1022,22 @@
 				minimumVersion = 2.12.0;
 			};
 		};
+		7A10C0DE0000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.55.0;
+			};
+		};
+		7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1021,6 +1045,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 72546BC82F80860600EE5B9E /* XCRemoteSwiftPackageReference "SwiftSDK" */;
 			productName = TelemetryDeck;
+		};
+		7A10C0DE0000000000000002 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7A10C0DE0000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		7A10C0DE0000000000000005 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

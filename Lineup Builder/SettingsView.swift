@@ -103,6 +103,9 @@ struct SettingsView: View {
                 }
 
                 // MARK: - Help
+                // MARK: - Account (optional sign-in)
+                AccountSection()
+
                 Section("Help & Support") {
                     // Re-entry for anyone who skipped or dismissed the tour.
                     // TourInSettingsTip is armed by skipping the welcome cards and
@@ -397,6 +400,7 @@ struct SettingsView: View {
     SettingsView()
         .environmentObject(LineupStore())
         .environmentObject(PurchaseManager())
+        .environmentObject(AccountManager.shared)
 }
 
 

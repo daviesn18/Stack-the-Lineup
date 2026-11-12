@@ -261,6 +261,8 @@ struct ContentView: View {
             )
         }
         .onOpenURL { url in
+            // Google sign-in's return URL first, so it's never taken for a file.
+            if AccountManager.shared.handle(url) { return }
             // App/widget/Spotlight/Siri deep links route; everything else is a
             // shared file that still goes down the import paths.
             if router.handle(url) {
