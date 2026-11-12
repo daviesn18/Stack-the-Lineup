@@ -1,14 +1,16 @@
 // Sign-in and set-password for the web, in the workbench's design system: a
 // navy brand panel on the left (hidden on narrow windows) and the form on the
-// right. Forgot password is its own view of the same form, and ends on a
-// "check your email" confirmation.
+// right. Continue with Apple / Google sit above the email form. Forgot
+// password is its own view of the same form, and ends on a "check your email"
+// confirmation.
 
 import { useState, type FormEvent, type ReactNode } from 'react';
 
 import { useAuth } from '@/data/auth';
-import { arrivedVia, supabase } from '@/data/supabase';
+import { arrivedVia, oauthError, supabase } from '@/data/supabase';
 
 import { Field, Input } from './controls';
+import { oauthMessage } from './oauthMessage';
 import { Icon } from './Icon';
 import { SUB } from './Shell';
 import { C, CSS } from './theme';
@@ -20,8 +22,17 @@ export function SignInPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // An Apple or Google sign-in that bounced back shows its reason once.
+  const [error, setError] = useState<string | null>(() => oauthMessage(oauthError));
+  const [provider, setProvider] = useState<Provider | null>(null);
   const go = (m: typeof mode) => { setMode(m); setError(null); };
+
+  async function continueWith(p: Provider) {
+    setProvider(p); setError(null);
+    // Leaves the page for Apple or Google, which send the coach back here signed in.
+    const { error } = await supabase.auth.signInWithOAuth({ provider: p, options: { redirectTo: window.location.origin } });
+    if (error) { setProvider(null); setError(error.message); }
+  }
 
   async function signIn(e: FormEvent) {
     e.preventDefault();
@@ -50,6 +61,11 @@ export function SignInPage() {
       {mode === 'signIn' && (
         <form onSubmit={signIn} style={FORM}>
           <Heading title="Sign in" sub="Welcome back, coach." />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <OAuthButton provider="apple" busy={provider === 'apple'} disabled={!!provider} onClick={() => void continueWith('apple')} />
+            <OAuthButton provider="google" busy={provider === 'google'} disabled={!!provider} onClick={() => void continueWith('google')} />
+          </div>
+          <Divider />
           <Field label="Email"><Input type="email" value={email} onChange={setEmail} autoComplete="email" autoFocus height={40} /></Field>
           <Field label="Password" aside={<LinkButton onClick={() => go('reset')}>Forgot password?</LinkButton>}>
             <Input type="password" value={password} onChange={setPassword} autoComplete="current-password" height={40} />
@@ -115,6 +131,51 @@ export function SetPasswordPage() {
   );
 }
 
+// MARK: - Apple and Google
+
+type Provider = 'apple' | 'google';
+
+/** Apple's and Google's own button styles: black with the Apple logo, white with the Google G. */
+function OAuthButton({ provider, busy, disabled, onClick }: { provider: Provider; busy: boolean; disabled: boolean; onClick(): void }) {
+  const apple = provider === 'apple';
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className={apple ? 'auth-apple' : 'auth-google'}
+      style={{ height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 14, fontWeight: 600,
+        background: apple ? '#000' : '#fff', color: apple ? '#fff' : '#1f1f1f', border: apple ? 'none' : '1px solid #747775',
+        opacity: disabled && !busy ? 0.45 : 1 }}>
+      {apple ? <AppleLogo /> : <GoogleLogo />}
+      {busy ? 'One moment…' : `Continue with ${apple ? 'Apple' : 'Google'}`}
+    </button>
+  );
+}
+
+function AppleLogo() {
+  return (
+    <svg width="14" height="17" viewBox="0 0 814 1000" aria-hidden fill="#fff">
+      <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z" />
+    </svg>
+  );
+}
+
+function GoogleLogo() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+      <path fill="#EA4335" d="M9 3.48c1.69 0 2.83.73 3.48 1.34l2.54-2.48C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l2.91 2.26C4.6 5.05 6.62 3.48 9 3.48z" />
+      <path fill="#4285F4" d="M17.64 9.2c0-.74-.06-1.28-.19-1.84H9v3.34h4.96c-.1.83-.64 2.08-1.84 2.92l2.84 2.2c1.7-1.57 2.68-3.88 2.68-6.62z" />
+      <path fill="#FBBC05" d="M3.88 10.78A5.54 5.54 0 0 1 3.58 9c0-.62.11-1.22.29-1.78L.96 4.96A9.008 9.008 0 0 0 0 9c0 1.45.35 2.82.96 4.04l2.92-2.26z" />
+      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.84-2.2c-.76.53-1.78.9-3.12.9-2.38 0-4.4-1.57-5.12-3.74L.97 13.04C2.45 15.98 5.48 18 9 18z" />
+    </svg>
+  );
+}
+
+function Divider() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: SUB }}>
+      <span style={{ flex: 1, height: 1, background: 'rgba(60,60,67,0.14)' }} />or<span style={{ flex: 1, height: 1, background: 'rgba(60,60,67,0.14)' }} />
+    </div>
+  );
+}
+
 // MARK: - Frame
 
 function Frame({ children, footer }: { children: ReactNode; footer?: string }) {
@@ -156,6 +217,8 @@ const AUTH_CSS = `
   .stl .auth-brand-small { display: block; }
 }
 .stl .auth-submit:hover:not(:disabled) { background: #0066d6 !important; }
+.stl .auth-apple:hover:not(:disabled) { background: #222 !important; }
+.stl .auth-google:hover:not(:disabled) { background: #f6f8fc !important; }
 `;
 
 function Brand({ light }: { light?: boolean }) {
