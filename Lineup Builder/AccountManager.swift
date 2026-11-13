@@ -146,6 +146,9 @@ final class AccountManager: ObservableObject {
             do {
                 try await supabase.functions.invoke("apple-revoke", options: FunctionInvokeOptions(body: ["authorization_code": code]))
             } catch {
+                if case let FunctionsError.httpError(status, data) = error {
+                    NSLog("apple-revoke failed: %d %@", status, String(decoding: data, as: UTF8.self))
+                }
                 throw AccountError.message("Couldn't disconnect Sign in with Apple, so nothing was deleted. Try again in a moment.")
             }
         }
@@ -177,6 +180,15 @@ nonisolated enum AccountError: LocalizedError {
     case message(String)
     var errorDescription: String? {
         switch self { case .message(let text): text }
+    }
+
+    /// What to show a coach for a failed account step, or nil when they
+    /// cancelled. Our own messages are already in coach terms, so they're
+    /// shown as written rather than reworded as "Something went wrong".
+    static func coachMessage(for error: Error) -> String? {
+        if (error as? ASAuthorizationError)?.code == .canceled { return nil }
+        if case .message(let text)? = error as? AccountError { return text }
+        return AuthErrorWording.message(for: error.localizedDescription)
     }
 }
 

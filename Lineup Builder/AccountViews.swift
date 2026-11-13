@@ -95,9 +95,7 @@ struct AccountSection: View {
                 try await account.deleteAccount()
             } catch {
                 // Backing out of Apple's sheet is a cancel, not a failure.
-                if let message = AuthErrorWording.message(for: (error as? ASAuthorizationError)?.code == .canceled ? "cancel" : error.localizedDescription) {
-                    deleteError = message
-                }
+                if let message = AccountError.coachMessage(for: error) { deleteError = message }
             }
             deleting = false
         }
@@ -313,7 +311,7 @@ struct SignInView: View {
             do {
                 try await step()
             } catch {
-                self.error = AuthErrorWording.message(for: error.localizedDescription)
+                self.error = AccountError.coachMessage(for: error)
             }
             busy = false
         }
