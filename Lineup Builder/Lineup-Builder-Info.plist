@@ -41,6 +41,14 @@
 				<string>stackthelineup</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Google Sign-In</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.106946912827-6u1uasehdk6tpoldies28t77760ppshd</string>
+			</array>
+		</dict>
 	</array>
 	<key>CKSharingSupported</key>
 	<true/>

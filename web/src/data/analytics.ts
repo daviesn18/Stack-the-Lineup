@@ -56,10 +56,18 @@ export function setAnalyticsUser(userId: string | null) {
   signal('TelemetryDeck.Session.started');
 }
 
-/** Sends a signal. iOS sends every parameter as a string, so values are stringified the same way. */
+/** Pro or free, once the entitlement is known (set by the workbench's ProProvider). */
+let tier: 'pro' | 'free' | null = null;
+export function setAnalyticsTier(next: 'pro' | 'free' | null) { tier = next; }
+
+/**
+ * Sends a signal. iOS sends every parameter as a string, so values are stringified the same way.
+ * Every signal carries the coach-type parameters iOS sends too (CoachContext): platform,
+ * account (always signed_in here: the web has no signed-out use) and tier once known.
+ */
 export function signal(name: string, parameters: SignalParameters = {}) {
   if (!client) return;
-  const payload: Record<string, string> = { platform: 'web' };
+  const payload: Record<string, string> = { platform: 'web', account: 'signed_in', ...(tier ? { tier } : {}) };
   for (const [k, v] of Object.entries(parameters)) payload[k] = String(v);
   try {
     client.signal(name, payload).catch(() => {});

@@ -12,6 +12,8 @@
 		720774532FDCAAE500D4E8CE /* STLWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 720774402FDCAAE300D4E8CE /* STLWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		720CE3CF2F68AEC400116C0A /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 720CE3CE2F68AEC400116C0A /* FoundationModels.framework */; };
 		72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = 72546BC92F80860600EE5B9E /* TelemetryDeck */; };
+		7A10C0DE0000000000000003 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10C0DE0000000000000002 /* Supabase */; };
+		7A10C0DE0000000000000006 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10C0DE0000000000000005 /* GoogleSignIn */; };
 		A1F0000000000000000000ED /* STLTeamPreviewExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1F0000000000000000000E1 /* STLTeamPreviewExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -159,6 +161,8 @@
 			files = (
 				720CE3CF2F68AEC400116C0A /* FoundationModels.framework in Frameworks */,
 				72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */,
+				7A10C0DE0000000000000003 /* Supabase in Frameworks */,
+				7A10C0DE0000000000000006 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -290,6 +294,8 @@
 			name = "Lineup Builder";
 			packageProductDependencies = (
 				72546BC92F80860600EE5B9E /* TelemetryDeck */,
+				7A10C0DE0000000000000002 /* Supabase */,
+				7A10C0DE0000000000000005 /* GoogleSignIn */,
 			);
 			productName = "Lineup Builder";
 			productReference = 720846F72F53C48900F70E89 /* Stack the Lineup.app */;
@@ -381,6 +387,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				72546BC82F80860600EE5B9E /* XCRemoteSwiftPackageReference "SwiftSDK" */,
+				7A10C0DE0000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 720846F82F53C48900F70E89 /* Products */;
@@ -500,7 +508,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 48;
+				CURRENT_PROJECT_VERSION = 49;
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = STLTeamPreview/Info.plist;
@@ -511,7 +519,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.5;
+				MARKETING_VERSION = 4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder.STLTeamPreview";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -528,7 +536,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 48;
+				CURRENT_PROJECT_VERSION = 49;
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = STLTeamPreview/Info.plist;
@@ -539,7 +547,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.5;
+				MARKETING_VERSION = 4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nickdavies.LineupBuilder.Lineup-Builder.STLTeamPreview";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -650,7 +658,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 48;
+				CURRENT_PROJECT_VERSION = 49;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
@@ -672,7 +680,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.5;
+				MARKETING_VERSION = 4.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -716,7 +724,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 48;
+				CURRENT_PROJECT_VERSION = 49;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 6R6HA6RU2S;
@@ -732,7 +740,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.5;
+				MARKETING_VERSION = 4.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1014,6 +1022,22 @@
 				minimumVersion = 2.12.0;
 			};
 		};
+		7A10C0DE0000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.55.0;
+			};
+		};
+		7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1021,6 +1045,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 72546BC82F80860600EE5B9E /* XCRemoteSwiftPackageReference "SwiftSDK" */;
 			productName = TelemetryDeck;
+		};
+		7A10C0DE0000000000000002 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7A10C0DE0000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		7A10C0DE0000000000000005 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

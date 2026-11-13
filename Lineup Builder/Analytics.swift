@@ -17,7 +17,9 @@ nonisolated enum Analytics {
         #if targetEnvironment(simulator)
         return // Never send signals from the simulator
         #else
-        TelemetryDeck.signal(name, parameters: parameters)
+        // Every signal also carries platform, account and tier (CoachContext),
+        // so iPhone, iPad and web charts can be split the same way.
+        TelemetryDeck.signal(name, parameters: CoachContext.merged(with: parameters))
         #endif
     }
 }
