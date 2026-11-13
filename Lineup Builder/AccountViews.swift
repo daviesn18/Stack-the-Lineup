@@ -20,12 +20,12 @@ struct AccountSection: View {
 
     var body: some View {
         Section {
-            if let email = account.email ?? (account.isSignedIn ? "Signed in" : nil) {
+            if account.isSignedIn {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(email)
+                    Text(AccountLabel.title(email: account.email, name: account.name))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text("Signed in with \(SignInMethod.describe(account.methods))")
+                    Text(AccountLabel.subtitle(methods: account.methods, email: account.email))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

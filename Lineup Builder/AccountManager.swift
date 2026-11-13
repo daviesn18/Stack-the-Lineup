@@ -37,6 +37,10 @@ final class AccountManager: ObservableObject {
 
     var isSignedIn: Bool { user != nil }
     var email: String? { user?.email }
+    /// The name Apple or Google shared at sign-in, when there is one.
+    var name: String? {
+        user?.userMetadata["full_name"]?.stringValue ?? user?.userMetadata["name"]?.stringValue
+    }
 
     var methods: [SignInMethod] {
         guard let user else { return [] }

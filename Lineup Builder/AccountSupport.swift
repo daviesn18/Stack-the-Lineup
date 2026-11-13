@@ -63,6 +63,29 @@ nonisolated enum SignInMethod: String, CaseIterable, Sendable {
     }
 }
 
+// MARK: - Account label
+
+/// What Settings shows for the signed-in coach. A Hide My Email address
+/// (…@privaterelay.appleid.com) means nothing to a coach, so it gives way to
+/// their name.
+nonisolated enum AccountLabel {
+    static func isAppleRelay(_ email: String?) -> Bool {
+        email?.lowercased().hasSuffix("@privaterelay.appleid.com") ?? false
+    }
+
+    static func title(email: String?, name: String?) -> String {
+        let name = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let email, !email.isEmpty, !isAppleRelay(email) { return email }
+        if let name, !name.isEmpty { return name }
+        return isAppleRelay(email) ? "Apple Account" : "Signed in"
+    }
+
+    static func subtitle(methods: [SignInMethod], email: String?) -> String {
+        let base = "Signed in with \(SignInMethod.describe(methods))"
+        return isAppleRelay(email) ? base + " · email hidden" : base
+    }
+}
+
 // MARK: - Error wording
 
 nonisolated enum AuthErrorWording {

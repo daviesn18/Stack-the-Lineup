@@ -40,6 +40,22 @@ final class AccountSupportTests: XCTestCase {
         XCTAssertEqual(SignInMethod.describe([]), "Email")
     }
 
+    // MARK: - Account label
+
+    func testAppleRelayAddressGivesWayToTheName() {
+        let relay = "vyv9yrdvrn@privaterelay.appleid.com"
+        XCTAssertTrue(AccountLabel.isAppleRelay(relay))
+        XCTAssertEqual(AccountLabel.title(email: relay, name: "Pat Coach"), "Pat Coach")
+        XCTAssertEqual(AccountLabel.title(email: relay, name: nil), "Apple Account")
+        XCTAssertEqual(AccountLabel.subtitle(methods: [.apple], email: relay), "Signed in with Apple · email hidden")
+    }
+
+    func testARealEmailIsShownAsIs() {
+        XCTAssertEqual(AccountLabel.title(email: "coach@example.com", name: "Pat Coach"), "coach@example.com")
+        XCTAssertEqual(AccountLabel.subtitle(methods: [.google], email: "coach@example.com"), "Signed in with Google")
+        XCTAssertEqual(AccountLabel.title(email: nil, name: nil), "Signed in")
+    }
+
     // MARK: - Error wording
 
     func testAuthErrorsReadInCoachTerms() {
