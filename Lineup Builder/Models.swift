@@ -1510,7 +1510,35 @@ class LineupStore: ObservableObject {
         self?.pushDirtyTeamsToCloud(ids)
     }
 
-    init() { load() }
+    // MARK: - Account teams (Merge 0b)
+    //
+    // Teams in the signed-in coach's Supabase account. They save to their own
+    // file and sync through `accountSync`, never the blob, the KV store or
+    // CloudKit. See LineupStore+AccountSync.swift.
+
+    /// Which teams are account teams. Loaded with the teams.
+    var accountTeamIDs: Set<UUID> = []
+    /// Nil when signed out.
+    var accountSync: SupabaseTeamSync?
+    /// What Settings shows. Nil when signed out.
+    @Published var accountSyncStatus: AccountSyncStatus?
+    /// Bumped on every save of an account team, so a sync pass can tell
+    /// whether the coach edited the team while it was running.
+    var accountEditCounts: [UUID: Int] = [:]
+    var accountSyncRunning = false
+    var accountSyncAgain = false
+    /// Orders teams.json writes (see AccountTeamWriter).
+    private var accountWriteSequence: UInt64 = 0
+    /// Same 2-second trailing debounce as the CloudKit push.
+    lazy var accountSyncDebouncer = CloudPushDebouncer { [weak self] _ in
+        self?.syncAccount()
+    }
+    var accountObserver: AnyCancellable?
+
+    init() {
+        load()
+        startFollowingAccount()
+    }
 
     // MARK: - Persistence
 
@@ -1546,6 +1574,12 @@ class LineupStore: ObservableObject {
         // time. The read-only guard is re-checked in `pushDirtyTeamsToCloud` — a
         // permission change between scheduling and firing is honored there.
         guard let changedID else { return }
+        if accountTeamIDs.contains(changedID) {
+            // An account team syncs to Supabase instead (Merge 0b).
+            accountEditCounts[changedID, default: 0] += 1
+            accountSyncDebouncer.schedule(changedID)
+            return
+        }
         cloudPushDebouncer.schedule(changedID)
     }
 
@@ -1563,6 +1597,8 @@ class LineupStore: ObservableObject {
             // Re-read live state at fire time so the upload carries the latest
             // edit, not a snapshot from when the timer started.
             guard let team = teams.first(where: { $0.id == id }) else { continue }
+            // Account teams never go to CloudKit (Merge 0b).
+            guard !accountTeamIDs.contains(id) else { continue }
             // Read-only participants cannot write back to CloudKit.
             // Read-write participants (received && !isReadOnly) can and should.
             guard !team.isReadOnly else { continue }
@@ -1631,11 +1667,28 @@ class LineupStore: ObservableObject {
     /// Writes teams to UserDefaults and NSUbiquitousKeyValueStore without triggering
     /// a CloudKit push. Use when persisting metadata-only changes (e.g. ckRecordName
     /// stamps) that CloudKit already knows about, to avoid redundant round-trips.
-    private func saveLocalOnly() {
-        let snapshot   = teams
+    func saveLocalOnly() {
+        // Account teams (Merge 0b) go to the account's own file; the blob, and
+        // so the iCloud KV store, only ever holds device and CloudKit teams.
+        let accountIDs = accountTeamIDs
+        let snapshot   = teams.filter { !accountIDs.contains($0.id) }
+        let allTeams   = teams
         let activeID   = activeTeamID?.uuidString
         let widgetTeam = activeTeam  // value copy — safe to capture in detached task
         let savedAt    = Date().timeIntervalSince1970
+
+        if let store = AccountTeamStore.current() {
+            accountWriteSequence += 1
+            let sequence = accountWriteSequence
+            let accountTeams = teams.filter { accountIDs.contains($0.id) }
+            Task.detached(priority: .utility) {
+                await AccountTeamWriter.shared.write(accountTeams, sequence: sequence, to: store)
+            }
+        }
+        // Every team now in the account: don't publish an empty blob to the
+        // shared KV store, where another device on this Apple ID would read it
+        // as "no teams".
+        let skipKVStore = snapshot.isEmpty && !accountIDs.isEmpty
 
         Task.detached(priority: .utility) {
             let encoder = JSONEncoder()
@@ -1660,7 +1713,9 @@ class LineupStore: ObservableObject {
             // This caused the July 2026 data wipe.
             #if !DEBUG
             let icloud = NSUbiquitousKeyValueStore.default
-            if data.count < 800_000 {
+            if skipKVStore {
+                Log.storage.notice("Every team is in the account; leaving the iCloud KV copy alone")
+            } else if data.count < 800_000 {
                 icloud.set(data, forKey: TeamStorage.teamsKey)
                 icloud.set(savedAt, forKey: TeamStorage.savedAtKey)
                 if let id = activeID { icloud.set(id, forKey: TeamStorage.activeTeamKey) }
@@ -1682,7 +1737,7 @@ class LineupStore: ObservableObject {
             // Republish players and teams to Spotlight. Passed the snapshot rather
             // than re-reading storage, and internally a no-op unless the roster
             // itself changed — this runs on every position drag.
-            await STLSpotlightIndexer.reindexIfNeeded(teams: snapshot)
+            await STLSpotlightIndexer.reindexIfNeeded(teams: allTeams)
         }
     }
 
@@ -1803,6 +1858,7 @@ class LineupStore: ObservableObject {
                 }
             }
             teams = decoded
+            accountTeamIDs = TeamStorage.accountTeamIDs().intersection(decoded.map(\.id))
         }
 
         // Restore the received-team flag from the durable ledger.
@@ -1897,6 +1953,12 @@ class LineupStore: ObservableObject {
         }
 
         await MainActor.run {
+            // Account teams sync with Supabase only. A CloudKit record with the
+            // same id (a team that moved to the account) must never overwrite
+            // the account copy.
+            var privateChanges = privateChanges
+            privateChanges.modifiedTeams.removeAll { self.accountTeamIDs.contains($0.id) }
+            let sharedTeams = sharedTeams.filter { !self.accountTeamIDs.contains($0.id) }
             self.mergeCloudKitChanges(
                 privateChanges,
                 sharedTeams: sharedTeams,
@@ -3231,6 +3293,19 @@ class LineupStore: ObservableObject {
         guard let team = teams.first(where: { $0.id == id }) else { return }
 
         let recordToDelete = Self.recordNameToDelete(for: team)
+
+        if accountTeamIDs.contains(id) {
+            // An account team is deleted from the account (Merge 0b): queued,
+            // and retried until the server confirms.
+            accountTeamIDs.remove(id)
+            accountEditCounts[id] = nil
+            if let sync = accountSync {
+                Task {
+                    await sync.queueDelete(id)
+                    self.syncAccount()
+                }
+            }
+        }
 
         teams.removeAll { $0.id == id }
         if activeTeamID == id {

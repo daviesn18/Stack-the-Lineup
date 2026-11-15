@@ -324,6 +324,8 @@ struct ContentView: View {
                 // Re-apply iCloud KV data immediately so changes from another device
                 // appear before the CloudKit incremental fetch completes.
                 store.load()
+                // Account teams (Merge 0b): pull, merge and push with Supabase.
+                store.syncAccount()
                 // Pull CloudKit changes (owned + shared teams) concurrently.
                 // The incremental merge overwrites the active team wholesale
                 // (mergeCloudKitChanges), so a server copy that predates a just-
@@ -354,6 +356,7 @@ struct ContentView: View {
                 // isn't stranded behind the trailing timer. The local write already
                 // happened in save(); this only forces the cloud round-trip early.
                 store.flushCloudPushes()
+                store.flushAccountSync()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .apnsTokenReceived)) { _ in
