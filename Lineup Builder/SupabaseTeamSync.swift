@@ -49,6 +49,8 @@ nonisolated struct TeamSyncOutcome: Sendable {
     var removedTeamIDs: Set<UUID> = []
     /// Teams in the account this device didn't have yet.
     var addedTeams: [Team] = []
+    /// Teams whose writes the server refuses: shown read-only.
+    var refusedTeamIDs: Set<UUID> = []
     var status: AccountSyncStatus
 }
 
@@ -73,6 +75,9 @@ actor SupabaseTeamSync {
     private let store: AccountTeamStore
     private let client: SupabaseClient
     private var file: AccountSyncFile
+    /// Set by sign-out before the folder is wiped, so a pass still running
+    /// can't write sync.json back into it.
+    private var closed = false
 
     init(store: AccountTeamStore, client: SupabaseClient = supabase) {
         self.store = store
@@ -82,6 +87,18 @@ actor SupabaseTeamSync {
 
     /// The persisted state for a team; for tests and diagnostics.
     func state(for id: UUID) -> TeamSyncState? { file.teams[id] }
+
+    /// Stops this actor writing anything more. Sign-out and account deletion.
+    func close() { closed = true }
+
+    /// Name-free lines for the diagnostics report.
+    func diagnostics() -> [String] {
+        var lines = ["  pending team deletes: \(file.pendingDeletes.count)"]
+        for (id, s) in file.teams.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            lines.append("  team \(id.uuidString): pushed \(s.lastPushAt.map(ISO8601DateFormatter().string) ?? "never")   pulled \(s.lastPullAt.map(ISO8601DateFormatter().string) ?? "never")   conflicts \(s.conflicts)   refused \(s.refused)   error \(s.lastError ?? "none")")
+        }
+        return lines
+    }
 
     /// Records a team deleted on this device. The delete goes out on the next
     /// pass and is retried until the server confirms it.
@@ -134,9 +151,12 @@ actor SupabaseTeamSync {
         var pending = 0
         var lastFailure: AccountSyncStatus.State?
 
-        for team in teams where !file.pendingDeletes.contains(team.id) {
+        for team in teams where !file.pendingDeletes.contains(team.id) && !closed {
             var state = file.teams[team.id] ?? TeamSyncState()
-            if state.refused { continue }
+            if state.refused {
+                outcome.refusedTeamIDs.insert(team.id)
+                continue
+            }
 
             var slots = state.slots
             let snapshot = TeamRowMapper.rows(from: team, slots: &slots, base: state.base).rows
@@ -196,6 +216,7 @@ actor SupabaseTeamSync {
                         lastFailure = .signInNeeded
                     case .refused:
                         state.refused = true
+                        outcome.refusedTeamIDs.insert(team.id)
                         lastFailure = .failed("This team can't be changed from this account.")
                     case .rejected:
                         state.stuckRows = working
@@ -373,6 +394,7 @@ actor SupabaseTeamSync {
     // MARK: - Persistence and backup
 
     private func persist() {
+        guard !closed else { return }
         do { try store.saveSync(file) } catch {
             Log.sync.error("Couldn't save sync state: \(error.localizedDescription, privacy: .public)")
         }

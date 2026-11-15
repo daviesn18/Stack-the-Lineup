@@ -76,10 +76,18 @@ final class AccountTeamStoreTests: XCTestCase {
 
     func testWriterDropsAnOlderWrite() async throws {
         let writer = AccountTeamWriter()
-        await writer.write([team("newer")], sequence: 2, to: store)
-        await writer.write([team("older")], sequence: 1, to: store)
+        await writer.write([team("newer")], sequence: 2, to: store, isSignedIn: { _ in true })
+        await writer.write([team("older")], sequence: 1, to: store, isSignedIn: { _ in true })
         guard case .loaded(let teams) = store.loadTeams() else { return XCTFail("not loaded") }
         XCTAssertEqual(teams.map(\.name), ["newer"])
+    }
+
+    func testWriterDoesNothingAfterSignOut() async throws {
+        // A save still in flight when the coach signs out must not recreate
+        // the folder sign-out deleted.
+        let writer = AccountTeamWriter()
+        await writer.write([team("late")], sequence: 1, to: store, isSignedIn: { _ in false })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.directory.path))
     }
 
     // MARK: - TeamStorage

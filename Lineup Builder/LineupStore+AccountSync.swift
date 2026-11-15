@@ -18,6 +18,7 @@
 
 import Combine
 import Foundation
+import Network
 import os
 import Supabase
 import UIKit
@@ -28,6 +29,11 @@ extension LineupStore {
 
     /// Follows the signed-in account. Called once, from init.
     func startFollowingAccount() {
+        AccountNetworkWatcher.shared.onReconnect = { [weak self] in
+            guard let self, self.accountSync != nil else { return }
+            Log.sync.notice("Back online; syncing account teams")
+            self.syncAccount()
+        }
         accountObserver = AccountManager.shared.$user
             .map { $0?.id.uuidString.lowercased() }
             .removeDuplicates()
@@ -51,6 +57,52 @@ extension LineupStore {
             accountSync = SupabaseTeamSync(store: store)
         }
         syncAccount()
+    }
+
+    /// After an explicit sign-out or account deletion: the account's teams
+    /// leave this device and its folder is deleted (a security gate item: no
+    /// account data stays behind). Device-only and CloudKit teams stay.
+    func removeAccountFromDevice() async {
+        let store = AccountTeamStore.current()
+        await accountSync?.close()
+        accountSync = nil
+        accountSyncStatus = nil
+        accountSyncDebouncer.flush()   // nothing to send any more; clears the timer
+        AccountTeamStore.setSignedInAccount(nil)
+
+        let ids = accountTeamIDs
+        accountTeamIDs = []
+        accountEditCounts = [:]
+        teams.removeAll { ids.contains($0.id) }
+        if let id = activeTeamID, ids.contains(id) { activeTeamID = teams.first?.id }
+        do { try store?.wipe() } catch {
+            Log.storage.error("Couldn't delete the account folder: \(error.localizedDescription, privacy: .public)")
+        }
+        Log.sync.notice("Removed \(ids.count, privacy: .public) account team(s) from this device")
+
+        if teams.isEmpty {
+            // Every team was in the account. Start fresh, as on a first launch.
+            load()
+        } else {
+            saveLocalOnly()
+        }
+    }
+
+    /// Account teams with changes the server doesn't have yet, plus team
+    /// deletes still waiting. What sign-out warns about.
+    func accountPendingCount() async -> Int {
+        guard let sync = accountSync else { return 0 }
+        let ids = accountTeamIDs
+        return await sync.pendingCount(teams: teams.filter { ids.contains($0.id) })
+    }
+
+    /// Name-free lines for the diagnostics report.
+    func accountDiagnosticsLines() async -> [String] {
+        guard AccountTeamStore.signedInAccount() != nil else { return ["Account teams: signed out"] }
+        var lines = ["Account teams (\(accountTeamIDs.count)): \(accountSyncStatus.map(AccountSyncText.line) ?? "not synced yet")"]
+        lines.append("  pending changes: \(await accountPendingCount())   conflicts settled: \(accountSyncStatus?.conflictCount ?? 0)")
+        if let sync = accountSync { lines += await sync.diagnostics() }
+        return lines
     }
 
     // MARK: - Running a pass
@@ -149,7 +201,63 @@ extension LineupStore {
             Log.sync.notice("Added team \(team.id, privacy: .public) from the account")
         }
 
+        // A refused team can't be changed from this account: show it read-only
+        // rather than letting edits pile up that will never send.
+        for id in outcome.refusedTeamIDs {
+            if let idx = teams.firstIndex(where: { $0.id == id }), !teams[idx].isReadOnly {
+                teams[idx].isReadOnly = true
+                changed = true
+            }
+        }
+
         if changed { saveLocalOnly() }
         if editedDuringPass, let id = accountTeamIDs.first { accountSyncDebouncer.schedule(id) }
+    }
+}
+
+
+// MARK: - Status text
+
+/// The one-line sync status Settings and diagnostics show. Fixed strings only.
+nonisolated enum AccountSyncText {
+    static func line(_ status: AccountSyncStatus) -> String {
+        switch status.state {
+        case .upToDate: return "All changes saved to your account."
+        case .pending(let n): return n == 1 ? "1 team has changes waiting to sync." : "\(n) teams have changes waiting to sync."
+        case .offline: return "Offline. Changes will sync when you're back online."
+        case .signInNeeded: return "Sign in again to sync your changes."
+        case .failed(let message): return message
+        }
+    }
+}
+
+// MARK: - Network
+
+/// Calls `onReconnect` when the device comes back online, so edits made
+/// offline go out without waiting for the next foreground.
+@MainActor
+final class AccountNetworkWatcher {
+    static let shared = AccountNetworkWatcher()
+
+    var onReconnect: (() -> Void)?
+    private let monitor = NWPathMonitor()
+    private var wasOnline = true
+
+    /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
+    /// AutoFillNLConstraintService's deinit.
+    nonisolated deinit {}
+
+    private init() {
+        // @Sendable: the handler runs on the monitor's queue. A main-actor closure
+        // here would trap on entry under Swift 6 (see objc-observer trap).
+        monitor.pathUpdateHandler = { @Sendable [weak self] path in
+            let online = path.status == .satisfied
+            Task { @MainActor in
+                guard let self else { return }
+                if online && !self.wasOnline { self.onReconnect?() }
+                self.wasOnline = online
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "account-network"))
     }
 }

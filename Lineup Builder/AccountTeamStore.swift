@@ -82,9 +82,11 @@ nonisolated struct AccountTeamStore: Sendable {
             .appendingPathComponent("Accounts", isDirectory: true)
     }
 
+    let userID: String
     let directory: URL
 
     init(userID: String, root: URL = AccountTeamStore.defaultRoot) {
+        self.userID = userID.lowercased()
         directory = root.appendingPathComponent(userID.lowercased(), isDirectory: true)
     }
 
@@ -162,8 +164,15 @@ actor AccountTeamWriter {
 
     private var written: UInt64 = 0
 
-    func write(_ teams: [Team], sequence: UInt64, to store: AccountTeamStore) {
+    /// - Parameter isSignedIn: whether `store`'s account is still the signed-in
+    ///   one. Injectable for tests; production reads UserDefaults.standard.
+    func write(_ teams: [Team], sequence: UInt64, to store: AccountTeamStore,
+               isSignedIn: (@Sendable (String) -> Bool)? = nil) {
         guard sequence > written else { return }
+        // A save that was in flight when the coach signed out must not
+        // recreate the folder sign-out just deleted.
+        let signedIn = isSignedIn?(store.userID) ?? (AccountTeamStore.signedInAccount() == store.userID)
+        guard signedIn else { return }
         do {
             try store.saveTeams(teams)
             written = sequence
