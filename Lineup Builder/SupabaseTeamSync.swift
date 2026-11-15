@@ -265,9 +265,13 @@ actor SupabaseTeamSync {
 
     // MARK: - Fetch
 
+    /// lineups and lineup_templates are each linked to teams twice (their
+    /// team_id, and the team's current_lineup_id / default_template_id), so
+    /// PostgREST needs the foreign key named or it answers 300 (ambiguous).
     private static let teamSelect = """
-        *, players(*), scheduled_games(*), lineup_templates(*, template_locks(*)), \
-        lineups(*, lineup_cells(inning, player_id, position)), \
+        *, players(*), scheduled_games(*), \
+        lineup_templates!lineup_templates_team_id_fkey(*, template_locks(*)), \
+        lineups!lineups_team_id_fkey(*, lineup_cells(inning, player_id, position)), \
         game_logs(*, pitch_counts(player_id, pitches))
         """
 
