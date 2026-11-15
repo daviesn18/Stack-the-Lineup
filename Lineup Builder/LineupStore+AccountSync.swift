@@ -105,6 +105,28 @@ extension LineupStore {
         return lines
     }
 
+    #if DEBUG
+    /// Signed in, and the open team isn't an account team yet.
+    var canDebugMoveActiveTeamToAccount: Bool {
+        accountSync != nil && !accountTeamIDs.contains(activeTeam.id)
+    }
+
+    /// Debug builds only: makes the open team an account team, so account
+    /// sync can be tested on staging before Merge 1 decides which teams move.
+    /// It leaves CloudKit: no record name, no sharing.
+    func debugMoveActiveTeamToAccount() {
+        guard canDebugMoveActiveTeamToAccount,
+              let idx = teams.firstIndex(where: { $0.id == activeTeamID }) else { return }
+        teams[idx].ckRecordName = nil
+        teams[idx].isSharedParticipant = false
+        teams[idx].isReadOnly = false
+        accountTeamIDs.insert(teams[idx].id)
+        Log.sync.notice("DEBUG: moved team \(self.teams[idx].id, privacy: .public) to the account")
+        saveLocalOnly()
+        syncAccount()
+    }
+    #endif
+
     // MARK: - Running a pass
 
     /// Starts a sync pass now, or right after the one running. No-op when
