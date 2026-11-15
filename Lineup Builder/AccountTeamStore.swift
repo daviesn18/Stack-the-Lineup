@@ -47,6 +47,9 @@ nonisolated struct TeamSyncState: Codable, Equatable, Sendable {
     var refused = false
     /// Conflicts settled for the device since install, for diagnostics.
     var conflicts = 0
+    /// The rows the server last rejected as invalid. While the team still maps
+    /// to exactly these, the push isn't retried; the next edit retries it.
+    var stuckRows: TeamRows?
 }
 
 nonisolated struct AccountSyncFile: Codable, Equatable, Sendable {

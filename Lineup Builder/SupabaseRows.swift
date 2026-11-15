@@ -127,7 +127,7 @@ nonisolated struct TeamRecord: Codable, Hashable, Sendable {
     var currentLineupID: UUID?
     var createdAt: Date
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, name
         case colorHex = "color_hex"
         case coachName = "coach_name"
@@ -155,7 +155,7 @@ nonisolated struct PlayerRecord: Codable, Hashable, Sendable {
     var onBase: String?
     var rosterOrder: Int
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, number, speed
         case teamID = "team_id"
         case firstName = "first_name"
@@ -179,7 +179,7 @@ nonisolated struct ScheduledGameRecord: Codable, Hashable, Sendable {
     var isCancelled: Bool
     var lastSyncedAt: Date?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, opponent, location
         case teamID = "team_id"
         case icalUID = "ical_uid"
@@ -197,7 +197,7 @@ nonisolated struct TemplateRecord: Codable, Hashable, Sendable {
     var battingOrder: [UUID]
     var createdAt: Date
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, name
         case teamID = "team_id"
         case battingOrder = "batting_order"
@@ -214,7 +214,7 @@ nonisolated struct TemplateLockRecord: Codable, Hashable, Sendable {
     var firstInning: Int
     var lastInning: Int
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, position
         case templateID = "template_id"
         case teamID = "team_id"
@@ -239,7 +239,7 @@ nonisolated struct LineupRecord: Codable, Hashable, Sendable {
     var lastFinalizedAt: Date?
     var defaultTemplateID: UUID?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, opponent, status
         case teamID = "team_id"
         case scheduledGameID = "scheduled_game_id"
@@ -275,7 +275,7 @@ nonisolated struct GameLogRecord: Codable, Hashable, Sendable {
     var archivedBy: String
     var notes: String
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, opponent, innings, notes
         case teamID = "team_id"
         case gameDate = "game_date"
