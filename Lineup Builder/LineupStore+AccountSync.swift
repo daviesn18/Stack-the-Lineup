@@ -21,6 +21,7 @@ import Foundation
 import Network
 import os
 import Supabase
+import SwiftUI
 import UIKit
 
 extension LineupStore {
@@ -255,31 +256,79 @@ nonisolated enum AccountSyncText {
 
 // MARK: - Network
 
-/// Calls `onReconnect` when the device comes back online, so edits made
-/// offline go out without waiting for the next foreground.
+/// Follows the device's connection: publishes `isOnline` for the offline
+/// strip, and calls `onReconnect` when the device comes back online so edits
+/// made offline go out without waiting for the next foreground.
 @MainActor
-final class AccountNetworkWatcher {
+final class AccountNetworkWatcher: ObservableObject {
     static let shared = AccountNetworkWatcher()
 
+    @Published private(set) var isOnline = true
     var onReconnect: (() -> Void)?
     private let monitor = NWPathMonitor()
-    private var wasOnline = true
 
     /// Nonisolated to avoid the iOS 26.0-26.3 isolated-deinit crash; see
     /// AutoFillNLConstraintService's deinit.
     nonisolated deinit {}
 
     private init() {
+        #if DEBUG
+        // Launch argument for checking the offline strip in the simulator,
+        // which can't be taken offline.
+        if ProcessInfo.processInfo.arguments.contains("-STLSimulateOffline") {
+            isOnline = false
+            return
+        }
+        #endif
         // @Sendable: the handler runs on the monitor's queue. A main-actor closure
         // here would trap on entry under Swift 6 (see objc-observer trap).
         monitor.pathUpdateHandler = { @Sendable [weak self] path in
             let online = path.status == .satisfied
             Task { @MainActor in
                 guard let self else { return }
-                if online && !self.wasOnline { self.onReconnect?() }
-                self.wasOnline = online
+                let wasOnline = self.isOnline
+                self.isOnline = online
+                if online && !wasOnline { self.onReconnect?() }
             }
         }
         monitor.start(queue: DispatchQueue(label: "account-network"))
+    }
+}
+
+// MARK: - Offline strip
+
+/// A thin strip across the top of every screen while the open team is an
+/// account team and its changes can't reach the server. Information, not an
+/// error: the changes are safe on the device and go out on their own.
+struct AccountOfflineStrip: View {
+    @ObservedObject var store: LineupStore
+    @ObservedObject private var network = AccountNetworkWatcher.shared
+
+    private var isShowing: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-STLSimulateOffline") { return true }
+        #endif
+        guard store.accountTeamIDs.contains(store.activeTeam.id) else { return false }
+        if case .offline = store.accountSyncStatus?.state { return true }
+        return !network.isOnline
+    }
+
+    var body: some View {
+        if isShowing {
+            HStack(spacing: 6) {
+                Image(systemName: "icloud.slash")
+                Text("Offline. Changes are saved and will sync.")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(.bar, ignoresSafeAreaEdges: .top)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Offline. Your changes are saved on this device and will sync when you're back online.")
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 }

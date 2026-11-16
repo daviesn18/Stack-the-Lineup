@@ -86,6 +86,11 @@ struct ContentView: View {
     @State private var shareJoinPhase: ShareJoinPhase = .idle
 
     var body: some View {
+        // Offline strip for account teams (Merge 0b), stacked above the app so
+        // each screen's own toolbar starts below it. A safe-area inset doesn't
+        // work here: iOS 26's floating toolbar ignores it and ends up underneath.
+        VStack(spacing: 0) {
+        AccountOfflineStrip(store: store)
         Group {
             if horizontalSizeClass == .regular {
                 // iPad — full planning dashboard. A window with a fold through it
@@ -103,6 +108,7 @@ struct ContentView: View {
                     tourEnabled: !showingWelcome && !showingWhatsNew
                 )
             }
+        }
         }
         // Cross-platform welcome/what's-new gate for every tour tip. The iPhone
         // path also folds this into `tourEnabled` above; the iPad dashboard's
