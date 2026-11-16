@@ -317,7 +317,7 @@ struct AccountOfflineStrip: View {
         if isShowing {
             HStack(spacing: 6) {
                 Image(systemName: "icloud.slash")
-                Text("Offline. Changes are saved and will sync.")
+                Text("Offline. Changes will sync when connectivity is restored.")
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
