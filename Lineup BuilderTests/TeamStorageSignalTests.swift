@@ -58,8 +58,14 @@ final class TeamStorageSignalTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        XCTAssertTrue(TeamStorageSignal.claimToday(defaults: defaults, now: now))
-        XCTAssertFalse(TeamStorageSignal.claimToday(defaults: defaults, now: now.addingTimeInterval(3_600)))
-        XCTAssertTrue(TeamStorageSignal.claimToday(defaults: defaults, now: now.addingTimeInterval(86_400)))
+        // A fixed timezone and noon, so "an hour later" is the same day on
+        // any machine (CI runs in UTC; a timestamp near midnight there failed).
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        let noon = calendar.date(from: DateComponents(year: 2026, month: 11, day: 15, hour: 12))!
+
+        XCTAssertTrue(TeamStorageSignal.claimToday(defaults: defaults, now: noon, calendar: calendar))
+        XCTAssertFalse(TeamStorageSignal.claimToday(defaults: defaults, now: noon.addingTimeInterval(3_600), calendar: calendar))
+        XCTAssertTrue(TeamStorageSignal.claimToday(defaults: defaults, now: noon.addingTimeInterval(86_400), calendar: calendar))
     }
 }

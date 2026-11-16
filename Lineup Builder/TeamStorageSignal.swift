@@ -79,8 +79,9 @@ nonisolated enum TeamStorageSignal {
     }
 
     /// True (and records today) when no signal has gone yet today.
-    static func claimToday(defaults: UserDefaults = .standard, now: Date = Date()) -> Bool {
-        let today = dayString(now)
+    static func claimToday(defaults: UserDefaults = .standard, now: Date = Date(),
+                           calendar: Calendar = .current) -> Bool {
+        let today = dayString(now, calendar: calendar)
         guard defaults.string(forKey: lastSentDayKey) != today else { return false }
         defaults.set(today, forKey: lastSentDayKey)
         return true
