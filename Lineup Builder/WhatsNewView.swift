@@ -9,9 +9,25 @@ struct WhatsNewFeature {
     let description: String
 }
 
+/// One numbered step in a "What to do" section.
+struct WhatsNewStep {
+    let title: String
+    let detail: String
+}
+
+/// A link button shown under the steps.
+struct WhatsNewLink {
+    let title: String
+    let url: URL
+}
+
 struct WhatsNewContent {
     let version: String
     let features: [WhatsNewFeature]
+    /// Optional "What to do" section: numbered steps for a release that asks
+    /// the coach to do something (4.0: sign in, move a team, open the web).
+    var steps: [WhatsNewStep] = []
+    var link: WhatsNewLink? = nil
 }
 
 // MARK: - Version Registry
@@ -21,6 +37,45 @@ struct WhatsNewContent {
 
 extension WhatsNewContent {
     static let all: [WhatsNewContent] = [
+        WhatsNewContent(
+            version: "4.0",
+            features: [
+                WhatsNewFeature(
+                    icon: "globe",
+                    iconColor: .blue,
+                    title: "Stack the Lineup on the Web",
+                    description: "Build lineups on your laptop at app.stackthelineup.com. Same teams, same Fair Play rules, and the same free features as the app."
+                ),
+                WhatsNewFeature(
+                    icon: "person.crop.circle.badge.checkmark",
+                    iconColor: .green,
+                    title: "One Account, Every Device",
+                    description: "Sign in with Apple, Google, or email and your teams stay in sync across iPhone, iPad, and the web. Signing in is optional."
+                ),
+                WhatsNewFeature(
+                    icon: "lock.shield",
+                    iconColor: .orange,
+                    title: "Your Teams Are Safe",
+                    description: "Teams you already have keep working exactly as before, including shared teams. Nothing moves unless you move it."
+                )
+            ],
+            steps: [
+                WhatsNewStep(
+                    title: "Sign in",
+                    detail: "Go to Settings › Account › Sign In. New teams you create while signed in are saved to your account automatically."
+                ),
+                WhatsNewStep(
+                    title: "Move a team you already have",
+                    detail: "Open the team, tap Edit Team, then Move to My Account. Do this for any team you want on the web, like a year-round team."
+                ),
+                WhatsNewStep(
+                    title: "Open it on the web",
+                    detail: "Go to app.stackthelineup.com on your computer and sign in with the same account."
+                )
+            ],
+            link: WhatsNewLink(title: "Open app.stackthelineup.com",
+                               url: URL(string: "https://app.stackthelineup.com")!)
+        ),
         WhatsNewContent(
             version: "3.5",
             features: [
@@ -360,6 +415,45 @@ struct WhatsNewView: View {
                             }
                         }
                     }
+
+                    if !content.steps.isEmpty {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("What to Do")
+                                .font(.title3.bold())
+                                .padding(.top, 4)
+                            ForEach(Array(content.steps.enumerated()), id: \.offset) { index, step in
+                                HStack(alignment: .top, spacing: 16) {
+                                    Text("\(index + 1)")
+                                        .font(.body.bold())
+                                        .foregroundColor(.white)
+                                        .frame(width: 32, height: 32)
+                                        .background(Circle().fill(Color.blue))
+                                        .padding(.horizontal, 8)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(step.title)
+                                            .font(.body.bold())
+                                        Text(step.detail)
+                                            .font(.callout)
+                                            .foregroundColor(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .accessibilityElement(children: .combine)
+                            }
+                        }
+                    }
+
+                    if let link = content.link {
+                        Link(destination: link.url) {
+                            Label(link.title, systemImage: "arrow.up.right.square")
+                                .font(.body.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Color.blue.opacity(0.12))
+                                .foregroundColor(.blue)
+                                .cornerRadius(14)
+                        }
+                    }
                 }
                 .padding(.horizontal, 28)
                 .padding(.bottom, 8)
@@ -387,6 +481,10 @@ struct WhatsNewView: View {
 }
 
 // MARK: - Previews
+
+#Preview("What's New v4.0") {
+    WhatsNewView(content: WhatsNewContent.all.first(where: { $0.version == "4.0" })!)
+}
 
 #Preview("What's New v3.2") {
     WhatsNewView(content: WhatsNewContent.all.first(where: { $0.version == "3.2" })!)
