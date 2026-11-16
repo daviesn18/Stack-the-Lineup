@@ -77,6 +77,13 @@ final class WhatsNewContentTests: XCTestCase {
         )
     }
 
+    /// A "What to do" list is for a few clear actions, not a manual.
+    func testStepsStayShort() {
+        for entry in WhatsNewContent.all {
+            XCTAssertLessThanOrEqual(entry.steps.count, 4, "Version \(entry.version) has \(entry.steps.count) steps")
+        }
+    }
+
     /// A version is either documented or deliberately silent, never both —
     /// otherwise the declared intent contradicts itself.
     func testSilentReleasesAreNotAlsoDocumented() {

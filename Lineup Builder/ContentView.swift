@@ -326,6 +326,8 @@ struct ContentView: View {
                 store.load()
                 // Account teams (Merge 0b): pull, merge and push with Supabase.
                 store.syncAccount()
+                // Where teams live (CloudKit vs account), once a day, to time the hard cutover.
+                store.sendDailyStorageSignalIfNeeded()
                 // Pull CloudKit changes (owned + shared teams) concurrently.
                 // The incremental merge overwrites the active team wholesale
                 // (mergeCloudKitChanges), so a server copy that predates a just-
