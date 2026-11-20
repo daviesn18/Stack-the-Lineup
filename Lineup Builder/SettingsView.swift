@@ -248,7 +248,7 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { store.debugMoveActiveTeamToAccount() }
                 } footer: {
-                    Text("Debug builds only (staging). Makes the open team an account team so it syncs with Supabase. Merge 1 replaces this with the real cutover rules.")
+                    Text("Debug builds only (staging). Runs the real move on the open team (backup, upload, read-back, CloudKit marker); the result is in the sync log. Becomes the Move to My Account button in Edit Team.")
                 }
                 Section {
                     HStack {

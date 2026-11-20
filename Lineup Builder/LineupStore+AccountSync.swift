@@ -58,6 +58,8 @@ extension LineupStore {
             accountSync = SupabaseTeamSync(store: store)
         }
         syncAccount()
+        // A move cut short (the app was killed mid-move) resumes or rolls back.
+        Task { await resumeTeamMoves() }
     }
 
     /// After an explicit sign-out or account deletion: the account's teams
@@ -109,22 +111,18 @@ extension LineupStore {
     #if DEBUG
     /// Signed in, and the open team isn't an account team yet.
     var canDebugMoveActiveTeamToAccount: Bool {
-        accountSync != nil && !accountTeamIDs.contains(activeTeam.id)
+        accountSync != nil && !accountTeamIDs.contains(activeTeam.id) && movingTeamID == nil
     }
 
-    /// Debug builds only: makes the open team an account team, so account
-    /// sync can be tested on staging before Merge 1 decides which teams move.
-    /// It leaves CloudKit: no record name, no sharing.
+    /// Debug builds only, until slice 3 adds the real button: runs the real
+    /// move (TeamMove) on the open team and logs the result.
     func debugMoveActiveTeamToAccount() {
-        guard canDebugMoveActiveTeamToAccount,
-              let idx = teams.firstIndex(where: { $0.id == activeTeamID }) else { return }
-        teams[idx].ckRecordName = nil
-        teams[idx].isSharedParticipant = false
-        teams[idx].isReadOnly = false
-        accountTeamIDs.insert(teams[idx].id)
-        Log.sync.notice("DEBUG: moved team \(self.teams[idx].id, privacy: .public) to the account")
-        saveLocalOnly()
-        syncAccount()
+        guard canDebugMoveActiveTeamToAccount else { return }
+        let id = activeTeam.id
+        Task {
+            let result = await moveTeamToAccount(id)
+            Log.sync.notice("DEBUG: move of team \(id, privacy: .public): \(String(describing: result), privacy: .public)")
+        }
     }
     #endif
 
@@ -140,26 +138,45 @@ extension LineupStore {
         }
         accountSyncRunning = true
 
-        let ids = accountTeamIDs
-        let accountTeams = teams.filter { ids.contains($0.id) }
-        let others = Set(teams.map(\.id)).subtracting(ids)
-        let counts = accountEditCounts
-
         // A pass that starts as the app goes to the background gets the few
         // seconds iOS allows to finish, instead of being frozen mid-push.
         let background = UIApplication.shared.beginBackgroundTask(withName: "account-sync")
 
         Task { [weak self] in
-            let outcome = await sync.sync(teams: accountTeams, excluding: others)
             guard let self else { return }
-            self.applySyncOutcome(outcome, editCountsAtStart: counts)
-            self.accountSyncRunning = false
+            await self.performAccountPass(sync)
             if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
-            if self.accountSyncAgain {
-                self.accountSyncAgain = false
-                self.syncAccount()
-            }
         }
+    }
+
+    /// Runs a pass and waits for it: after the one already running, if any.
+    /// A move needs its pass finished before the read-back. Nil when signed out.
+    @discardableResult
+    func syncAccountAndWait() async -> TeamSyncOutcome? {
+        while accountSyncRunning {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard let sync = accountSync else { return nil }
+        accountSyncRunning = true   // no suspension since the check: still ours
+        return await performAccountPass(sync)
+    }
+
+    /// One pass. The caller has set `accountSyncRunning`.
+    @discardableResult
+    private func performAccountPass(_ sync: SupabaseTeamSync) async -> TeamSyncOutcome {
+        let ids = accountTeamIDs
+        let accountTeams = teams.filter { ids.contains($0.id) }
+        let others = Set(teams.map(\.id)).subtracting(ids)
+        let counts = accountEditCounts
+
+        let outcome = await sync.sync(teams: accountTeams, excluding: others)
+        applySyncOutcome(outcome, editCountsAtStart: counts)
+        accountSyncRunning = false
+        if accountSyncAgain {
+            accountSyncAgain = false
+            syncAccount()
+        }
+        return outcome
     }
 
     /// Sends any edit still waiting on the debounce. Call when leaving the

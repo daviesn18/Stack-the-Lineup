@@ -228,7 +228,11 @@ actor CloudKitManager {
     nonisolated let recordTypeName      = "Team"
     nonisolated let jsonField           = "teamJSON"
     nonisolated let modifiedAtField     = "localModifiedAt"
-    
+    /// Merge 1: set when the team moved to the coach's account. Its own field,
+    /// never touched by saveTeam, so an old app version's save keeps it (the
+    /// conflict path re-saves onto the server's record, copying only the JSON).
+    nonisolated let movedToAccountField = "movedToAccountAt"
+
     // UserDefaults keys
     private let migrationKey   = "hasCompletedCloudKitMigration"
     /// Debug builds talk to the CloudKit Development database, TestFlight and App
@@ -399,6 +403,30 @@ actor CloudKitManager {
         return recordName
     }
     
+    /// Merge 1: marks a team's record as moved to the coach's account, so the
+    /// coach's other devices can tell (slice 4 reads it). The record itself
+    /// stays as a backup. A record that's already gone has nothing to mark.
+    func markMovedToAccount(recordName: String, at date: Date = Date()) async throws {
+        let recordID = CKRecord.ID(recordName: recordName, zoneID: ckZone.zoneID)
+        for attempt in 0..<2 {
+            let record: CKRecord
+            do {
+                record = try await privateDB.record(for: recordID)
+            } catch let ckError as CKError where ckError.code == .unknownItem {
+                Log.sync.notice("Moved marker skipped for \(recordName, privacy: .public): the record is gone")
+                return
+            }
+            record[movedToAccountField] = date as CKRecordValue
+            do {
+                let saved = try await privateDB.save(record)
+                recordCache[recordName] = saved
+                return
+            } catch let ckError as CKError where ckError.code == .serverRecordChanged && attempt == 0 {
+                continue   // changed between fetch and save: fetch again once
+            }
+        }
+    }
+
     private func saveRecordWithConflictResolution(
         _ record: CKRecord,
         localModifiedAt: Date,

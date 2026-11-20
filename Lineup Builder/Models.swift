@@ -1527,6 +1527,8 @@ class LineupStore: ObservableObject {
     var accountEditCounts: [UUID: Int] = [:]
     var accountSyncRunning = false
     var accountSyncAgain = false
+    /// The team moving into the account right now (Merge 1), for the UI.
+    @Published var movingTeamID: UUID?
     /// Orders teams.json writes (see AccountTeamWriter).
     private var accountWriteSequence: UInt64 = 0
     /// Same 2-second trailing debounce as the CloudKit push.
