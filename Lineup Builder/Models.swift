@@ -3105,13 +3105,39 @@ class LineupStore: ObservableObject {
         newTeam.name = name
         newTeam.color = color
         newTeam.coachName = UIDevice.current.name
-        teams.append(newTeam)
+        let toAccount = placeNewTeam(newTeam)
         activeTeamID = newTeam.id
         if let gameInningCount {
             applyGameInningCount(gameInningCount, at: teams.count - 1)
         }
-        Analytics.signal("team.created", parameters: ["teamCount": "\(teams.count)"])
+        Analytics.signal("team.created", parameters: [
+            "teamCount": "\(teams.count)",
+            "storage": toAccount ? "account" : "cloudkit",
+        ])
         save()
+    }
+
+    // MARK: - Where new teams go (Merge 1)
+
+    /// Whether a team made on this device now starts in the coach's account.
+    /// Signed in: yes, so it never reaches CloudKit (offline is fine: it waits
+    /// in the save queue). Signed out: no, it's a CloudKit team as before. A
+    /// first launch is always signed out, so the default team stays on CloudKit.
+    ///
+    /// Read from the persisted sign-in rather than `accountSync`, which is only
+    /// set a moment after launch, when the stored session is restored.
+    var newTeamsGoToAccount: Bool { AccountTeamStore.signedInAccount() != nil }
+
+    /// Adds a team made on this device (created or imported), tagged as an
+    /// account team when the coach is signed in. Tagging happens before the
+    /// first save, so the team is written to the account file and never to the
+    /// blob, the KV store or CloudKit. Returns whether it went to the account.
+    @discardableResult
+    private func placeNewTeam(_ team: Team) -> Bool {
+        teams.append(team)
+        guard newTeamsGoToAccount else { return false }
+        accountTeamIDs.insert(team.id)
+        return true
     }
 
     // MARK: - Remote Deletions
@@ -3377,17 +3403,30 @@ class LineupStore: ObservableObject {
         var updated = snapshot
         updated.id = teams[idx].id
         updated.lineup = Lineup()
+        // The team keeps its own identity and sharing state wherever it lives.
+        // A .stlteam carries the exporting team's record name and flags; taken
+        // over, the next push would target that other team's CloudKit record.
+        updated.ckRecordName = teams[idx].ckRecordName
+        updated.isReadOnly = teams[idx].isReadOnly
+        updated.isSharedParticipant = teams[idx].isSharedParticipant
         teams[idx] = updated
         save()
     }
 
     /// Adds an imported team as a new entry, assigns a fresh UUID, and switches to it.
     /// Resets the active lineup to a fresh Lineup().
+    ///
+    /// Signed in, the team goes to the account (Merge 1). The fresh id means it
+    /// can't collide with a team already there. A .stlteam carries the sender's
+    /// sharing state, so that's cleared: the import is this coach's own team.
     func addImportedTeam(_ snapshot: Team) {
         var newTeam = snapshot
         newTeam.id = UUID()
         newTeam.lineup = Lineup()
-        teams.append(newTeam)
+        newTeam.ckRecordName = nil
+        newTeam.isSharedParticipant = false
+        newTeam.isReadOnly = false
+        placeNewTeam(newTeam)
         activeTeamID = newTeam.id
         save()
     }
