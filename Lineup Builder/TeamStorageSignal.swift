@@ -14,8 +14,8 @@
 //  iPhone and an iPad counts twice, and a shared team counts once per coach
 //  on it. That's fine for a trend.
 //
-//  "account" is always 0 until account teams exist (Merge 0b/1); the
-//  parameter is sent from the start so the chart's shape never changes.
+//  Account teams (Merge 0b) count as "account" even if they still carry a
+//  CloudKit record name from before they moved.
 //
 
 import Foundation
@@ -94,6 +94,7 @@ extension LineupStore {
     func sendDailyStorageSignalIfNeeded() {
         guard !teams.isEmpty, TeamStorageSignal.claimToday() else { return }
         Analytics.signal(TeamStorageSignal.name, parameters: TeamStorageSignal.parameters(
-            teams: teams, activeTeamID: activeTeamID, isReceivedShare: { self.isReceivedShare($0) }))
+            teams: teams, activeTeamID: activeTeamID, accountTeamIDs: accountTeamIDs,
+            isReceivedShare: { self.isReceivedShare($0) }))
     }
 }

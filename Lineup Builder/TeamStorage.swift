@@ -182,7 +182,48 @@ nonisolated enum TeamStorage {
     /// roster. Passing a private suite removes the shared mutable state rather than
     /// trying to out-race it. Note this injects the *local* store only: the KV store
     /// is untouched because DEBUG never reads it.
-    static func load(defaults: UserDefaults = .standard) -> LoadResult {
+    static func load(defaults: UserDefaults = .standard,
+                     accountsRoot: URL = AccountTeamStore.defaultRoot) -> LoadResult {
+        let blob = loadBlob(defaults: defaults)
+
+        // Teams in the signed-in coach's account (Merge 0b) live in their own
+        // files, never in the blob. They join whatever the blob holds; an id in
+        // both is the account's copy (the blob one is a leftover from before the
+        // team moved). A blob that won't decode still reports decodeFailed, so
+        // the SAFETY RULE on applyStoredData() holds whatever the account has.
+        guard let store = AccountTeamStore.current(defaults: defaults, root: accountsRoot),
+              case .loaded(let accountTeams) = store.loadTeams(), !accountTeams.isEmpty
+        else { return blob }
+
+        switch blob {
+        case .decodeFailed:
+            return .decodeFailed
+        case .empty(let activeID):
+            return .loaded(teams: accountTeams.map(normalizingLogs), activeID: activeID)
+        case .loaded(let teams, let activeID):
+            let accountIDs = Set(accountTeams.map(\.id))
+            return .loaded(teams: teams.filter { !accountIDs.contains($0.id) } + accountTeams.map(normalizingLogs),
+                           activeID: activeID)
+        }
+    }
+
+    /// The account teams' ids, so LineupStore knows which teams save to the
+    /// account rather than the blob. Empty when signed out.
+    static func accountTeamIDs(defaults: UserDefaults = .standard,
+                               accountsRoot: URL = AccountTeamStore.defaultRoot) -> Set<UUID> {
+        guard let store = AccountTeamStore.current(defaults: defaults, root: accountsRoot),
+              case .loaded(let teams) = store.loadTeams() else { return [] }
+        return Set(teams.map(\.id))
+    }
+
+    private static func normalizingLogs(_ team: Team) -> Team {
+        var t = team
+        t.gameLogs = t.gameLogs.sorted { $0.gameDate > $1.gameDate }
+        return t
+    }
+
+    /// The UserDefaults / iCloud KV blob: device-only and CloudKit teams.
+    private static func loadBlob(defaults: UserDefaults) -> LoadResult {
         let localData = defaults.data(forKey: teamsKey)
 
         #if DEBUG
@@ -212,13 +253,7 @@ nonisolated enum TeamStorage {
 
         // Sort each team's game logs by gameDate descending — corrects any logs
         // stored out of order due to the archive-order bug.
-        let normalized = decoded.map { team -> Team in
-            var t = team
-            t.gameLogs = t.gameLogs.sorted { $0.gameDate > $1.gameDate }
-            return t
-        }
-
-        return .loaded(teams: normalized, activeID: activeID)
+        return .loaded(teams: decoded.map(normalizingLogs), activeID: activeID)
     }
 
     // MARK: - Intent Convenience

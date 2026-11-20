@@ -13,7 +13,11 @@ import SwiftUI
 
 struct AccountSection: View {
     @EnvironmentObject private var account: AccountManager
+    @EnvironmentObject private var store: LineupStore
     @State private var confirmingSignOut = false
+    /// Account teams with changes not yet in the account, counted when the
+    /// coach taps Sign Out (Merge 0b).
+    @State private var unsyncedCount = 0
     @State private var confirmingDelete = false
     @State private var deleting = false
     @State private var deleteError: String?
@@ -31,11 +35,39 @@ struct AccountSection: View {
                 }
                 .accessibilityElement(children: .combine)
 
-                Button("Sign Out") { confirmingSignOut = true }
-                    .confirmationDialog("Sign out on this device?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
-                        Button("Sign Out", role: .destructive) { Task { await account.signOut() } }
+                if let status = store.accountSyncStatus, !store.accountTeamIDs.isEmpty {
+                    Label(AccountSyncText.line(status), systemImage: Self.symbol(for: status))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("Sign Out") {
+                    Task {
+                        unsyncedCount = await store.accountPendingCount()
+                        confirmingSignOut = true
+                    }
+                }
+                    .confirmationDialog(unsyncedCount > 0 ? "Some changes haven't synced" : "Sign out on this device?",
+                                        isPresented: $confirmingSignOut, titleVisibility: .visible) {
+                        if unsyncedCount > 0 {
+                            Button("Sync Now") { store.syncAccount() }
+                        }
+                        Button(unsyncedCount > 0 ? "Sign Out Anyway" : "Sign Out", role: .destructive) {
+                            Task {
+                                await account.signOut()
+                                await store.removeAccountFromDevice()
+                            }
+                        }
                     } message: {
-                        Text("You can sign back in anytime.")
+                        if unsyncedCount > 0 {
+                            Text(unsyncedCount == 1
+                                 ? "1 team has changes that aren't in your account yet. Signing out removes your account's teams from this device, and those changes with them."
+                                 : "\(unsyncedCount) teams have changes that aren't in your account yet. Signing out removes your account's teams from this device, and those changes with them.")
+                        } else if !store.accountTeamIDs.isEmpty {
+                            Text("Your account's teams leave this device and stay in your account. Sign back in anytime to get them back.")
+                        } else {
+                            Text("You can sign back in anytime.")
+                        }
                     }
 
                 Button(role: .destructive) {
@@ -88,11 +120,21 @@ struct AccountSection: View {
         }
     }
 
+    private static func symbol(for status: AccountSyncStatus) -> String {
+        switch status.state {
+        case .upToDate: return "checkmark.icloud"
+        case .pending: return "arrow.triangle.2.circlepath.icloud"
+        case .offline: return "icloud.slash"
+        case .signInNeeded, .failed: return "exclamationmark.icloud"
+        }
+    }
+
     private func delete() {
         deleting = true
         Task {
             do {
                 try await account.deleteAccount()
+                await store.removeAccountFromDevice()
             } catch {
                 // Backing out of Apple's sheet is a cancel, not a failure.
                 if let message = AccountError.coachMessage(for: error) { deleteError = message }

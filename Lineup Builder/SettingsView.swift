@@ -29,6 +29,9 @@ struct SettingsView: View {
     // Diagnostics export — see the Email Diagnostics row and generateDiagnostics().
     @State private var diagnosticsText: String?
     @State private var isGeneratingDiagnostics = false
+    #if DEBUG
+    @State private var debugHangCount = 0
+    #endif
     @State private var showingMailComposer = false
     @State private var showingDiagnosticsFallback = false
 
@@ -234,6 +237,49 @@ struct SettingsView: View {
                 } footer: {
                     Text("Debug builds only. Forces the Pro entitlement on or off so both versions can be tested without StoreKit.")
                 }
+                Section {
+                    // contentShape + onTapGesture: a plain Button as a List row
+                    // can silently not fire.
+                    Text(store.accountTeamIDs.contains(store.activeTeam.id)
+                         ? "This team is in your account"
+                         : "Move This Team to My Account")
+                        .foregroundStyle(store.canDebugMoveActiveTeamToAccount ? Color.accentColor : .secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { store.debugMoveActiveTeamToAccount() }
+                } footer: {
+                    Text("Debug builds only (staging). Makes the open team an account team so it syncs with Supabase. Merge 1 replaces this with the real cutover rules.")
+                }
+                Section {
+                    HStack {
+                        Text("Recorded Hangs")
+                        Spacer()
+                        Text("\(debugHangCount)").foregroundStyle(.secondary)
+                    }
+                    Text("Simulate a 3-Second Hang")
+                        .foregroundStyle(Color.accentColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            Thread.sleep(forTimeInterval: 3)
+                            // The watchdog writes its record a tick after the
+                            // main thread comes back.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                debugHangCount = HangRecorder.shared.recordCount
+                            }
+                        }
+                    Text("Clear Recorded Hangs")
+                        .foregroundStyle(debugHangCount > 0 ? Color.red : .secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            HangRecorder.shared.clear()
+                            debugHangCount = 0
+                        }
+                } footer: {
+                    Text("Debug builds only. Main-thread freezes of 2 s or more, whole-app pauses in the foreground (a debugger or iOS stopping the app), and MetricKit hang reports with call stacks, which arrive after a relaunch. Each record says whether a debugger was attached. Email Diagnostics includes them.")
+                }
+                .onAppear { debugHangCount = HangRecorder.shared.recordCount }
                 #endif
 
                 // MARK: - Data

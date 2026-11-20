@@ -68,6 +68,7 @@ enum DiagnosticsReport {
         lines.append("Declined remote deletions: \(store.declinedRemoteDeletions.count)")
         lines.append("Pending remote deletions: \(store.pendingRemoteDeletions.count)")
         lines.append("Pending share revocations: \(store.pendingShareRevocations.count)")
+        lines += await store.accountDiagnosticsLines()
         lines.append("Active team id: \(store.activeTeamID?.uuidString ?? "none")")
 
         // The most recent share acceptance. This is the field that turns an
@@ -84,6 +85,11 @@ enum DiagnosticsReport {
         } else {
             lines.append("Last share accept: none recorded")
         }
+
+        #if DEBUG
+        // Times, durations and code-address call stacks only; see HangRecorder.
+        lines += HangRecorder.shared.reportLines()
+        #endif
 
         return lines.joined(separator: "\n")
     }
