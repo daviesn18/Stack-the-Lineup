@@ -100,6 +100,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         NotificationManager.shared.installDelegate()
+        #if DEBUG
+        // Records main-thread hangs (MetricKit stacks + a watchdog) for the
+        // diagnostics report. See HangRecorder.
+        HangRecorder.shared.start()
+        #endif
         return true
     }
 

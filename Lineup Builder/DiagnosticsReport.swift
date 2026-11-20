@@ -86,6 +86,11 @@ enum DiagnosticsReport {
             lines.append("Last share accept: none recorded")
         }
 
+        #if DEBUG
+        // Times, durations and code-address call stacks only; see HangRecorder.
+        lines += HangRecorder.shared.reportLines()
+        #endif
+
         return lines.joined(separator: "\n")
     }
 
