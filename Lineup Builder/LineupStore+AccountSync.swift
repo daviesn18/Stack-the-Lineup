@@ -30,6 +30,10 @@ extension LineupStore {
 
     /// Follows the signed-in account. Called once, from init.
     func startFollowingAccount() {
+        // Under unit tests, a session the simulator kept from a manual run
+        // would sign every test store in to that real account and start sync
+        // passes against it. Tests sign in explicitly instead.
+        guard !Self.isRunningUnitTests else { return }
         AccountNetworkWatcher.shared.onReconnect = { [weak self] in
             guard let self, self.accountSync != nil else { return }
             Log.sync.notice("Back online; syncing account teams")
@@ -43,6 +47,9 @@ extension LineupStore {
                 self?.accountDidSignIn(userID)
             }
     }
+
+    nonisolated static let isRunningUnitTests =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     /// A coach is signed in (at launch, or just now). Signing out is not
     /// handled here: only an explicit sign-out may remove account teams from
@@ -107,24 +114,6 @@ extension LineupStore {
         if let sync = accountSync { lines += await sync.diagnostics() }
         return lines
     }
-
-    #if DEBUG
-    /// Signed in, and the open team isn't an account team yet.
-    var canDebugMoveActiveTeamToAccount: Bool {
-        accountSync != nil && !accountTeamIDs.contains(activeTeam.id) && movingTeamID == nil
-    }
-
-    /// Debug builds only, until slice 3 adds the real button: runs the real
-    /// move (TeamMove) on the open team and logs the result.
-    func debugMoveActiveTeamToAccount() {
-        guard canDebugMoveActiveTeamToAccount else { return }
-        let id = activeTeam.id
-        Task {
-            let result = await moveTeamToAccount(id)
-            Log.sync.notice("DEBUG: move of team \(id, privacy: .public): \(String(describing: result), privacy: .public)")
-        }
-    }
-    #endif
 
     // MARK: - Running a pass
 

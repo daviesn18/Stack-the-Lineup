@@ -1529,6 +1529,9 @@ class LineupStore: ObservableObject {
     var accountSyncAgain = false
     /// The team moving into the account right now (Merge 1), for the UI.
     @Published var movingTeamID: UUID?
+    /// The backup and read-back of the last team imported into the account,
+    /// while it runs. Kept so tests can wait for it.
+    var importConfirmation: Task<Void, Never>?
     /// Orders teams.json writes (see AccountTeamWriter).
     private var accountWriteSequence: UInt64 = 0
     /// Same 2-second trailing debounce as the CloudKit push.
@@ -3411,6 +3414,11 @@ class LineupStore: ObservableObject {
         updated.ckRecordName = teams[idx].ckRecordName
         updated.isReadOnly = teams[idx].isReadOnly
         updated.isSharedParticipant = teams[idx].isSharedParticipant
+        if accountTeamIDs.contains(updated.id), let sync = accountSync {
+            // A raw copy of what's being replaced, before the replace goes out.
+            let previous = teams[idx]
+            Task { _ = await sync.backupBeforeReplace(previous) }
+        }
         teams[idx] = updated
         save()
     }
@@ -3428,9 +3436,13 @@ class LineupStore: ObservableObject {
         newTeam.ckRecordName = nil
         newTeam.isSharedParticipant = false
         newTeam.isReadOnly = false
-        placeNewTeam(newTeam)
+        let toAccount = placeNewTeam(newTeam)
         activeTeamID = newTeam.id
         save()
+        if toAccount {
+            let id = newTeam.id
+            importConfirmation = Task { [weak self] in await self?.confirmImportedTeam(id) }
+        }
     }
 }
 

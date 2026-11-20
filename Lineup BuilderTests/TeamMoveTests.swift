@@ -240,4 +240,40 @@ final class TeamMoveStoreTests: XCTestCase {
         XCTAssertTrue(store.accountTeamIDs.contains(teamID), "a verified move stays moved")
         XCTAssertNil(store.teams[0].ckRecordName)
     }
+
+    // MARK: Importing a .stlteam into the account (slice 3)
+
+    private func backups() -> [String] {
+        let dir = accountStore.directory.appendingPathComponent("backups")
+        return (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+    }
+
+    func testAnImportedTeamIsBackedUpAndStaysInTheAccountWhenItCantBeConfirmed() async throws {
+        var file = Team()
+        file.name = "Blues"
+        store.addImportedTeam(file)
+        let id = try XCTUnwrap(store.activeTeamID)
+        await store.importConfirmation?.value
+
+        XCTAssertTrue(store.accountTeamIDs.contains(id), "nowhere to roll back to: it stays and the next pass retries")
+        XCTAssertTrue(backups().contains { $0.hasPrefix("\(id.uuidString)-import-") })
+    }
+
+    func testReplacingAnAccountTeamBacksUpWhatWasThere() async throws {
+        store.teams[0].ckRecordName = nil
+        store.accountTeamIDs = [teamID]
+        var file = Team()
+        file.name = "Imported"
+        store.replaceActiveTeam(with: file)
+
+        // The backup is written off the main actor; give it a moment.
+        for _ in 0..<50 where !backups().contains(where: { $0.hasPrefix("\(teamID.uuidString)-replace-") }) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let name = try XCTUnwrap(backups().first { $0.hasPrefix("\(teamID.uuidString)-replace-") })
+        let saved = try JSONDecoder().decode(Team.self, from: Data(contentsOf:
+            accountStore.directory.appendingPathComponent("backups").appendingPathComponent(name)))
+        XCTAssertEqual(saved.name, "Reds", "the team as it was before the replace")
+        XCTAssertEqual(store.teams[0].name, "Imported")
+    }
 }

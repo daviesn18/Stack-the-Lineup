@@ -88,6 +88,27 @@ extension LineupStore {
         }
     }
 
+    /// A team imported into the account: a raw backup, a sync pass, then the
+    /// same read-back as a move. There's nowhere to roll back to (the team
+    /// never lived anywhere else), so a failed read-back leaves it in the
+    /// account with its changes pending, and the next pass sends them again.
+    func confirmImportedTeam(_ id: UUID) async {
+        guard let sync = accountSync, let team = teams.first(where: { $0.id == id }) else { return }
+        if await sync.backupForImport(team) == nil {
+            Log.sync.error("Imported team \(id, privacy: .public) has no backup")
+        }
+        await syncAccountAndWait()
+        guard let sent = teams.first(where: { $0.id == id }), accountTeamIDs.contains(id) else { return }
+        let verify = await sync.verify(sent)
+        Analytics.signal(verify == .match ? "team.import.verified" : "team.import.unconfirmed",
+                         parameters: ["reason": verify.reason])
+        if verify == .match {
+            Log.sync.notice("Imported team \(id, privacy: .public) confirmed in the account")
+        } else {
+            Log.sync.error("Imported team \(id, privacy: .public) not confirmed yet: \(verify.reason, privacy: .public)")
+        }
+    }
+
     // MARK: - Steps 4 to 6
 
     private func continueMove(_ id: UUID, record: TeamMoveRecord,

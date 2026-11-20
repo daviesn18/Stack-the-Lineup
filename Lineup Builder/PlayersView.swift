@@ -810,6 +810,15 @@ struct TeamFormView: View {
     @State private var pendingTeamImport: TeamImporter.ImportedTeam? = nil
     @State private var teamImportError: String? = nil
     @State private var showingSharedTeamsPaywall = false
+    @State private var showingMoveConfirmation = false
+    @State private var moveOutcome: MoveOutcome?
+
+    /// What the coach is told when a move to the account ends.
+    private struct MoveOutcome: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+    }
 
     /// Trailing text on the Assistant Coaches row ("Not shared", "2 coaches").
     /// Nil until TeamSharingView has read the real state from CloudKit — the row
@@ -924,6 +933,13 @@ struct TeamFormView: View {
                     Text("Game Settings")
                 } footer: {
                     Text("Past archived games keep their original inning count.")
+                }
+
+                // Account (Merge 1): signed in only. A received team isn't
+                // the coach's to move, so it gets no row.
+                if isEditing, case .edit(let id) = mode,
+                   store.accountSync != nil, !isReceivedTeam(id) {
+                    accountSection(id)
                 }
 
                 // Backup & Transfer — only in edit mode
@@ -1079,6 +1095,10 @@ struct TeamFormView: View {
                 .environmentObject(store)
                 .environmentObject(purchaseManager)
             }
+            .alert(item: $moveOutcome) { outcome in
+                Alert(title: Text(outcome.title), message: Text(outcome.message),
+                      dismissButton: .default(Text("OK")))
+            }
             .alert("Couldn't Import Team", isPresented: .constant(teamImportError != nil)) {
                 Button("OK") { teamImportError = nil }
             } message: {
@@ -1138,6 +1158,64 @@ struct TeamFormView: View {
             )
         }
         dismiss()
+    }
+
+    // MARK: - Account
+
+    @ViewBuilder
+    private func accountSection(_ id: UUID) -> some View {
+        Section {
+            if store.accountTeamIDs.contains(id) && store.movingTeamID != id {
+                Label("In Your Account", systemImage: "checkmark.icloud")
+                    .foregroundColor(.primary)
+            } else if store.movingTeamID == id {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Moving to Your Account…")
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                // contentShape + onTapGesture: a plain Button as a Form row
+                // can silently not fire.
+                Label("Move to My Account", systemImage: "icloud.and.arrow.up")
+                    .foregroundColor(store.movingTeamID == nil ? .accentColor : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard store.movingTeamID == nil else { return }
+                        showingMoveConfirmation = true
+                    }
+                    .confirmationDialog("Move \"\(teamName)\" to Your Account?",
+                                        isPresented: $showingMoveConfirmation,
+                                        titleVisibility: .visible) {
+                        Button("Move to My Account") { startMove(id) }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Your players, lineups, and game history are copied to your account and checked before anything changes. A backup stays on this device. If the move can't be confirmed, your team stays where it is.")
+                    }
+            }
+        } header: {
+            Text("Account")
+        } footer: {
+            Text(store.accountTeamIDs.contains(id) && store.movingTeamID != id
+                 ? "This team is saved to your Stack the Lineup account."
+                 : "Save this team to your Stack the Lineup account so it's there wherever you sign in.")
+        }
+    }
+
+    private func startMove(_ id: UUID) {
+        Task {
+            let result = await store.moveTeamToAccount(id)
+            switch result {
+            case .moved:
+                moveOutcome = MoveOutcome(title: "Team Moved",
+                                          message: "\"\(teamName)\" is now saved to your account.")
+            case .blocked(let block):
+                moveOutcome = MoveOutcome(title: "Can't Move This Team", message: block.message)
+            case .failed(let message):
+                moveOutcome = MoveOutcome(title: "Team Not Moved", message: message)
+            }
+        }
     }
 
     // MARK: - Backup & Transfer

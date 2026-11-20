@@ -238,19 +238,6 @@ struct SettingsView: View {
                     Text("Debug builds only. Forces the Pro entitlement on or off so both versions can be tested without StoreKit.")
                 }
                 Section {
-                    // contentShape + onTapGesture: a plain Button as a List row
-                    // can silently not fire.
-                    Text(store.accountTeamIDs.contains(store.activeTeam.id)
-                         ? "This team is in your account"
-                         : "Move This Team to My Account")
-                        .foregroundStyle(store.canDebugMoveActiveTeamToAccount ? Color.accentColor : .secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { store.debugMoveActiveTeamToAccount() }
-                } footer: {
-                    Text("Debug builds only (staging). Runs the real move on the open team (backup, upload, read-back, CloudKit marker); the result is in the sync log. Becomes the Move to My Account button in Edit Team.")
-                }
-                Section {
                     HStack {
                         Text("Recorded Hangs")
                         Spacer()

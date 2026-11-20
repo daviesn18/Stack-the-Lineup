@@ -438,6 +438,14 @@ actor SupabaseTeamSync {
     /// written, in which case the move doesn't go ahead.
     func backupForMove(_ team: Team) -> String? { backup(team, tag: "move") }
 
+    /// A raw copy of a team imported from a .stlteam file, kept before its
+    /// first upload.
+    func backupForImport(_ team: Team) -> String? { backup(team, tag: "import") }
+
+    /// A raw copy of an account team about to be replaced by a .stlteam
+    /// import, so the coach's data before the replace isn't lost.
+    func backupBeforeReplace(_ team: Team) -> String? { backup(team, tag: "replace") }
+
     /// Records a move before the team changes, so a crash can be recovered.
     func beginMove(_ id: UUID, record: TeamMoveRecord) {
         var moves = file.moves ?? [:]
