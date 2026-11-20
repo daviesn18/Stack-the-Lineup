@@ -277,7 +277,7 @@ struct SettingsView: View {
                             debugHangCount = 0
                         }
                 } footer: {
-                    Text("Debug builds only. Main-thread freezes of 2 s or more, plus MetricKit hang reports with call stacks (these arrive after a relaunch). Email Diagnostics includes them.")
+                    Text("Debug builds only. Main-thread freezes of 2 s or more, whole-app pauses in the foreground (a debugger or iOS stopping the app), and MetricKit hang reports with call stacks, which arrive after a relaunch. Each record says whether a debugger was attached. Email Diagnostics includes them.")
                 }
                 .onAppear { debugHangCount = HangRecorder.shared.recordCount }
                 #endif
