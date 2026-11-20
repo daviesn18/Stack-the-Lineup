@@ -26,8 +26,11 @@ import os
 //    background threads; a debugger can (Xcode over Wi-Fi pausing the app when
 //    it loses the phone), and so can iOS. The watchdog sees it as one tick
 //    arriving far too late. Pauses while backgrounded are normal suspension and
-//    aren't recorded. This is the kind the Nov 20 freeze turned out to be (run
-//    from Xcode; the watchdog recorded nothing).
+//    aren't recorded. The debugger state is sampled every tick and recorded
+//    from both sides of the pause, because the Nov 20 freeze was exactly a
+//    debugger that let go mid-pause: Xcode over Wi-Fi, airplane mode cut the
+//    link, and the app stayed stopped ~18 s until Xcode's connection timed out
+//    and the debugger detached. A check made only after resuming said "no".
 //
 // 3. "metrickit": MetricKit hang diagnostics (MXHangDiagnostic), with the main
 //    thread's call stack. iOS delivers them some time after the hang, normally
@@ -69,6 +72,7 @@ nonisolated final class HangRecorder: NSObject, MXMetricManagerSubscriber, @unch
         var pingAnsweredAt: TimeInterval?  // uptime the main thread answered it
         var open: OpenHang?                // a main-thread hang past the threshold
         var isActive = false               // app in the foreground (didBecomeActive)
+        var debuggerLastTick = false       // P_TRACED at the last normal tick
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let fileLock = NSLock()
@@ -155,6 +159,11 @@ nonisolated final class HangRecorder: NSObject, MXMetricManagerSubscriber, @unch
                 handleWholeAppPause(gap: gap, resumedAt: now)
                 continue
             }
+            // Sampled every tick, because a debugger that pauses the app can
+            // detach before it resumes (Xcode giving up on a Wi-Fi link that
+            // airplane mode cut), and a check after the pause would say "no".
+            let debugger = Self.debuggerAttached()
+            state.withLock { $0.debuggerLastTick = debugger }
             checkMainThread(now: now)
         }
     }
@@ -163,8 +172,8 @@ nonisolated final class HangRecorder: NSObject, MXMetricManagerSubscriber, @unch
     /// the app was in the foreground, and drops the ping in flight, which the
     /// pause (not a main-thread block) delayed.
     private func handleWholeAppPause(gap: TimeInterval, resumedAt now: TimeInterval) {
-        let (wasActive, open) = state.withLock { s -> (Bool, OpenHang?) in
-            let result = (s.isActive, s.open)
+        let (wasActive, open, debuggerBefore) = state.withLock { s -> (Bool, OpenHang?, Bool) in
+            let result = (s.isActive, s.open, s.debuggerLastTick)
             s.pingSentAt = nil
             s.pingAnsweredAt = nil
             s.open = nil
@@ -180,16 +189,21 @@ nonisolated final class HangRecorder: NSObject, MXMetricManagerSubscriber, @unch
 
         guard wasActive, gap >= Self.threshold else { return }
         let startedAt = Date().addingTimeInterval(-gap)
-        let debugger = Self.debuggerAttached()
+        let debuggerAfter = Self.debuggerAttached()
+        state.withLock { $0.debuggerLastTick = debuggerAfter }
         let record: [String: Any] = [
             "source": "paused",
             "startedAt": Self.iso(startedAt),
             "durationSeconds": Self.round1(gap),
-            "debuggerAttached": debugger,
+            // Attached before OR after: a debugger that let go during the
+            // pause is still the likeliest thing that caused it.
+            "debuggerAttached": debuggerBefore || debuggerAfter,
+            "debuggerAttachedBefore": debuggerBefore,
+            "debuggerAttachedAfter": debuggerAfter,
             "os": ProcessInfo.processInfo.operatingSystemVersionString,
         ]
         write(record, named: "paused-\(Self.millis(startedAt)).json", skipIfExists: false)
-        Self.log.error("Whole app was paused \(gap, format: .fixed(precision: 1), privacy: .public)s in the foreground (debugger attached: \(debugger, privacy: .public))")
+        Self.log.error("Whole app was paused \(gap, format: .fixed(precision: 1), privacy: .public)s in the foreground (debugger before: \(debuggerBefore, privacy: .public), after: \(debuggerAfter, privacy: .public))")
     }
 
     private func checkMainThread(now: TimeInterval) {
@@ -357,7 +371,10 @@ nonisolated final class HangRecorder: NSObject, MXMetricManagerSubscriber, @unch
         for r in all {
             let source = r.json["source"] as? String ?? "?"
             let duration = String(format: "%.1fs", r.json["durationSeconds"] as? Double ?? 0)
-            let debugger = (r.json["debuggerAttached"] as? Bool).map { $0 ? "   debugger: yes" : "   debugger: no" } ?? ""
+            var debugger = (r.json["debuggerAttached"] as? Bool).map { $0 ? "   debugger: yes" : "   debugger: no" } ?? ""
+            if (r.json["debuggerAttachedBefore"] as? Bool) == true, (r.json["debuggerAttachedAfter"] as? Bool) == false {
+                debugger += " (detached during the pause)"
+            }
             let started = r.json["startedAt"] as? String ?? "?"
             switch source {
             case "watchdog":
