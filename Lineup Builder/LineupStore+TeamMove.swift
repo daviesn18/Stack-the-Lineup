@@ -247,6 +247,9 @@ extension LineupStore {
                 return
             }
         }
+        if let recordName = record.ckRecordName {
+            noteMovedRecord(teamID: id, recordName: recordName, movedAt: Date())
+        }
         await sync.endMove(id)
         Log.sync.notice("Move of team \(id, privacy: .public) finished (marker \(record.ckRecordName == nil ? "not needed" : "written", privacy: .public))")
     }
@@ -327,5 +330,75 @@ extension LineupStore {
                 finish(fallback)
             }
         }
+    }
+
+    // MARK: - Retiring the CloudKit copy (slice 6)
+
+    /// Starts the 90-day clock on a moved team's CloudKit record.
+    func noteMovedRecord(teamID: UUID, recordName: String, movedAt: Date) {
+        guard !movedCloudKitRecords.contains(where: { $0.recordName == recordName }) else { return }
+        movedCloudKitRecords.append(MovedRecordCleanup.entry(teamID: teamID, recordName: recordName,
+                                                             movedAt: movedAt))
+    }
+
+    /// Asks CloudKit about each moved record that's due, and deletes the ones
+    /// idle for 90 days. Runs after every CloudKit fetch; most of the time
+    /// nothing is due and it makes no request.
+    /// `lastModified` stands in for CloudKit in tests.
+    func retireIdleMovedRecords(now: Date = Date(),
+                                lastModified: ((String) async throws -> Date?)? = nil) async {
+        for entry in MovedRecordCleanup.due(movedCloudKitRecords, now: now) {
+            let modified: Date?
+            do {
+                if let lastModified {
+                    modified = try await lastModified(entry.recordName)
+                } else {
+                    modified = try await CloudKitManager.shared.lastModified(recordName: entry.recordName)
+                }
+            } catch {
+                Log.sync.error("Couldn't check moved record \(entry.recordName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue   // offline or throttled: the next fetch asks again
+            }
+            applyCleanupDecision(MovedRecordCleanup.decide(lastModified: modified, now: now), to: entry)
+        }
+    }
+
+    func applyCleanupDecision(_ decision: MovedRecordCleanup.Decision, to entry: MovedCloudKitRecord) {
+        guard let idx = movedCloudKitRecords.firstIndex(where: { $0.recordName == entry.recordName }) else { return }
+        switch decision {
+        case .wait(let until):
+            movedCloudKitRecords[idx].notBefore = until
+            Log.sync.notice("Moved record \(entry.recordName, privacy: .public) was touched since; checking again later")
+        case .forget:
+            movedCloudKitRecords.remove(at: idx)
+            Log.sync.notice("Moved record \(entry.recordName, privacy: .public) is already gone")
+        case .delete:
+            movedCloudKitRecords.remove(at: idx)
+            // The usual deletion path: queued until CloudKit confirms, and a
+            // tombstone so a fetch that still has the record can't add it back.
+            // The account team has no record name, so neither touches it.
+            tombstones.remember(teamID: entry.teamID, recordName: entry.recordName)
+            pendingRecordDeletions.insert(entry.recordName)
+            Task { await retryPendingRecordDeletions() }
+            // The team can't be CloudKit-shared any more, so every push token
+            // for it is one of this coach's devices, and none is read.
+            Task { await DeviceTokenManager.shared.removeAllTokens(forTeamID: entry.teamID.uuidString) }
+            Log.sync.notice("Deleting moved record \(entry.recordName, privacy: .public): idle \(MovedRecordCleanup.idleDays, privacy: .public) days")
+            Analytics.signal("team.move.cloudkit_retired")
+        }
+    }
+
+    /// Drops the record name from moved teams whose CloudKit record was
+    /// deleted, so the deletion doesn't remove them. Returns whether any did.
+    func keepMovedTeamsWhoseRecordWasDeleted(_ deletedRecordNames: [String]) -> Bool {
+        let deleted = Set(deletedRecordNames)
+        var changed = false
+        for idx in teams.indices where movedAwayTeamIDs.contains(teams[idx].id) {
+            guard let name = teams[idx].ckRecordName, deleted.contains(name) else { continue }
+            teams[idx].ckRecordName = nil
+            Log.sync.notice("Moved team \(self.teams[idx].id, privacy: .public) lost its CloudKit copy; kept read-only")
+            changed = true
+        }
+        return changed
     }
 }

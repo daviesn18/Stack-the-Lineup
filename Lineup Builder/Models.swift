@@ -1441,6 +1441,15 @@ class LineupStore: ObservableObject {
         }
     }
 
+    /// CloudKit records this device moved to the account, waiting to be
+    /// deleted once idle for 90 days (Merge 1 slice 6).
+    var movedCloudKitRecords: [MovedCloudKitRecord] = TeamStorage.loadMovedRecords() {
+        didSet {
+            guard movedCloudKitRecords != oldValue else { return }
+            TeamStorage.saveMovedRecords(movedCloudKitRecords)
+        }
+    }
+
     /// Team record names whose CloudKit deletion hasn't been confirmed yet.
     /// `deleteTeam` enqueues here and `retryPendingRecordDeletions()` drains it on
     /// every sync until CloudKit confirms each record is gone — the reliable
@@ -1988,6 +1997,9 @@ class LineupStore: ObservableObject {
         // stops orphan records from accumulating and resurrecting on a fresh
         // install.
         await retryPendingRecordDeletions()
+
+        // Moved teams' CloudKit copies that have been idle for 90 days.
+        await retireIdleMovedRecords()
     }
 
     /// Whether a server copy fetched from CloudKit should replace the local one.
@@ -2059,6 +2071,14 @@ class LineupStore: ObservableObject {
         // a received team's record is in the owner's zone in the shared one. That
         // case is handled after the shared merge below, on absence rather than on
         // a delete notification, because absence is the only signal there is.
+        //
+        // A team moved to an account on another device, whose CloudKit copy
+        // that device has now retired (Merge 1 slice 6). The copy here is
+        // read-only, which would normally mean "remove it", but it's this
+        // coach's own team and the account has it: keep it, without a record,
+        // until sign-in swaps in the account copy.
+        if keepMovedTeamsWhoseRecordWasDeleted(changes.deletedRecordNames) { didChange = true }
+
         let outcome = Self.classifyRemoteDeletions(
             recordNames: changes.deletedRecordNames,
             teams: teams,

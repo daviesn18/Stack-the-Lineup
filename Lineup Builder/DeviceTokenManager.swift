@@ -100,7 +100,8 @@ final class DeviceTokenManager {
     /// covers the ones added afterwards.
     func refreshTokenForCurrentTeam(store: LineupStore) {
         guard let hex = cachedTokenHex,
-              !store.accountTeamIDs.contains(store.activeTeam.id) else { return }
+              !store.accountTeamIDs.contains(store.activeTeam.id),
+              !store.movedAwayTeamIDs.contains(store.activeTeam.id) else { return }
         Task {
             await saveToken(
                 tokenHex: hex,
@@ -136,12 +137,16 @@ final class DeviceTokenManager {
     /// teams. Pushes are sent for CloudKit-shared teams (the Worker reads these
     /// records to find co-coaches), and an account team can't be CloudKit-shared
     /// (Merge 1), so a token for one is a record nothing will ever read.
-    nonisolated static func tokenTeams(_ teams: [Team], accountTeamIDs: Set<UUID>) -> [Team] {
-        teams.filter { !accountTeamIDs.contains($0.id) }
+    /// Teams moved to an account on another device are skipped too: they're
+    /// read-only here and waiting to become account teams.
+    nonisolated static func tokenTeams(_ teams: [Team], accountTeamIDs: Set<UUID>,
+                                       movedAwayTeamIDs: Set<UUID> = []) -> [Team] {
+        teams.filter { !accountTeamIDs.contains($0.id) && !movedAwayTeamIDs.contains($0.id) }
     }
 
     private func saveTokenForAllTeams(tokenHex: String, store: LineupStore) async {
-        for team in Self.tokenTeams(store.teams, accountTeamIDs: store.accountTeamIDs) {
+        for team in Self.tokenTeams(store.teams, accountTeamIDs: store.accountTeamIDs,
+                                        movedAwayTeamIDs: store.movedAwayTeamIDs) {
             await saveToken(
                 tokenHex: tokenHex,
                 teamID: team.id.uuidString,
@@ -217,6 +222,27 @@ final class DeviceTokenManager {
             Log.push.info("Removed this device's DeviceToken for team \(teamID)")
         } catch {
             Log.push.error("DeviceToken removal failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Removes **every** device's token record for a team.
+    ///
+    /// Only for a moved team whose CloudKit copy is being deleted (Merge 1
+    /// slice 6). `removeTokens(for:)` explains why a `teamID` query is wrong
+    /// for a shared team; a moved team can't be shared (the move refuses
+    /// shared teams, and account teams hide sharing), so every token for it
+    /// belongs to one of this coach's own devices.
+    func removeAllTokens(forTeamID teamID: String) async {
+        let db = CKContainer(identifier: containerID).publicCloudDatabase
+        let query = CKQuery(recordType: recordType, predicate: NSPredicate(format: "teamID == %@", teamID))
+        do {
+            let (results, _) = try await db.records(matching: query, desiredKeys: [])
+            let ids = results.map(\.0)
+            guard !ids.isEmpty else { return }
+            _ = try await db.modifyRecords(saving: [], deleting: ids)
+            Log.push.info("Removed \(ids.count, privacy: .public) DeviceToken(s) for moved team \(teamID)")
+        } catch {
+            Log.push.error("DeviceToken cleanup for moved team failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -1220,6 +1220,18 @@ actor CloudKitManager {
     /// A record that is already gone is success, not failure: CloudKit reports
     /// `unknownItem`, and treating that as an error would keep a tombstone
     /// alive for something that no longer exists.
+    /// When a team record was last saved on the server, or nil if it's gone.
+    /// Merge 1 slice 6 reads it to tell whether a moved team's copy is idle.
+    func lastModified(recordName: String) async throws -> Date? {
+        let recordID = CKRecord.ID(recordName: recordName, zoneID: ckZone.zoneID)
+        do {
+            let record = try await privateDB.record(for: recordID)
+            return record.modificationDate ?? Date()
+        } catch let error as CKError where error.code == .unknownItem {
+            return nil
+        }
+    }
+
     func deleteTeam(recordName: String) async throws {
         let recordID = CKRecord.ID(recordName: recordName, zoneID: ckZone.zoneID)
         do {

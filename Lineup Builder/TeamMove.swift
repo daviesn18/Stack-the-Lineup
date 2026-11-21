@@ -170,3 +170,51 @@ nonisolated enum TeamMove {
         }
     }
 }
+
+// MARK: - Retiring the CloudKit copy (slice 6)
+//
+// After a move the CloudKit record stays as a backup, and old app versions
+// on the coach's other devices can keep editing it. Once nothing has touched
+// it for 90 days, the moving device deletes it. "Touched" is the record's
+// server modification date, so an old-version edit, or the marker itself,
+// restarts the clock. The record goes through the pending-deletions queue
+// and gets a tombstone, like any other deleted team.
+
+nonisolated struct MovedCloudKitRecord: Codable, Equatable, Sendable {
+    let teamID: UUID
+    let recordName: String
+    /// Not worth asking CloudKit before this. Starts 90 days after the move
+    /// and moves out whenever a check finds the record was touched since.
+    var notBefore: Date
+}
+
+nonisolated enum MovedRecordCleanup {
+    static let idleDays = 90
+    static var idleInterval: TimeInterval { TimeInterval(idleDays) * 24 * 60 * 60 }
+
+    static func entry(teamID: UUID, recordName: String, movedAt: Date) -> MovedCloudKitRecord {
+        MovedCloudKitRecord(teamID: teamID, recordName: recordName,
+                            notBefore: movedAt.addingTimeInterval(idleInterval))
+    }
+
+    /// The entries worth checking with CloudKit now.
+    static func due(_ entries: [MovedCloudKitRecord], now: Date) -> [MovedCloudKitRecord] {
+        entries.filter { $0.notBefore <= now }
+    }
+
+    enum Decision: Equatable {
+        /// The record is already gone: drop the entry.
+        case forget
+        /// Idle for 90 days: delete it.
+        case delete
+        /// Touched since: check again 90 days after that.
+        case wait(until: Date)
+    }
+
+    /// `lastModified` is nil when the record no longer exists.
+    static func decide(lastModified: Date?, now: Date) -> Decision {
+        guard let lastModified else { return .forget }
+        let idleUntil = lastModified.addingTimeInterval(idleInterval)
+        return idleUntil <= now ? .delete : .wait(until: idleUntil)
+    }
+}

@@ -426,3 +426,118 @@ final class MovedElsewhereTests: XCTestCase {
         XCTAssertEqual(DeviceTokenManager.tokenTeams(store.teams, accountTeamIDs: []).count, 2)
     }
 }
+
+/// Merge 1 slice 6: the moving device deletes a moved team's CloudKit copy
+/// once it has been idle for 90 days.
+@MainActor
+final class MovedRecordCleanupTests: XCTestCase {
+
+    private let day: TimeInterval = 24 * 60 * 60
+    private let movedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    private var store: LineupStore!
+    private var saved: (records: [MovedCloudKitRecord], moved: Set<UUID>, pending: Set<String>, tombstones: TeamTombstones)!
+
+    override func setUp() async throws {
+        saved = (TeamStorage.loadMovedRecords(), TeamStorage.loadMovedTeams(),
+                 TeamStorage.loadPendingDeletions(), TeamStorage.loadTombstones())
+        store = LineupStore()
+        var reds = Team()
+        reds.name = "Reds"
+        store.teams = [reds, Team()]
+        store.activeTeamID = reds.id
+        store.accountTeamIDs = [reds.id]
+        store.movedCloudKitRecords = []
+        store.movedAwayTeamIDs = []
+    }
+
+    override func tearDown() async throws {
+        store = nil
+        TeamStorage.saveMovedRecords(saved.records)
+        TeamStorage.saveMovedTeams(saved.moved)
+        TeamStorage.savePendingDeletions(saved.pending)
+        TeamStorage.saveTombstones(saved.tombstones)
+    }
+
+    func testTheClockStartsAtTheMove() {
+        let entry = MovedRecordCleanup.entry(teamID: UUID(), recordName: "team-x", movedAt: movedAt)
+        XCTAssertTrue(MovedRecordCleanup.due([entry], now: movedAt.addingTimeInterval(89 * day)).isEmpty,
+                      "nothing is asked of CloudKit before 90 days")
+        XCTAssertEqual(MovedRecordCleanup.due([entry], now: movedAt.addingTimeInterval(90 * day)), [entry])
+    }
+
+    func testOnlyARecordIdleFor90DaysIsDeleted() {
+        let now = movedAt.addingTimeInterval(200 * day)
+        XCTAssertEqual(MovedRecordCleanup.decide(lastModified: now.addingTimeInterval(-90 * day), now: now), .delete)
+        let touched = now.addingTimeInterval(-10 * day)
+        XCTAssertEqual(MovedRecordCleanup.decide(lastModified: touched, now: now),
+                       .wait(until: touched.addingTimeInterval(90 * day)),
+                       "an old app version's edit restarts the clock")
+        XCTAssertEqual(MovedRecordCleanup.decide(lastModified: nil, now: now), .forget)
+    }
+
+    func testTheLedgerPersists() {
+        let defaults = UserDefaults(suiteName: "MovedRecordCleanupTests-\(UUID().uuidString)")!
+        let records = [MovedRecordCleanup.entry(teamID: UUID(), recordName: "team-a", movedAt: movedAt)]
+        TeamStorage.saveMovedRecords(records, defaults: defaults)
+        XCTAssertEqual(TeamStorage.loadMovedRecords(defaults: defaults), records)
+    }
+
+    func testAnIdleRecordIsQueuedForDeletionAndTombstoned() async {
+        let reds = store.teams[0]
+        store.noteMovedRecord(teamID: reds.id, recordName: "team-reds", movedAt: movedAt)
+        store.noteMovedRecord(teamID: reds.id, recordName: "team-reds", movedAt: movedAt)
+        XCTAssertEqual(store.movedCloudKitRecords.count, 1, "noted once")
+
+        await store.retireIdleMovedRecords(now: movedAt.addingTimeInterval(91 * day)) { _ in self.movedAt }
+
+        XCTAssertTrue(store.movedCloudKitRecords.isEmpty)
+        XCTAssertTrue(store.pendingRecordDeletions.contains("team-reds"))
+        XCTAssertTrue(store.tombstones.blocks(teamID: reds.id, recordName: "team-reds"))
+        XCTAssertEqual(store.teams.count, 2, "the account team stays")
+        XCTAssertTrue(store.accountTeamIDs.contains(reds.id))
+    }
+
+    func testATouchedRecordWaitsAndAFailedCheckChangesNothing() async {
+        let reds = store.teams[0]
+        store.noteMovedRecord(teamID: reds.id, recordName: "team-reds", movedAt: movedAt)
+        let now = movedAt.addingTimeInterval(95 * day)
+        let touched = movedAt.addingTimeInterval(30 * day)
+
+        struct Offline: Error {}
+        await store.retireIdleMovedRecords(now: now) { _ in throw Offline() }
+        XCTAssertEqual(store.movedCloudKitRecords.first?.notBefore, movedAt.addingTimeInterval(90 * day))
+
+        await store.retireIdleMovedRecords(now: now) { _ in touched }
+        XCTAssertEqual(store.movedCloudKitRecords.first?.notBefore, touched.addingTimeInterval(90 * day))
+        XCTAssertFalse(store.pendingRecordDeletions.contains("team-reds"))
+    }
+
+    func testARecordAlreadyGoneIsForgotten() async {
+        store.noteMovedRecord(teamID: store.teams[0].id, recordName: "team-reds", movedAt: movedAt)
+        await store.retireIdleMovedRecords(now: movedAt.addingTimeInterval(91 * day)) { _ in nil }
+        XCTAssertTrue(store.movedCloudKitRecords.isEmpty)
+        XCTAssertFalse(store.pendingRecordDeletions.contains("team-reds"))
+    }
+
+    func testAnotherDeviceKeepsItsReadOnlyCopyWhenTheRecordIsRetired() {
+        store.accountTeamIDs = []
+        store.teams[0].ckRecordName = "team-reds"
+        store.teams[0].isReadOnly = true
+        store.movedAwayTeamIDs = [store.teams[0].id]
+        store.teams[1].ckRecordName = "team-other"
+
+        XCTAssertTrue(store.keepMovedTeamsWhoseRecordWasDeleted(["team-reds", "team-other"]))
+        XCTAssertNil(store.teams[0].ckRecordName, "so the deletion can't match it")
+        XCTAssertTrue(store.isMovedElsewhere(store.teams[0].id), "sign-in still adopts the account copy")
+        XCTAssertEqual(store.teams[1].ckRecordName, "team-other", "other teams go through the usual rule")
+        XCTAssertTrue(LineupStore.classifyRemoteDeletions(recordNames: ["team-reds"], teams: store.teams,
+                                                          declined: []).autoRemove.isEmpty)
+    }
+
+    func testPushTokensSkipTeamsMovedElsewhere() {
+        let ids = [store.teams[0].id]
+        XCTAssertEqual(DeviceTokenManager.tokenTeams(store.teams, accountTeamIDs: [],
+                                                     movedAwayTeamIDs: Set(ids)).map(\.id),
+                       [store.teams[1].id])
+    }
+}
