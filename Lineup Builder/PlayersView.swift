@@ -980,50 +980,65 @@ struct TeamFormView: View {
                     // reached iCloud, not that it was ever shared. Every synced team
                     // therefore read "Shared" and offered access management for a
                     // share that did not exist.
-                    Section {
-                        // A received team is never paywalled here. Pro buys the
-                        // ability to *share* a team; this row is the only place an
-                        // invited coach can find out who invited them and what
-                        // they're allowed to do, and locking that behind a
-                        // purchase would withhold an answer about access the coach
-                        // already has.
-                        if purchaseManager.isPro || isReceivedTeam(id) {
-                            NavigationLink {
-                                TeamSharingView(teamID: id, summary: $shareSummary)
-                            } label: {
-                                HStack {
-                                    Label(sharingRowTitle(id), systemImage: "person.2")
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                    if let summary = shareSummary {
-                                        Text(summary)
+                    //
+                    // Account teams aren't shared through CloudKit (Merge 1
+                    // slice 5): co-coaching on the account comes later, so the
+                    // row is replaced with a note rather than vanishing.
+                    if !store.isCloudKitShareable(id) && !isReceivedTeam(id) {
+                        Section {
+                            Label("Assistant Coaches", systemImage: "person.2")
+                                .foregroundColor(.secondary)
+                        } header: {
+                            Text("Sharing")
+                        } footer: {
+                            Text("Sharing with assistant coaches isn't available for teams in your account yet.")
+                        }
+                    } else {
+                        Section {
+                            // A received team is never paywalled here. Pro buys the
+                            // ability to *share* a team; this row is the only place an
+                            // invited coach can find out who invited them and what
+                            // they're allowed to do, and locking that behind a
+                            // purchase would withhold an answer about access the coach
+                            // already has.
+                            if purchaseManager.isPro || isReceivedTeam(id) {
+                                NavigationLink {
+                                    TeamSharingView(teamID: id, summary: $shareSummary)
+                                } label: {
+                                    HStack {
+                                        Label(sharingRowTitle(id), systemImage: "person.2")
+                                            .foregroundColor(.primary)
+                                        Spacer()
+                                        if let summary = shareSummary {
+                                            Text(summary)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                                .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
+                            } else {
+                                Button {
+                                    showingSharedTeamsPaywall = true
+                                } label: {
+                                    HStack {
+                                        Label("Assistant Coaches", systemImage: "person.2")
+                                            .foregroundColor(.primary)
+                                        Spacer()
+                                        Image(systemName: "lock.fill")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
                                 }
+                                .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
                             }
-                            .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
-                        } else {
-                            Button {
-                                showingSharedTeamsPaywall = true
-                            } label: {
-                                HStack {
-                                    Label("Assistant Coaches", systemImage: "person.2")
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                    Image(systemName: "lock.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            .tourTip(Tour.secondGame.currentTip as? ShareTeamTip, arrowEdge: .top)
+                        } header: {
+                            Text("Sharing")
+                        } footer: {
+                            Text(isReceivedTeam(id)
+                                 ? "This team was shared with you by another coach."
+                                 : "Share your team with an assistant coach — they can build positions, you finalize.")
                         }
-                    } header: {
-                        Text("Sharing")
-                    } footer: {
-                        Text(isReceivedTeam(id)
-                             ? "This team was shared with you by another coach."
-                             : "Share your team with an assistant coach — they can build positions, you finalize.")
                     }
                 }
 

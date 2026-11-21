@@ -398,4 +398,31 @@ final class MovedElsewhereTests: XCTestCase {
         TeamStorage.saveMovedTeams(ids, defaults: defaults)
         XCTAssertEqual(TeamStorage.loadMovedTeams(defaults: defaults), ids)
     }
+
+    // MARK: Slice 5: account teams aren't CloudKit-shared
+
+    func testAccountAndMovedTeamsCantBeSharedThroughCloudKit() {
+        let cubs = store.teams[1]
+        XCTAssertTrue(store.isCloudKitShareable(reds.id), "a CloudKit team shares as before")
+
+        store.accountTeamIDs = [reds.id]
+        XCTAssertFalse(store.isCloudKitShareable(reds.id), "account teams hide CloudKit sharing")
+
+        store.accountTeamIDs = []
+        store.movingTeamID = reds.id
+        XCTAssertFalse(store.isCloudKitShareable(reds.id), "nor mid-move")
+        store.movingTeamID = nil
+
+        store.noteTeamsMovedElsewhere(fetch(marking: cubs))
+        XCTAssertFalse(store.isCloudKitShareable(cubs.id), "nor a team moved on another device")
+        XCTAssertTrue(store.isCloudKitShareable(reds.id))
+    }
+
+    func testPushTokensSkipAccountTeams() {
+        let cubs = store.teams[1]
+        let written = DeviceTokenManager.tokenTeams(store.teams, accountTeamIDs: [reds.id])
+        XCTAssertEqual(written.map(\.id), [cubs.id],
+                       "nothing reads a token for a team that can't be CloudKit-shared")
+        XCTAssertEqual(DeviceTokenManager.tokenTeams(store.teams, accountTeamIDs: []).count, 2)
+    }
 }

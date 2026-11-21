@@ -99,7 +99,8 @@ final class DeviceTokenManager {
     /// an error: `didRegister` writes every team the coach already had, and this
     /// covers the ones added afterwards.
     func refreshTokenForCurrentTeam(store: LineupStore) {
-        guard let hex = cachedTokenHex else { return }
+        guard let hex = cachedTokenHex,
+              !store.accountTeamIDs.contains(store.activeTeam.id) else { return }
         Task {
             await saveToken(
                 tokenHex: hex,
@@ -131,8 +132,16 @@ final class DeviceTokenManager {
 
     // MARK: - CloudKit Write
 
+    /// The teams this device writes a token for: every team except account
+    /// teams. Pushes are sent for CloudKit-shared teams (the Worker reads these
+    /// records to find co-coaches), and an account team can't be CloudKit-shared
+    /// (Merge 1), so a token for one is a record nothing will ever read.
+    nonisolated static func tokenTeams(_ teams: [Team], accountTeamIDs: Set<UUID>) -> [Team] {
+        teams.filter { !accountTeamIDs.contains($0.id) }
+    }
+
     private func saveTokenForAllTeams(tokenHex: String, store: LineupStore) async {
-        for team in store.teams {
+        for team in Self.tokenTeams(store.teams, accountTeamIDs: store.accountTeamIDs) {
             await saveToken(
                 tokenHex: tokenHex,
                 teamID: team.id.uuidString,

@@ -159,6 +159,14 @@ extension LineupStore {
         movedAwayTeamIDs.contains(id) && !accountTeamIDs.contains(id)
     }
 
+    /// Whether the team can be shared with assistant coaches through CloudKit.
+    /// Account teams can't (co-coaching on the account comes later), nor can a
+    /// team mid-move or one moved on another device. Received teams aren't
+    /// account teams, so they're unaffected.
+    func isCloudKitShareable(_ id: UUID) -> Bool {
+        !accountTeamIDs.contains(id) && movingTeamID != id && !isMovedElsewhere(id)
+    }
+
     /// The account copy of a team this device holds as a moved CloudKit team:
     /// it takes the local copy's place. Returns false if the team isn't one.
     func adoptMovedTeam(_ accountCopy: Team) -> Bool {
@@ -174,6 +182,7 @@ extension LineupStore {
         movedAwayTeamIDs.remove(adopted.id)
         Log.sync.notice("Adopted the account copy of moved team \(adopted.id, privacy: .public)")
         Analytics.signal("team.move.adopted")
+        Task { await DeviceTokenManager.shared.removeTokens(for: adopted.id.uuidString) }
         return true
     }
 
@@ -220,6 +229,10 @@ extension LineupStore {
         // the background: CloudKit can take minutes to answer when iCloud is
         // unreachable, and the move doesn't depend on it.
         Task { [weak self] in await self?.writeMovedMarker(id, record: record, sync: sync) }
+        // Its push token goes too: account teams aren't CloudKit-shared, so
+        // nothing reads it (slice 5). A rollback re-registers on the next
+        // launch or team switch.
+        Task { await DeviceTokenManager.shared.removeTokens(for: id.uuidString) }
         return .moved
     }
 
