@@ -3437,7 +3437,10 @@ class LineupStore: ObservableObject {
     /// Resets the active lineup to a fresh Lineup().
     func replaceActiveTeam(with snapshot: Team) {
         guard let idx = teams.firstIndex(where: { $0.id == activeTeamID }) else { return }
-        var updated = snapshot
+        // A file of this same team (a restore) keeps its rows' ids, so the
+        // account updates them in place. Any other team's file gets fresh ids:
+        // its rows may still belong to that team in the account.
+        var updated = snapshot.id == teams[idx].id ? snapshot : snapshot.withFreshIDs()
         updated.id = teams[idx].id
         updated.lineup = Lineup()
         // The team keeps its own identity and sharing state wherever it lives.
@@ -3458,11 +3461,13 @@ class LineupStore: ObservableObject {
     /// Adds an imported team as a new entry, assigns a fresh UUID, and switches to it.
     /// Resets the active lineup to a fresh Lineup().
     ///
-    /// Signed in, the team goes to the account (Merge 1). The fresh id means it
-    /// can't collide with a team already there. A .stlteam carries the sender's
-    /// sharing state, so that's cleared: the import is this coach's own team.
+    /// Signed in, the team goes to the account (Merge 1). Fresh ids for the
+    /// team and every row in it mean it can't collide with the team it was
+    /// exported from, or an earlier import of the same file. A .stlteam carries
+    /// the sender's sharing state, so that's cleared: the import is this
+    /// coach's own team.
     func addImportedTeam(_ snapshot: Team) {
-        var newTeam = snapshot
+        var newTeam = snapshot.withFreshIDs()
         newTeam.id = UUID()
         newTeam.lineup = Lineup()
         newTeam.ckRecordName = nil

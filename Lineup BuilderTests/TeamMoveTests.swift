@@ -541,3 +541,85 @@ final class MovedRecordCleanupTests: XCTestCase {
                        [store.teams[1].id])
     }
 }
+
+/// A .stlteam imported as a new team gets fresh ids for every row: account
+/// rows are keyed by id across the whole database, so reusing the file's ids
+/// made the push fail (found in the Merge 1 staging pass).
+final class ImportFreshIDTests: XCTestCase {
+
+    private func sampleTeam() -> Team {
+        var team = Team()
+        team.name = "Sample"
+        let a = Player(firstName: "Ann", lastName: "A", number: "1")
+        let b = Player(firstName: "Bo", lastName: "B", number: "2")
+        team.players = [a, b]
+        let game = ScheduledGame(icalUID: "4F1C2E8A-0000-4000-8000-00000000ABCD", date: Date(), rawSummary: "vs Cubs")
+        team.scheduledGames = [game]
+        var lineup = Lineup()
+        lineup.battingOrder = [b.id, a.id]
+        lineup.absentPlayerIDs = [b.id]
+        team.gameLineups = [game.id: lineup]
+        team.currentGameID = game.id
+        return team
+    }
+
+    func testEveryRowGetsAFreshIdAndReferencesFollow() {
+        let original = sampleTeam()
+        let copy = original.withFreshIDs()
+
+        XCTAssertNotEqual(copy.id, original.id)
+        XCTAssertTrue(Set(copy.players.map(\.id)).isDisjoint(with: original.players.map(\.id)))
+        XCTAssertEqual(copy.players.map(\.firstName), ["Ann", "Bo"])
+        let game = copy.scheduledGames[0]
+        XCTAssertNotEqual(game.id, original.scheduledGames[0].id)
+        XCTAssertEqual(copy.currentGameID, game.id)
+
+        let lineup = try! XCTUnwrap(copy.gameLineups[game.id], "the per-game lineup key follows the game")
+        XCTAssertEqual(lineup.battingOrder, [copy.players[1].id, copy.players[0].id])
+        XCTAssertEqual(lineup.absentPlayerIDs, [copy.players[1].id])
+    }
+
+    func testTheCalendarFeedsEventIdIsKept() {
+        let original = sampleTeam()
+        XCTAssertEqual(original.withFreshIDs().scheduledGames[0].icalUID, original.scheduledGames[0].icalUID,
+                       "the next calendar refresh matches games by it")
+    }
+
+    @MainActor
+    func testImportingTheSameFileTwiceSharesNoIds() {
+        let previousAccount = AccountTeamStore.signedInAccount()
+        AccountTeamStore.setSignedInAccount(nil)
+        defer { AccountTeamStore.setSignedInAccount(previousAccount) }
+        let store = LineupStore()
+        store.teams = [Team()]
+        let file = sampleTeam()
+        store.addImportedTeam(file)
+        store.addImportedTeam(file)
+        let imported = store.teams.suffix(2)
+        XCTAssertEqual(imported.count, 2)
+        let first = Set(imported.first!.players.map(\.id)), second = Set(imported.last!.players.map(\.id))
+        XCTAssertTrue(first.isDisjoint(with: second))
+        XCTAssertTrue(first.isDisjoint(with: file.players.map(\.id)))
+    }
+
+    @MainActor
+    func testReplacingWithThisTeamsOwnFileKeepsItsIds() {
+        let previousAccount = AccountTeamStore.signedInAccount()
+        AccountTeamStore.setSignedInAccount(nil)
+        defer { AccountTeamStore.setSignedInAccount(previousAccount) }
+        let store = LineupStore()
+        let team = sampleTeam()
+        store.teams = [team]
+        store.activeTeamID = team.id
+
+        store.replaceActiveTeam(with: team)
+        XCTAssertEqual(store.teams[0].players.map(\.id), team.players.map(\.id), "a restore updates in place")
+
+        var otherTeamsFile = team   // same rows, exported from a different team
+        otherTeamsFile.id = UUID()
+        store.replaceActiveTeam(with: otherTeamsFile)
+        XCTAssertEqual(store.teams[0].id, team.id)
+        XCTAssertTrue(Set(store.teams[0].players.map(\.id)).isDisjoint(with: team.players.map(\.id)),
+                      "another team's file gets fresh ids")
+    }
+}
