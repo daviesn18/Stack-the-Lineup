@@ -98,6 +98,23 @@ nonisolated enum TeamStorage {
         defaults.set(Array(names), forKey: receivedSharesKey)
     }
 
+    // MARK: - Teams Moved Elsewhere (Merge 1)
+    //
+    // CloudKit teams this device holds that another device moved to an
+    // account (their record carries movedToAccountAt). They stay read-only
+    // here until the account copy is adopted or the team is deleted. A ledger,
+    // not a flag on Team, because a later CloudKit fetch decodes the record's
+    // JSON and would reset any flag. Local-only.
+    static let movedTeamsKey = "stl_moved_to_account_teams"
+
+    static func loadMovedTeams(defaults: UserDefaults = .standard) -> Set<UUID> {
+        Set((defaults.stringArray(forKey: movedTeamsKey) ?? []).compactMap(UUID.init(uuidString:)))
+    }
+
+    static func saveMovedTeams(_ ids: Set<UUID>, defaults: UserDefaults = .standard) {
+        defaults.set(ids.map(\.uuidString), forKey: movedTeamsKey)
+    }
+
     // MARK: - Last Share-Accept Outcome
     //
     // The result of the most recent `CKContainer.accept`. Written by SceneDelegate

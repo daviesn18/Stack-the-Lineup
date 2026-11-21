@@ -277,3 +277,125 @@ final class TeamMoveStoreTests: XCTestCase {
         XCTAssertEqual(store.teams[0].name, "Imported")
     }
 }
+
+// MARK: - Moved on another device (slice 4)
+
+@MainActor
+final class MovedElsewhereTests: XCTestCase {
+
+    private var store: LineupStore!
+    private var previousAccount: String?
+    private var previousMoved: Set<UUID> = []
+
+    override func setUp() async throws {
+        previousAccount = AccountTeamStore.signedInAccount()
+        previousMoved = TeamStorage.loadMovedTeams()
+        AccountTeamStore.setSignedInAccount(nil)
+        store = LineupStore()
+        var reds = Team()
+        reds.name = "Reds"
+        reds.coachName = "Coach on this phone"
+        reds.ckRecordName = "team-\(reds.id.uuidString)"
+        var cubs = Team()
+        cubs.name = "Cubs"
+        cubs.ckRecordName = "team-\(cubs.id.uuidString)"
+        store.teams = [reds, cubs]
+        store.activeTeamID = reds.id
+        store.accountTeamIDs = []
+        store.movedAwayTeamIDs = []
+    }
+
+    override func tearDown() async throws {
+        store.movedAwayTeamIDs = []
+        store = nil
+        TeamStorage.saveMovedTeams(previousMoved)
+        AccountTeamStore.setSignedInAccount(previousAccount)
+    }
+
+    private var reds: Team { store.teams[0] }
+
+    /// A fetch in which `team`'s record carries movedToAccountAt.
+    private func fetch(marking team: Team) -> CloudKitManager.FetchChangesResult {
+        CloudKitManager.FetchChangesResult(modifiedTeams: [team], deletedRecordNames: [],
+                                           movedRecordNames: [team.ckRecordName!])
+    }
+
+    func testAMovedTeamGoesReadOnlyWhenSignedOut() {
+        store.noteTeamsMovedElsewhere(fetch(marking: reds))
+
+        XCTAssertTrue(store.teams[0].isReadOnly, "edits here would never reach the account")
+        XCTAssertTrue(store.isMovedElsewhere(reds.id))
+        XCTAssertFalse(store.teams[1].isReadOnly, "other teams are untouched")
+        XCTAssertFalse(store.isMovedElsewhere(store.teams[1].id))
+    }
+
+    func testAChangedRecordWithoutTheMarkerChangesNothing() {
+        store.noteTeamsMovedElsewhere(.init(modifiedTeams: [reds], deletedRecordNames: []))
+        XCTAssertFalse(store.teams[0].isReadOnly)
+        XCTAssertTrue(store.movedAwayTeamIDs.isEmpty)
+    }
+
+    func testTheMovingDevicesOwnAccountTeamIsNotMarked() {
+        // The device that moved the team sees its own marker on the next fetch.
+        store.accountTeamIDs = [reds.id]
+        store.noteTeamsMovedElsewhere(fetch(marking: reds))
+        XCTAssertFalse(store.isMovedElsewhere(reds.id))
+        XCTAssertFalse(store.teams[0].isReadOnly)
+    }
+
+    func testReadOnlyIsReappliedAfterALaterFetchDecodesTheRecordAgain() {
+        store.noteTeamsMovedElsewhere(fetch(marking: reds))
+        // A later CloudKit merge replaces the team with the record's JSON,
+        // which says it isn't read-only.
+        store.teams[0].isReadOnly = false
+        store.noteTeamsMovedElsewhere(.init(modifiedTeams: [], deletedRecordNames: []))
+        XCTAssertTrue(store.teams[0].isReadOnly)
+    }
+
+    func testSignedInTheAccountCopyIsAdoptedOneTeamNotTwo() {
+        store.noteTeamsMovedElsewhere(fetch(marking: reds))
+        var accountCopy = reds
+        accountCopy.ckRecordName = nil
+        accountCopy.isReadOnly = false
+        accountCopy.coachName = ""
+        accountCopy.name = "Reds (edited on the web)"
+
+        var outcome = TeamSyncOutcome(status: AccountSyncStatus(lastSyncAt: Date(), conflictCount: 0))
+        outcome.addedTeams = [accountCopy]
+        store.applySyncOutcome(outcome, editCountsAtStart: [:])
+
+        XCTAssertEqual(store.teams.count, 2, "one team, not two")
+        let adopted = store.teams[0]
+        XCTAssertEqual(adopted.id, accountCopy.id)
+        XCTAssertEqual(adopted.name, "Reds (edited on the web)", "the account copy wins")
+        XCTAssertEqual(adopted.coachName, "Coach on this phone", "coachName stays local")
+        XCTAssertNil(adopted.ckRecordName, "no more CloudKit pushes")
+        XCTAssertFalse(adopted.isReadOnly)
+        XCTAssertTrue(store.accountTeamIDs.contains(adopted.id))
+        XCTAssertFalse(store.isMovedElsewhere(adopted.id))
+        XCTAssertEqual(store.activeTeamID, adopted.id, "still the open team")
+    }
+
+    func testAnAccountTeamWithTheSameIdIsNotAdoptedWithoutTheMarker() {
+        // Design E: same id in both places with no marker stays as it is.
+        XCTAssertFalse(store.adoptMovedTeam(reds))
+        XCTAssertNotNil(store.teams[0].ckRecordName)
+        XCTAssertFalse(store.accountTeamIDs.contains(reds.id))
+    }
+
+    func testDeletingAMovedTeamClearsItAndLeavesTheCloudKitRecord() {
+        store.noteTeamsMovedElsewhere(fetch(marking: reds))
+        let recordName = reds.ckRecordName!
+        store.deleteTeam(id: reds.id)
+        XCTAssertTrue(store.movedAwayTeamIDs.isEmpty)
+        XCTAssertFalse(store.pendingRecordDeletions.contains(recordName),
+                       "the record is the other device's backup; this device only drops its copy")
+    }
+
+    func testTheLedgerPersists() {
+        let defaults = UserDefaults(suiteName: "MovedElsewhereTests-\(UUID().uuidString)")!
+        let ids: Set<UUID> = [UUID(), UUID()]
+        TeamStorage.saveMovedTeams(ids, defaults: defaults)
+        XCTAssertEqual(TeamStorage.loadMovedTeams(defaults: defaults), ids)
+    }
+}

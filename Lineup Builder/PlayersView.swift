@@ -1168,6 +1168,9 @@ struct TeamFormView: View {
             if store.accountTeamIDs.contains(id) && store.movingTeamID != id {
                 Label("In Your Account", systemImage: "checkmark.icloud")
                     .foregroundColor(.primary)
+            } else if store.isMovedElsewhere(id) {
+                Label("Moved to an Account", systemImage: "icloud.and.arrow.up")
+                    .foregroundColor(.secondary)
             } else if store.movingTeamID == id {
                 HStack(spacing: 10) {
                     ProgressView()
@@ -1199,6 +1202,8 @@ struct TeamFormView: View {
         } footer: {
             Text(store.accountTeamIDs.contains(id) && store.movingTeamID != id
                  ? "This team is saved to your Stack the Lineup account."
+                 : store.isMovedElsewhere(id)
+                 ? "This team was moved to an account on another device. This copy is read-only."
                  : "Save this team to your Stack the Lineup account so it's there wherever you sign in.")
         }
     }

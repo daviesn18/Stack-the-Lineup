@@ -155,7 +155,9 @@ extension LineupStore {
     private func performAccountPass(_ sync: SupabaseTeamSync) async -> TeamSyncOutcome {
         let ids = accountTeamIDs
         let accountTeams = teams.filter { ids.contains($0.id) }
-        let others = Set(teams.map(\.id)).subtracting(ids)
+        // A team moved to the account on another device isn't excluded: its
+        // account copy comes down as an added team and is adopted (Merge 1).
+        let others = Set(teams.map(\.id)).subtracting(ids).subtracting(movedAwayTeamIDs)
         let counts = accountEditCounts
 
         let outcome = await sync.sync(teams: accountTeams, excluding: others)
@@ -223,7 +225,12 @@ extension LineupStore {
             Log.sync.notice("Removed team \(id, privacy: .public): deleted from the account elsewhere")
         }
 
-        for team in outcome.addedTeams where !teams.contains(where: { $0.id == team.id }) {
+        for team in outcome.addedTeams {
+            if adoptMovedTeam(team) {
+                changed = true
+                continue
+            }
+            guard !teams.contains(where: { $0.id == team.id }) else { continue }
             teams.append(team)
             accountTeamIDs.insert(team.id)
             changed = true

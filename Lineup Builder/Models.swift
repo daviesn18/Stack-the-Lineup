@@ -1432,6 +1432,15 @@ class LineupStore: ObservableObject {
         }
     }
 
+    /// CloudKit teams another device moved to an account (Merge 1). Read-only
+    /// here until the account copy is adopted. See `TeamStorage.movedTeamsKey`.
+    var movedAwayTeamIDs: Set<UUID> = TeamStorage.loadMovedTeams() {
+        didSet {
+            guard movedAwayTeamIDs != oldValue else { return }
+            TeamStorage.saveMovedTeams(movedAwayTeamIDs)
+        }
+    }
+
     /// Team record names whose CloudKit deletion hasn't been confirmed yet.
     /// `deleteTeam` enqueues here and `retryPendingRecordDeletions()` drains it on
     /// every sync until CloudKit confirms each record is gone — the reliable
@@ -1969,6 +1978,8 @@ class LineupStore: ObservableObject {
                 sharedTeams: sharedTeams,
                 sharedFetchSucceeded: sharedFetchSucceeded
             )
+            // Merge 1: teams another device moved to an account.
+            self.noteTeamsMovedElsewhere(privateChanges)
         }
 
         // Drive any not-yet-confirmed team deletion to completion. A delete that
@@ -3352,6 +3363,7 @@ class LineupStore: ObservableObject {
         // Recorded for shared teams too: leaving one shouldn't have it reappear
         // from the next shared-database fetch either.
         tombstones.remember(teamID: id, recordName: team.ckRecordName)
+        movedAwayTeamIDs.remove(id)
 
         // A team the coach leaves is no longer a received team, so drop it from
         // the ledger too. Left behind, the entry outlives the team it describes.

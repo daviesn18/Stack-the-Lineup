@@ -520,6 +520,9 @@ actor CloudKitManager {
         var modifiedTeams: [Team]
         /// Record names of teams deleted on the server since the last sync.
         var deletedRecordNames: [String]
+        /// Merge 1: record names among the changed ones that carry
+        /// movedToAccountAt, i.e. teams another device moved to an account.
+        var movedRecordNames: Set<String> = []
     }
     
     /// Fetches incremental record changes from the STLTeams zone since the last sync.
@@ -531,6 +534,7 @@ actor CloudKitManager {
     func fetchChanges() async throws -> FetchChangesResult {
         var allModified: [Team]   = []
         var allDeleted:  [String] = []
+        var allMoved:    Set<String> = []
         
         let storedData = UserDefaults.standard.data(forKey: changeTokenKey)
         var token: CKServerChangeToken? = storedData.flatMap {
@@ -546,6 +550,7 @@ actor CloudKitManager {
             let batch = try await fetchBatch(since: token)
             allModified.append(contentsOf: batch.teams)
             allDeleted.append(contentsOf: batch.deleted)
+            allMoved.formUnion(batch.moved)
             token      = batch.newToken
             moreComing = batch.moreComing
         }
@@ -559,7 +564,10 @@ actor CloudKitManager {
         }
         
         Log.sync.notice("Private fetch done: \(allModified.count, privacy: .public) teams [\(allModified.map { $0.id.uuidString.prefix(8) }.joined(separator: ", "), privacy: .public)], \(allDeleted.count, privacy: .public) deletions")
-        return FetchChangesResult(modifiedTeams: allModified, deletedRecordNames: allDeleted)
+        if !allMoved.isEmpty {
+            Log.sync.notice("Private fetch: \(allMoved.count, privacy: .public) moved to an account")
+        }
+        return FetchChangesResult(modifiedTeams: allModified, deletedRecordNames: allDeleted, movedRecordNames: allMoved)
     }
     
     // MARK: - fetchBatch (internal)
@@ -577,6 +585,7 @@ actor CloudKitManager {
     private struct BatchResult {
         var teams:      [Team]
         var deleted:    [String]
+        var moved:      Set<String> = []
         var newToken:   CKServerChangeToken?
         var moreComing: Bool
     }
@@ -643,9 +652,15 @@ actor CloudKitManager {
             }
         }
         
+        let movedKey = self.movedToAccountField
+        let moved = Set(rawResult.rawRecords
+            .filter { $0[movedKey] != nil }
+            .map(\.recordID.recordName))
+
         return BatchResult(
             teams:      teams,
             deleted:    rawResult.deleted,
+            moved:      moved,
             newToken:   rawResult.newToken,
             moreComing: rawResult.moreComing
         )

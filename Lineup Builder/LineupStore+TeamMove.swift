@@ -109,6 +109,74 @@ extension LineupStore {
         }
     }
 
+    // MARK: - Moved on another device (slice 4)
+    //
+    // Another of the coach's devices moved a CloudKit team this device also
+    // holds; the record now carries movedToAccountAt. Signed in to that
+    // account, this device adopts the account copy (one team, not two).
+    // Otherwise the team goes read-only with a notice, so edits here can't pile
+    // up on a copy nobody reads. Old app versions can't see the marker and keep
+    // editing the CloudKit copy; those edits don't reach the account.
+
+    /// After a CloudKit fetch: records the teams whose record is marked moved.
+    func noteTeamsMovedElsewhere(_ changes: CloudKitManager.FetchChangesResult) {
+        let moved = Set(changes.modifiedTeams
+            .filter { $0.ckRecordName.map(changes.movedRecordNames.contains) ?? false }
+            .map(\.id))
+            .subtracting(accountTeamIDs)
+        let newlySeen = moved.subtracting(movedAwayTeamIDs)
+        if !newlySeen.isEmpty {
+            movedAwayTeamIDs.formUnion(newlySeen)
+            for id in newlySeen {
+                Log.sync.notice("Team \(id, privacy: .public) was moved to an account on another device")
+            }
+            Analytics.signal("team.move.seen_elsewhere", parameters: [
+                "signed_in": accountSync == nil ? "no" : "yes",
+            ])
+        }
+        enforceMovedElsewhere()
+    }
+
+    /// Moved teams not adopted yet are read-only. Signed in, a pass is started
+    /// so the account copy can replace them.
+    func enforceMovedElsewhere() {
+        movedAwayTeamIDs.formIntersection(teams.map(\.id))
+        let waiting = movedAwayTeamIDs.subtracting(accountTeamIDs)
+        guard !waiting.isEmpty else { return }
+        var changed = false
+        for id in waiting {
+            if let idx = teams.firstIndex(where: { $0.id == id }), !teams[idx].isReadOnly {
+                teams[idx].isReadOnly = true
+                changed = true
+            }
+        }
+        if changed { saveLocalOnly() }
+        if accountSync != nil { syncAccount() }
+    }
+
+    /// Whether a team is read-only because it moved to an account elsewhere.
+    func isMovedElsewhere(_ id: UUID) -> Bool {
+        movedAwayTeamIDs.contains(id) && !accountTeamIDs.contains(id)
+    }
+
+    /// The account copy of a team this device holds as a moved CloudKit team:
+    /// it takes the local copy's place. Returns false if the team isn't one.
+    func adoptMovedTeam(_ accountCopy: Team) -> Bool {
+        guard isMovedElsewhere(accountCopy.id),
+              let idx = teams.firstIndex(where: { $0.id == accountCopy.id }) else { return false }
+        var adopted = accountCopy
+        adopted.coachName = teams[idx].coachName   // local-only, as everywhere
+        adopted.ckRecordName = nil
+        adopted.isReadOnly = false
+        adopted.isSharedParticipant = false
+        teams[idx] = adopted
+        accountTeamIDs.insert(adopted.id)
+        movedAwayTeamIDs.remove(adopted.id)
+        Log.sync.notice("Adopted the account copy of moved team \(adopted.id, privacy: .public)")
+        Analytics.signal("team.move.adopted")
+        return true
+    }
+
     // MARK: - Steps 4 to 6
 
     private func continueMove(_ id: UUID, record: TeamMoveRecord,
