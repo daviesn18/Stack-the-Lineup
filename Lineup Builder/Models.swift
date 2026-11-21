@@ -1432,6 +1432,24 @@ class LineupStore: ObservableObject {
         }
     }
 
+    /// CloudKit teams another device moved to an account (Merge 1). Read-only
+    /// here until the account copy is adopted. See `TeamStorage.movedTeamsKey`.
+    var movedAwayTeamIDs: Set<UUID> = TeamStorage.loadMovedTeams() {
+        didSet {
+            guard movedAwayTeamIDs != oldValue else { return }
+            TeamStorage.saveMovedTeams(movedAwayTeamIDs)
+        }
+    }
+
+    /// CloudKit records this device moved to the account, waiting to be
+    /// deleted once idle for 90 days (Merge 1 slice 6).
+    var movedCloudKitRecords: [MovedCloudKitRecord] = TeamStorage.loadMovedRecords() {
+        didSet {
+            guard movedCloudKitRecords != oldValue else { return }
+            TeamStorage.saveMovedRecords(movedCloudKitRecords)
+        }
+    }
+
     /// Team record names whose CloudKit deletion hasn't been confirmed yet.
     /// `deleteTeam` enqueues here and `retryPendingRecordDeletions()` drains it on
     /// every sync until CloudKit confirms each record is gone — the reliable
@@ -1527,6 +1545,11 @@ class LineupStore: ObservableObject {
     var accountEditCounts: [UUID: Int] = [:]
     var accountSyncRunning = false
     var accountSyncAgain = false
+    /// The team moving into the account right now (Merge 1), for the UI.
+    @Published var movingTeamID: UUID?
+    /// The backup and read-back of the last team imported into the account,
+    /// while it runs. Kept so tests can wait for it.
+    var importConfirmation: Task<Void, Never>?
     /// Orders teams.json writes (see AccountTeamWriter).
     private var accountWriteSequence: UInt64 = 0
     /// Same 2-second trailing debounce as the CloudKit push.
@@ -1964,6 +1987,8 @@ class LineupStore: ObservableObject {
                 sharedTeams: sharedTeams,
                 sharedFetchSucceeded: sharedFetchSucceeded
             )
+            // Merge 1: teams another device moved to an account.
+            self.noteTeamsMovedElsewhere(privateChanges)
         }
 
         // Drive any not-yet-confirmed team deletion to completion. A delete that
@@ -1972,6 +1997,9 @@ class LineupStore: ObservableObject {
         // stops orphan records from accumulating and resurrecting on a fresh
         // install.
         await retryPendingRecordDeletions()
+
+        // Moved teams' CloudKit copies that have been idle for 90 days.
+        await retireIdleMovedRecords()
     }
 
     /// Whether a server copy fetched from CloudKit should replace the local one.
@@ -2043,6 +2071,14 @@ class LineupStore: ObservableObject {
         // a received team's record is in the owner's zone in the shared one. That
         // case is handled after the shared merge below, on absence rather than on
         // a delete notification, because absence is the only signal there is.
+        //
+        // A team moved to an account on another device, whose CloudKit copy
+        // that device has now retired (Merge 1 slice 6). The copy here is
+        // read-only, which would normally mean "remove it", but it's this
+        // coach's own team and the account has it: keep it, without a record,
+        // until sign-in swaps in the account copy.
+        if keepMovedTeamsWhoseRecordWasDeleted(changes.deletedRecordNames) { didChange = true }
+
         let outcome = Self.classifyRemoteDeletions(
             recordNames: changes.deletedRecordNames,
             teams: teams,
@@ -3105,13 +3141,39 @@ class LineupStore: ObservableObject {
         newTeam.name = name
         newTeam.color = color
         newTeam.coachName = UIDevice.current.name
-        teams.append(newTeam)
+        let toAccount = placeNewTeam(newTeam)
         activeTeamID = newTeam.id
         if let gameInningCount {
             applyGameInningCount(gameInningCount, at: teams.count - 1)
         }
-        Analytics.signal("team.created", parameters: ["teamCount": "\(teams.count)"])
+        Analytics.signal("team.created", parameters: [
+            "teamCount": "\(teams.count)",
+            "storage": toAccount ? "account" : "cloudkit",
+        ])
         save()
+    }
+
+    // MARK: - Where new teams go (Merge 1)
+
+    /// Whether a team made on this device now starts in the coach's account.
+    /// Signed in: yes, so it never reaches CloudKit (offline is fine: it waits
+    /// in the save queue). Signed out: no, it's a CloudKit team as before. A
+    /// first launch is always signed out, so the default team stays on CloudKit.
+    ///
+    /// Read from the persisted sign-in rather than `accountSync`, which is only
+    /// set a moment after launch, when the stored session is restored.
+    var newTeamsGoToAccount: Bool { AccountTeamStore.signedInAccount() != nil }
+
+    /// Adds a team made on this device (created or imported), tagged as an
+    /// account team when the coach is signed in. Tagging happens before the
+    /// first save, so the team is written to the account file and never to the
+    /// blob, the KV store or CloudKit. Returns whether it went to the account.
+    @discardableResult
+    private func placeNewTeam(_ team: Team) -> Bool {
+        teams.append(team)
+        guard newTeamsGoToAccount else { return false }
+        accountTeamIDs.insert(team.id)
+        return true
     }
 
     // MARK: - Remote Deletions
@@ -3321,6 +3383,7 @@ class LineupStore: ObservableObject {
         // Recorded for shared teams too: leaving one shouldn't have it reappear
         // from the next shared-database fetch either.
         tombstones.remember(teamID: id, recordName: team.ckRecordName)
+        movedAwayTeamIDs.remove(id)
 
         // A team the coach leaves is no longer a received team, so drop it from
         // the ledger too. Left behind, the entry outlives the team it describes.
@@ -3374,22 +3437,49 @@ class LineupStore: ObservableObject {
     /// Resets the active lineup to a fresh Lineup().
     func replaceActiveTeam(with snapshot: Team) {
         guard let idx = teams.firstIndex(where: { $0.id == activeTeamID }) else { return }
-        var updated = snapshot
+        // A file of this same team (a restore) keeps its rows' ids, so the
+        // account updates them in place. Any other team's file gets fresh ids:
+        // its rows may still belong to that team in the account.
+        var updated = snapshot.id == teams[idx].id ? snapshot : snapshot.withFreshIDs()
         updated.id = teams[idx].id
         updated.lineup = Lineup()
+        // The team keeps its own identity and sharing state wherever it lives.
+        // A .stlteam carries the exporting team's record name and flags; taken
+        // over, the next push would target that other team's CloudKit record.
+        updated.ckRecordName = teams[idx].ckRecordName
+        updated.isReadOnly = teams[idx].isReadOnly
+        updated.isSharedParticipant = teams[idx].isSharedParticipant
+        if accountTeamIDs.contains(updated.id), let sync = accountSync {
+            // A raw copy of what's being replaced, before the replace goes out.
+            let previous = teams[idx]
+            Task { _ = await sync.backupBeforeReplace(previous) }
+        }
         teams[idx] = updated
         save()
     }
 
     /// Adds an imported team as a new entry, assigns a fresh UUID, and switches to it.
     /// Resets the active lineup to a fresh Lineup().
+    ///
+    /// Signed in, the team goes to the account (Merge 1). Fresh ids for the
+    /// team and every row in it mean it can't collide with the team it was
+    /// exported from, or an earlier import of the same file. A .stlteam carries
+    /// the sender's sharing state, so that's cleared: the import is this
+    /// coach's own team.
     func addImportedTeam(_ snapshot: Team) {
-        var newTeam = snapshot
+        var newTeam = snapshot.withFreshIDs()
         newTeam.id = UUID()
         newTeam.lineup = Lineup()
-        teams.append(newTeam)
+        newTeam.ckRecordName = nil
+        newTeam.isSharedParticipant = false
+        newTeam.isReadOnly = false
+        let toAccount = placeNewTeam(newTeam)
         activeTeamID = newTeam.id
         save()
+        if toAccount {
+            let id = newTeam.id
+            importConfirmation = Task { [weak self] in await self?.confirmImportedTeam(id) }
+        }
     }
 }
 

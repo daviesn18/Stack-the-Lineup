@@ -30,6 +30,10 @@ extension LineupStore {
 
     /// Follows the signed-in account. Called once, from init.
     func startFollowingAccount() {
+        // Under unit tests, a session the simulator kept from a manual run
+        // would sign every test store in to that real account and start sync
+        // passes against it. Tests sign in explicitly instead.
+        guard !Self.isRunningUnitTests else { return }
         AccountNetworkWatcher.shared.onReconnect = { [weak self] in
             guard let self, self.accountSync != nil else { return }
             Log.sync.notice("Back online; syncing account teams")
@@ -43,6 +47,9 @@ extension LineupStore {
                 self?.accountDidSignIn(userID)
             }
     }
+
+    nonisolated static let isRunningUnitTests =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     /// A coach is signed in (at launch, or just now). Signing out is not
     /// handled here: only an explicit sign-out may remove account teams from
@@ -58,6 +65,8 @@ extension LineupStore {
             accountSync = SupabaseTeamSync(store: store)
         }
         syncAccount()
+        // A move cut short (the app was killed mid-move) resumes or rolls back.
+        Task { await resumeTeamMoves() }
     }
 
     /// After an explicit sign-out or account deletion: the account's teams
@@ -106,28 +115,6 @@ extension LineupStore {
         return lines
     }
 
-    #if DEBUG
-    /// Signed in, and the open team isn't an account team yet.
-    var canDebugMoveActiveTeamToAccount: Bool {
-        accountSync != nil && !accountTeamIDs.contains(activeTeam.id)
-    }
-
-    /// Debug builds only: makes the open team an account team, so account
-    /// sync can be tested on staging before Merge 1 decides which teams move.
-    /// It leaves CloudKit: no record name, no sharing.
-    func debugMoveActiveTeamToAccount() {
-        guard canDebugMoveActiveTeamToAccount,
-              let idx = teams.firstIndex(where: { $0.id == activeTeamID }) else { return }
-        teams[idx].ckRecordName = nil
-        teams[idx].isSharedParticipant = false
-        teams[idx].isReadOnly = false
-        accountTeamIDs.insert(teams[idx].id)
-        Log.sync.notice("DEBUG: moved team \(self.teams[idx].id, privacy: .public) to the account")
-        saveLocalOnly()
-        syncAccount()
-    }
-    #endif
-
     // MARK: - Running a pass
 
     /// Starts a sync pass now, or right after the one running. No-op when
@@ -140,26 +127,47 @@ extension LineupStore {
         }
         accountSyncRunning = true
 
-        let ids = accountTeamIDs
-        let accountTeams = teams.filter { ids.contains($0.id) }
-        let others = Set(teams.map(\.id)).subtracting(ids)
-        let counts = accountEditCounts
-
         // A pass that starts as the app goes to the background gets the few
         // seconds iOS allows to finish, instead of being frozen mid-push.
         let background = UIApplication.shared.beginBackgroundTask(withName: "account-sync")
 
         Task { [weak self] in
-            let outcome = await sync.sync(teams: accountTeams, excluding: others)
             guard let self else { return }
-            self.applySyncOutcome(outcome, editCountsAtStart: counts)
-            self.accountSyncRunning = false
+            await self.performAccountPass(sync)
             if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
-            if self.accountSyncAgain {
-                self.accountSyncAgain = false
-                self.syncAccount()
-            }
         }
+    }
+
+    /// Runs a pass and waits for it: after the one already running, if any.
+    /// A move needs its pass finished before the read-back. Nil when signed out.
+    @discardableResult
+    func syncAccountAndWait() async -> TeamSyncOutcome? {
+        while accountSyncRunning {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard let sync = accountSync else { return nil }
+        accountSyncRunning = true   // no suspension since the check: still ours
+        return await performAccountPass(sync)
+    }
+
+    /// One pass. The caller has set `accountSyncRunning`.
+    @discardableResult
+    private func performAccountPass(_ sync: SupabaseTeamSync) async -> TeamSyncOutcome {
+        let ids = accountTeamIDs
+        let accountTeams = teams.filter { ids.contains($0.id) }
+        // A team moved to the account on another device isn't excluded: its
+        // account copy comes down as an added team and is adopted (Merge 1).
+        let others = Set(teams.map(\.id)).subtracting(ids).subtracting(movedAwayTeamIDs)
+        let counts = accountEditCounts
+
+        let outcome = await sync.sync(teams: accountTeams, excluding: others)
+        applySyncOutcome(outcome, editCountsAtStart: counts)
+        accountSyncRunning = false
+        if accountSyncAgain {
+            accountSyncAgain = false
+            syncAccount()
+        }
+        return outcome
     }
 
     /// Sends any edit still waiting on the debounce. Call when leaving the
@@ -217,7 +225,12 @@ extension LineupStore {
             Log.sync.notice("Removed team \(id, privacy: .public): deleted from the account elsewhere")
         }
 
-        for team in outcome.addedTeams where !teams.contains(where: { $0.id == team.id }) {
+        for team in outcome.addedTeams {
+            if adoptMovedTeam(team) {
+                changed = true
+                continue
+            }
+            guard !teams.contains(where: { $0.id == team.id }) else { continue }
             teams.append(team)
             accountTeamIDs.insert(team.id)
             changed = true

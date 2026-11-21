@@ -276,8 +276,14 @@ actor SupabaseTeamSync {
         """
 
     private func fetchAllTeams() async throws -> [UUID: TeamRows] {
-        let fetched: [ServerTeam] = try await client.from("teams")
-            .select(Self.teamSelect)
+        try await fetchTeams(id: nil)
+    }
+
+    /// Every team this coach can read, or just one.
+    private func fetchTeams(id: UUID?) async throws -> [UUID: TeamRows] {
+        var query = client.from("teams").select(Self.teamSelect)
+        if let id { query = query.eq("id", value: id.uuidString) }
+        let fetched: [ServerTeam] = try await query
             .is("deleted_at", value: nil)
             .is("players.deleted_at", value: nil)
             .is("scheduled_games.deleted_at", value: nil)
@@ -404,17 +410,77 @@ actor SupabaseTeamSync {
         }
     }
 
-    /// A copy of a team the server rejected, kept before anything else happens
-    /// to it. Support can recover it from the device if it comes to that.
-    private func backup(_ team: Team) {
+    /// A copy of a team kept before anything else happens to it: one the
+    /// server rejected, or one about to move into the account. Support can
+    /// recover it from the device if it comes to that. Returns the file name,
+    /// or nil if it couldn't be written.
+    @discardableResult
+    private func backup(_ team: Team, tag: String? = nil) -> String? {
         let dir = store.directory.appendingPathComponent("backups", isDirectory: true)
-        let name = "\(team.id.uuidString)-\(Int(Date().timeIntervalSince1970)).json"
+        let name = "\(team.id.uuidString)\(tag.map { "-\($0)" } ?? "")-\(Int(Date().timeIntervalSince1970)).json"
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try JSONEncoder().encode(team).write(to: dir.appendingPathComponent(name),
                                                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return name
         } catch {
             Log.sync.error("Couldn't back up team: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    // MARK: - Moves (Merge 1; see TeamMove)
+
+    /// Moves not finished yet.
+    func moveRecords() -> [UUID: TeamMoveRecord] { file.moves ?? [:] }
+
+    /// The raw backup a move keeps before it starts. Nil if it couldn't be
+    /// written, in which case the move doesn't go ahead.
+    func backupForMove(_ team: Team) -> String? { backup(team, tag: "move") }
+
+    /// A raw copy of a team imported from a .stlteam file, kept before its
+    /// first upload.
+    func backupForImport(_ team: Team) -> String? { backup(team, tag: "import") }
+
+    /// A raw copy of an account team about to be replaced by a .stlteam
+    /// import, so the coach's data before the replace isn't lost.
+    func backupBeforeReplace(_ team: Team) -> String? { backup(team, tag: "replace") }
+
+    /// Records a move before the team changes, so a crash can be recovered.
+    func beginMove(_ id: UUID, record: TeamMoveRecord) {
+        var moves = file.moves ?? [:]
+        moves[id] = record
+        file.moves = moves
+        persist()
+    }
+
+    func setMovePhase(_ id: UUID, _ phase: TeamMoveRecord.Phase) {
+        guard var record = file.moves?[id] else { return }
+        record.phase = phase
+        file.moves?[id] = record
+        persist()
+    }
+
+    /// Finished or rolled back. A rolled-back team's sync state is kept on
+    /// purpose: it's the base a retry merges against.
+    func endMove(_ id: UUID) {
+        file.moves?[id] = nil
+        if file.moves?.isEmpty == true { file.moves = nil }
+        persist()
+    }
+
+    /// The read-back: fetches the server's copy of one team and compares it
+    /// with the device's, the same comparison a pass uses to decide there's
+    /// nothing left to send.
+    func verify(_ team: Team) async -> TeamMove.Verify {
+        do {
+            guard let rows = try await fetchTeams(id: team.id)[team.id] else { return .missing }
+            var slots = file.teams[team.id]?.slots ?? LineupSlots()
+            let device = TeamRowMapper.rows(from: team, slots: &slots, base: rows).rows
+            return device == rows ? .match : .mismatch
+        } catch {
+            Log.sync.error("Move read-back of team \(team.id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return Self.isOffline(error) ? .offline : .failed(Self.friendly(error))
         }
     }
 

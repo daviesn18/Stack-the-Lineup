@@ -56,6 +56,11 @@ nonisolated struct AccountSyncFile: Codable, Equatable, Sendable {
     var teams: [UUID: TeamSyncState] = [:]
     /// Teams deleted on this device whose delete hasn't reached the server.
     var pendingDeletes: Set<UUID> = []
+    /// Moves into the account not finished yet (Merge 1; see TeamMove).
+    /// Optional so a sync.json written before Merge 1 still decodes: the
+    /// synthesized decoder would reject a missing non-optional key, and a
+    /// file that doesn't decode is read as empty.
+    var moves: [UUID: TeamMoveRecord]?
 }
 
 nonisolated struct AccountTeamStore: Sendable {

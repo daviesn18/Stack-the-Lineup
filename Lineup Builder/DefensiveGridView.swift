@@ -2412,12 +2412,24 @@ func pitchesRemaining(
 // Explains the lock state so coaches aren't confused by disabled controls.
 
 struct ReadOnlyBanner: View {
+    @EnvironmentObject private var store: LineupStore
+
+    /// Merge 1: the open team was moved to an account on another device.
+    private var moved: Bool { store.isMovedElsewhere(store.activeTeam.id) }
+
+    private var message: String {
+        guard moved else { return "Shared team. You can view but not make changes." }
+        return store.accountSync == nil
+            ? "This team moved to an account. Sign in to keep editing."
+            : "This team moved to a different account. Sign in to that account to keep editing."
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "person.2.fill")
+            Image(systemName: moved ? "icloud.and.arrow.up" : "person.2.fill")
                 .font(.caption.bold())
                 .foregroundColor(.orange)
-            Text("Shared team. You can view but not make changes.")
+            Text(message)
                 .font(.caption)
                 .foregroundColor(.primary)
         }
