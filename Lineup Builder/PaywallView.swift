@@ -13,6 +13,8 @@ import StoreKit
 
 struct PaywallView: View {
     @EnvironmentObject var purchaseManager: PurchaseManager
+    @ObservedObject private var account = AccountManager.shared
+    @State private var showingSignIn = false
     @Environment(\.dismiss) var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let source: String
@@ -47,6 +49,12 @@ struct PaywallView: View {
             }
             .onChange(of: purchaseManager.isPro) { _, newValue in
                 if newValue { dismiss() }
+            }
+            // Pushed inside the paywall's own stack: SignInView pops itself
+            // once signed in, and the account's Pro then closes the paywall.
+            .navigationDestination(isPresented: $showingSignIn) {
+                SignInView()
+                    .environmentObject(AccountManager.shared)
             }
             .task {
                 await purchaseManager.loadProduct()
@@ -245,13 +253,11 @@ struct PaywallView: View {
                 buyButton
                     .padding(.top, 11)
 
-                Button {
-                    Task { await purchaseManager.restore() }
-                } label: {
-                    Text("Restore Purchase")
-                        .font(.callout)
+                // Side by side when they fit, stacked at large text sizes.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 20) { restoreButton; signInButton }
+                    VStack(spacing: 8) { restoreButton; signInButton }
                 }
-                .disabled(purchaseManager.isLoading)
                 .padding(.top, 12)
 
                 legalBlock
@@ -264,6 +270,34 @@ struct PaywallView: View {
             .padding(.bottom, 8)
         }
         .background(Color(.systemBackground))
+    }
+
+    private var restoreButton: some View {
+        Button {
+            Task { await purchaseManager.restore() }
+        } label: {
+            Text("Restore Purchase")
+                .font(.callout)
+        }
+        .disabled(purchaseManager.isLoading)
+    }
+
+    /// For a signed-out coach whose Pro is on their account (bought on another
+    /// device or Apple ID). Signing in loads it; the paywall then closes itself
+    /// when `isPro` turns true. Wording names no other store or price, so it
+    /// doesn't steer anyone away from the in-app purchase.
+    @ViewBuilder
+    private var signInButton: some View {
+        if account.isLoaded && !account.isSignedIn {
+            Button {
+                Analytics.signal("paywall.signInTapped", parameters: ["source": source])
+                showingSignIn = true
+            } label: {
+                Text("Already Pro? Sign In")
+                    .font(.callout)
+            }
+            .disabled(purchaseManager.isLoading)
+        }
     }
 
     private var planSummary: some View {

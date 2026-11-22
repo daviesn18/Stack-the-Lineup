@@ -1,6 +1,7 @@
 import StoreKit
 import SwiftUI
 import Combine
+import Supabase
 import os
 
 // MARK: - PurchaseManager
@@ -11,6 +12,9 @@ import os
 //      sold at $4.99 before the subscription move. These buyers are grandfathered
 //      into full Pro permanently; they are never asked to subscribe.
 //   2. Active subscription — the auto-renewable product sold going forward.
+//   3. Pro on the coach's account (AccountPro): bought on the web, or under
+//      another Apple ID, and recorded by the revenuecat-webhook. Signed-in
+//      coaches only; signed out, Pro comes from StoreKit alone, as before.
 //
 // The legacy clause (1) is a hard product requirement: anyone who paid the
 // one-time fee keeps every Pro feature, including features shipped after the
@@ -162,10 +166,13 @@ class PurchaseManager: ObservableObject {
         // a sandbox account with no purchase, or a first launch before sync all
         // look like. It is NOT the same as owning a product we didn't match,
         // which would show seen > 0 with granting false.
+        // Pro on the coach's account (web, or another Apple ID), from the last
+        // answer cached on the device; refreshAccountPro keeps it current.
+        let accountPro = AccountPro.cachedGrantsPro()
         Log.purchase.info(
-            "Entitlement check: seen \(seen, privacy: .public), unverified \(unverified, privacy: .public), pro \(granting, privacy: .public)"
+            "Entitlement check: seen \(seen, privacy: .public), unverified \(unverified, privacy: .public), pro \(granting, privacy: .public), account \(accountPro, privacy: .public)"
         )
-        return granting
+        return granting || accountPro
     }
 
     #if DEBUG
@@ -189,8 +196,49 @@ class PurchaseManager: ObservableObject {
     /// Resolves `status` out of `.undetermined` for good. Called on launch and
     /// again on every `Transaction.updates` event, so a lapse or refund moves
     /// this back to `.free` rather than leaving stale Pro behind.
+    ///
+    /// "Pro" can be settled by StoreKit alone; "free" waits until the account
+    /// has answered too (`accountResolved`), or a coach who paid on the web
+    /// would be shown a paywall while the network catches up.
     func checkEntitlement() async {
-        status = await Self.isProNow() ? .pro : .free
+        if await Self.isProNow() {
+            status = .pro
+        } else if accountResolved {
+            status = .free
+        }
+    }
+
+    /// Set once the account's Pro is known for this launch (signed out counts).
+    private var accountResolved = false
+
+    /// Re-reads Pro on the signed-in coach's account (nil = signed out), then
+    /// re-derives `status`. Run when the session loads or changes, and when the
+    /// app comes back to the foreground. Offline, the cached answer stands; a
+    /// slow network is given a few seconds before the cache is used anyway.
+    func refreshAccountPro(userID: UUID?) async {
+        let id = userID?.uuidString.lowercased()
+        AccountPro.forget(unlessBelongingTo: id)
+        if let id, let fresh = await Self.withTimeout(seconds: 5, { await AccountPro.fetch(userID: id) }) {
+            AccountPro.save(fresh)
+        }
+        accountResolved = true
+        await checkEntitlement()
+    }
+
+    /// The operation's answer, or nil if it takes longer than `seconds`.
+    nonisolated private static func withTimeout<T: Sendable>(
+        seconds: Double, _ operation: @escaping @Sendable () async -> T?
+    ) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await operation() }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     // MARK: - Display Copy
@@ -268,7 +316,15 @@ class PurchaseManager: ObservableObject {
         purchaseError = nil
 
         do {
-            let result = try await product.purchase()
+            // Signed in: tag the purchase with the account, so Apple's records
+            // (and RevenueCat's) tie it to this coach and not just the device.
+            var options: Set<Product.PurchaseOption> = []
+            if let userID = AccountManager.shared.user?.id {
+                options.insert(.appAccountToken(userID))
+            }
+            let result = try await product.purchase(options: options)
+            // Before finishing the transaction below, as RevenueCat requires.
+            await RevenueCatSync.record(result)
             switch result {
             case .success(let verification):
                 if case .verified(let tx) = verification {
@@ -306,6 +362,7 @@ class PurchaseManager: ObservableObject {
 
         do {
             try await AppStore.sync()
+            await RevenueCatSync.syncPurchases()
             await checkEntitlement()
             if isPro {
                 Analytics.signal("pro.restored")

@@ -14,6 +14,7 @@
 		72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = 72546BC92F80860600EE5B9E /* TelemetryDeck */; };
 		7A10C0DE0000000000000003 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10C0DE0000000000000002 /* Supabase */; };
 		7A10C0DE0000000000000006 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10C0DE0000000000000005 /* GoogleSignIn */; };
+		7A10C0DE0000000000000009 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10C0DE0000000000000008 /* RevenueCat */; };
 		A1F0000000000000000000ED /* STLTeamPreviewExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1F0000000000000000000E1 /* STLTeamPreviewExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -163,6 +164,7 @@
 				72546BCA2F80860600EE5B9E /* TelemetryDeck in Frameworks */,
 				7A10C0DE0000000000000003 /* Supabase in Frameworks */,
 				7A10C0DE0000000000000006 /* GoogleSignIn in Frameworks */,
+				7A10C0DE0000000000000009 /* RevenueCat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -296,6 +298,7 @@
 				72546BC92F80860600EE5B9E /* TelemetryDeck */,
 				7A10C0DE0000000000000002 /* Supabase */,
 				7A10C0DE0000000000000005 /* GoogleSignIn */,
+				7A10C0DE0000000000000008 /* RevenueCat */,
 			);
 			productName = "Lineup Builder";
 			productReference = 720846F72F53C48900F70E89 /* Stack the Lineup.app */;
@@ -389,6 +392,7 @@
 				72546BC82F80860600EE5B9E /* XCRemoteSwiftPackageReference "SwiftSDK" */,
 				7A10C0DE0000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 				7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				7A10C0DE0000000000000007 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 720846F82F53C48900F70E89 /* Products */;
@@ -1038,6 +1042,14 @@
 				minimumVersion = 9.0.0;
 			};
 		};
+		7A10C0DE0000000000000007 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1055,6 +1067,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 7A10C0DE0000000000000004 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignIn;
+		};
+		7A10C0DE0000000000000008 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7A10C0DE0000000000000007 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

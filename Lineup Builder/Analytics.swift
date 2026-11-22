@@ -13,6 +13,10 @@ import TelemetryDeck
 /// (`supportedModes` of `.background`) run off the main actor by design, and hopping
 /// there to record a signal would give that up for telemetry.
 nonisolated enum Analytics {
+    /// The TelemetryDeck app. Also handed to RevenueCat (RevenueCatSync) so its
+    /// TelemetryDeck integration files purchases under this app.
+    static let appID = "F6A09F00-2EFC-4DAD-9137-3350F267E78A"
+
     static func signal(_ name: String, parameters: [String: String] = [:]) {
         #if targetEnvironment(simulator)
         return // Never send signals from the simulator
