@@ -22,7 +22,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-import { accountsFromEvent, authorized, entitlementFromSubscriber } from '../_shared/revenuecat.ts';
+import { accountsFromEvent, authMismatch, authorized, entitlementFromSubscriber } from '../_shared/revenuecat.ts';
 
 const json = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -33,7 +33,14 @@ Deno.serve(async (req) => {
   const expectedAuth = Deno.env.get('REVENUECAT_WEBHOOK_AUTH');
   const apiKey = Deno.env.get('REVENUECAT_SECRET_API_KEY');
   if (!expectedAuth || !apiKey) return json(500, { error: 'RevenueCat secrets are not set' });
-  if (!authorized(req.headers.get('Authorization'), expectedAuth)) return json(401, { error: 'Unauthorized' });
+  const header = req.headers.get('Authorization');
+  if (!authorized(header, expectedAuth)) {
+    // Lengths and short hash prefixes only, never the values: enough to tell a
+    // missing header or a different token from a formatting slip.
+    const mismatch = await authMismatch(header, expectedAuth);
+    console.warn('revenuecat-webhook: unauthorized', JSON.stringify(mismatch));
+    return json(401, { error: 'Unauthorized', ...mismatch });
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return json(400, { error: 'Body is not JSON' }); }

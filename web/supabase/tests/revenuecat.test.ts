@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { accountsFromEvent, authorized, entitlementFromSubscriber, storeFrom } from '../functions/_shared/revenuecat';
+import { accountsFromEvent, authMismatch, authorized, entitlementFromSubscriber, storeFrom } from '../functions/_shared/revenuecat';
 
 const A = '3f1c2b4a-1111-4222-8333-444455556666';
 const B = '9e8d7c6b-aaaa-4bbb-8ccc-ddddeeeeffff';
@@ -20,6 +20,13 @@ describe('accountsFromEvent', () => {
       type: 'TRANSFER', app_user_id: B, original_app_user_id: B, aliases: [B], transferred_from: [A], transferred_to: [B],
     } });
     assert.deepEqual(got.map((a) => a.userId).sort(), [A, B].sort());
+  });
+
+  test('a dashboard TEST event names no account, even with uuid-shaped ids', () => {
+    // Shape of RevenueCat's real "Send test event" payload (2026-11-22).
+    assert.deepEqual(accountsFromEvent({ api_version: '1.0', event: {
+      type: 'TEST', app_user_id: A, original_app_user_id: A, aliases: [A, B], environment: 'SANDBOX',
+    } }), []);
   });
 
   test('anonymous customers and TEST events name no account', () => {
@@ -111,10 +118,25 @@ test('storeFrom maps RevenueCat store names', () => {
   assert.equal(storeFrom(undefined), 'other');
 });
 
-test('authorized compares the whole header', () => {
+test('authorized compares the token, forgiving whitespace and Bearer prefixes', () => {
   assert.equal(authorized('Bearer s3cret', 'Bearer s3cret'), true);
+  assert.equal(authorized('Bearer s3cret ', 'Bearer s3cret'), true);
+  assert.equal(authorized('Bearer s3cret', 's3cret\n'), true);
+  assert.equal(authorized('s3cret', 'Bearer s3cret'), true);
+  assert.equal(authorized('Bearer s3cret', 'Bearer Bearer s3cret'), true);
   assert.equal(authorized('Bearer s3cre', 'Bearer s3cret'), false);
-  assert.equal(authorized('Bearer s3cret ', 'Bearer s3cret'), false);
+  assert.equal(authorized('Bearer s3cretX', 'Bearer s3cret'), false);
   assert.equal(authorized(null, 'Bearer s3cret'), false);
+  assert.equal(authorized('Bearer ', 'Bearer '), false);
   assert.equal(authorized('', ''), false);
+});
+
+test('authMismatch reports shape and fingerprints, never the values', async () => {
+  const m = await authMismatch('Bearer abc ', 'abc');
+  assert.equal(m.headerFingerprint, m.expectedFingerprint);
+  assert.equal(m.headerTokenLength, 3);
+  assert.ok(!JSON.stringify(m).includes('abc'));
+  const missing = await authMismatch(null, 'abc');
+  assert.equal(missing.headerPresent, false);
+  assert.equal(missing.headerFingerprint, null);
 });

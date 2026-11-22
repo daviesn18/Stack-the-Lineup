@@ -22,13 +22,15 @@ export interface Account {
 /**
  * The Supabase accounts a webhook event is about. App user ids are Supabase
  * user ids (the apps call logIn(user.id)), so anything that isn't a uuid is an
- * anonymous RevenueCat id ($RCAnonymousID:…) or a dashboard TEST event, with
- * no account to update. A TRANSFER names both sides, and both need a refresh:
+ * anonymous RevenueCat id ($RCAnonymousID:…) with no account to update. A TRANSFER names both sides, and both need a refresh:
  * one gains Pro, the other loses it.
  */
 export function accountsFromEvent(body: unknown): Account[] {
   const event = (body as { event?: Record<string, unknown> } | null)?.event;
   if (!event || typeof event !== 'object') return [];
+  // The dashboard's "Send test event" uses random uuids that look like real
+  // accounts. Reading them would create junk customers in RevenueCat.
+  if (event.type === 'TEST') return [];
   const list = (v: unknown) => (Array.isArray(v) ? v : []);
   const candidates = [
     event.app_user_id, event.original_app_user_id,
@@ -123,12 +125,39 @@ export function entitlementFromSubscriber(
   };
 }
 
-/** Constant-time check of the Authorization header against the value set in RevenueCat's dashboard. */
+/**
+ * The token in an Authorization value: whitespace and any leading "Bearer "
+ * (even doubled) removed. Pasting into RevenueCat's dashboard or a secrets
+ * form easily adds or drops those, and the random token is what matters.
+ */
+export const authToken = (value: string) => value.trim().replace(/^(bearer(\s+|$))+/i, '').trim();
+
+/** Constant-time check of the Authorization header's token against the one set in RevenueCat's dashboard. */
 export function authorized(header: string | null, expected: string): boolean {
   if (!header || !expected) return false;
-  const a = new TextEncoder().encode(header);
-  const b = new TextEncoder().encode(expected);
+  const a = new TextEncoder().encode(authToken(header));
+  const b = new TextEncoder().encode(authToken(expected));
+  if (b.length === 0) return false;
   let diff = a.length ^ b.length;
   for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
   return diff === 0;
+}
+
+/**
+ * Why a header didn't match, without revealing either value: presence,
+ * lengths, and a short SHA-256 prefix of each token. Equal fingerprints with
+ * a failed check can't happen; different ones mean the token itself differs.
+ */
+export async function authMismatch(header: string | null, expected: string) {
+  const fingerprint = async (v: string) =>
+    Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(authToken(v)))))
+      .slice(0, 4).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return {
+    headerPresent: header != null,
+    headerLength: header?.length ?? 0,
+    headerTokenLength: header ? authToken(header).length : 0,
+    headerFingerprint: header ? await fingerprint(header) : null,
+    expectedTokenLength: authToken(expected).length,
+    expectedFingerprint: await fingerprint(expected),
+  };
 }
