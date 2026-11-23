@@ -1,5 +1,6 @@
 import CloudKit
 import SwiftUI
+import Supabase
 import TelemetryDeck
 import os
 
@@ -10,10 +11,22 @@ struct LineupBuilderApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var purchaseManager = PurchaseManager()
     @StateObject private var account = AccountManager.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Changes when the session finishes loading and whenever a different
+    /// account (or none) is signed in.
+    private var accountKey: String {
+        guard account.isLoaded else { return "loading" }
+        return account.user?.id.uuidString.lowercased() ?? "signed-out"
+    }
 
     init() {
-        let config = TelemetryDeck.Config(appID: "F6A09F00-2EFC-4DAD-9137-3350F267E78A")
+        let config = TelemetryDeck.Config(appID: Analytics.appID)
         TelemetryDeck.initialize(config: config)
+
+        // Before anything can buy or restore. Records purchases only; our own
+        // StoreKit code still completes them (see RevenueCatSync).
+        RevenueCatSync.configure()
 
         // Must run before any tip can be displayed. Also migrates coaches off
         // the pre-TipKit onboarding flags.
@@ -34,6 +47,18 @@ struct LineupBuilderApp: App {
                 .task {
                     // Optional sign-in (Merge 0): follow the stored session.
                     account.start()
+                }
+                .task(id: accountKey) {
+                    // Pro on the account (web, or another Apple ID). Waits for the
+                    // stored session, so a signed-in coach's cached Pro isn't
+                    // dropped by the brief "no user yet" before it loads.
+                    guard account.isLoaded else { return }
+                    await purchaseManager.refreshAccountPro(userID: account.user?.id)
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    // A web purchase or lapse made while the app was away.
+                    guard phase == .active, account.isLoaded else { return }
+                    Task { await purchaseManager.refreshAccountPro(userID: account.user?.id) }
                 }
                 .onChange(of: purchaseManager.isPro, initial: true) { _, isPro in
                     CoachContext.set("tier", isPro ? "pro" : "free")

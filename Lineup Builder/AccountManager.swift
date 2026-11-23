@@ -69,6 +69,8 @@ final class AccountManager: ObservableObject {
         // TelemetryDeck user across iPhone, iPad and web. TelemetryDeck hashes it.
         // Signed out falls back to the default per-device ID.
         TelemetryDeck.updateDefaultUserID(to: user?.id.uuidString.lowercased())
+        // After the TelemetryDeck ID, which RevenueCat is handed (hashed).
+        RevenueCatSync.accountDidChange(to: user?.id)
     }
 
     // MARK: - Sign in
