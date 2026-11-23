@@ -4,7 +4,7 @@
 import type { CSSProperties } from 'react';
 
 import {
-  Archive, ArrowRight, Calendar, Check, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, CircleMinus, CirclePlus, Diamond, Download,
+  Archive, ArrowRight, Calendar, CreditCard, Smartphone, Check, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, CircleMinus, CirclePlus, Diamond, Download,
   FileText, GripVertical, History, Info, Layers, ListOrdered, Lock, Pencil, Star, PersonStanding, Plus, Settings, Share, ShieldCheck, Trash2, TriangleAlert, UserPlus, Users, Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -46,6 +46,8 @@ const MAP: Record<string, LucideIcon> = {
   'star.fill': Star,
   'square.stack.3d.up.fill': Layers,
   trash: Trash2,
+  iphone: Smartphone,
+  creditcard: CreditCard,
 };
 
 const FILLED = new Set(['checkmark.circle.fill', 'plus.circle.fill', 'minus.circle.fill', 'checkmark.shield.fill', 'exclamationmark.triangle.fill', 'bolt.fill']);

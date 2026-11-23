@@ -1,15 +1,18 @@
 // The Account dialog (team list header and the sidebar's account menu): who
-// is signed in, Support (email with the build id), and Delete account. Deleting asks the coach to type DELETE,
+// is signed in, the subscription (and where to manage it), Support (email
+// with the build id), and Delete account. Deleting asks the coach to type DELETE,
 // because it erases every team and can't be undone. Also the shared
 // type-DELETE confirmation that Delete team uses.
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { deleteAccount, useAuth } from '@/data/auth';
+import { billingFor, readAccountPro, subscriptionWords, type AccountPro } from '@/data/billing';
 import { buildLabel, openSupportEmail, SUPPORT_EMAIL } from '@/data/support';
 
 import { Dialog, Group, HeaderButton, Row, TextInput } from './controls';
 import { Icon } from './Icon';
+import { useProAsk } from './pro';
 import { C } from './theme';
 
 export function AccountDialog({ onClose }: { onClose(): void }) {
@@ -34,6 +37,7 @@ export function AccountDialog({ onClose }: { onClose(): void }) {
       <Group label="Signed in as">
         <Row label={email || 'Unknown'} help="To change your password, sign out and choose Forgot password.">{null}</Row>
       </Group>
+      <Subscription />
       <Group label="Support">
         <Row label="Email support" help={`${SUPPORT_EMAIL} · ${buildLabel()}`}>
           <HeaderButton onClick={openSupportEmail}>Email us</HeaderButton>
@@ -88,5 +92,31 @@ export function ConfirmDelete({ title, action, children, run, onClose }: {
         <button type="submit" hidden />
       </form>
     </Dialog>
+  );
+}
+
+function Subscription() {
+  const ask = useProAsk();
+  const [pro, setPro] = useState<AccountPro | null | 'loading'>('loading');
+  useEffect(() => {
+    let live = true;
+    void readAccountPro().then((p) => { if (live) setPro(p); });
+    return () => { live = false; };
+  }, []);
+  if (pro === 'loading') return null;
+  if (pro === null) {
+    return <Group label="Subscription"><Row label="Couldn't load your subscription" help="Check your connection and open Account again.">{null}</Row></Group>;
+  }
+  const billing = billingFor(pro);
+  const words = subscriptionWords(billing);
+  const manageUrl = billing.kind === 'web' || billing.kind === 'other' ? billing.manageUrl : null;
+  return (
+    <Group label="Subscription">
+      <Row label={words.label} help={words.help}>
+        {manageUrl ? <HeaderButton onClick={() => window.open(manageUrl, '_blank', 'noopener')}>Manage</HeaderButton>
+          : billing.kind === 'free' && ask ? <HeaderButton kind="primary" onClick={() => ask('account')}>See Pro</HeaderButton>
+            : null}
+      </Row>
+    </Group>
   );
 }
