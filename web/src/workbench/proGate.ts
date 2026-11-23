@@ -12,7 +12,8 @@ export type ProFeature =
   | 'pdf_export'          // Coaches Guide PDF; the lineup card stays free
   | 'shared_teams'        // inviting a coach (sharing isn't on web yet: Web 14)
   | 'game_history'        // Season stats and the game log
-  | 'pitch_tracking';     // entering pitch counts; pitching rules stay free
+  | 'pitch_tracking'      // entering pitch counts; pitching rules stay free
+  | 'account';            // "See Pro" in the Account dialog (not a gate)
 
 /** 'loading' while the entitlement is unknown: show neither state, so a Pro coach never sees a lock flash (iOS showsLockedUI). */
 export type Entitlement = 'pro' | 'free' | 'loading';
