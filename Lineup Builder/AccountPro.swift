@@ -77,8 +77,11 @@ nonisolated enum AccountPro {
     /// nil when it couldn't be read, e.g. offline: keep whatever is cached.
     static func fetch(userID: String) async -> Snapshot? {
         do {
+            // Not `store`: production gets that column only at the cutover, and
+            // asking for a column that isn't there fails the whole read. A
+            // missing key decodes as nil.
             let rows: [Row] = try await supabase.from("entitlements")
-                .select("is_pro, expires_at, store")
+                .select("is_pro, expires_at")
                 .limit(1)
                 .execute()
                 .value
