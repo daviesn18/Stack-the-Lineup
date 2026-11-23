@@ -65,8 +65,14 @@ export function proFromRow(row: Row | null | undefined, now: Date = new Date()):
 export async function readAccountPro(): Promise<AccountPro | null> {
   const { data, error } = await supabase.from('entitlements')
     .select('is_pro, expires_at, store, management_url, source').maybeSingle();
-  if (error) return null;
-  return proFromRow(data);
+  if (!error) return proFromRow(data);
+  // A database without the RevenueCat columns yet (production until the
+  // cutover runs 20261121000000_revenuecat_entitlements) rejects the read
+  // above as an unknown column (42703). Read what every database has, so Pro
+  // still works there; it just can't say where it's billed.
+  if (error.code !== '42703') return null;
+  const base = await supabase.from('entitlements').select('is_pro, expires_at, source').maybeSingle();
+  return base.error ? null : proFromRow(base.data);
 }
 
 /** How the Account dialog describes the subscription. */

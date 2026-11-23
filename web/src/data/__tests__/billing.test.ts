@@ -1,4 +1,4 @@
-import { billingFor, periodWords, proFromRow, subscriptionWords } from '../billing';
+import { billingFor, periodWords, proFromRow, readAccountPro, subscriptionWords } from '../billing';
 
 jest.mock('../supabase', () => ({ supabase: {} }));
 
@@ -64,5 +64,28 @@ describe('periodWords', () => {
     expect(periodWords('P1W')).toEqual({ per: 'week', days: 7 });
     expect(periodWords(null)).toEqual({ per: null, days: null });
     expect(periodWords('nonsense')).toEqual({ per: null, days: null });
+  });
+});
+
+describe('readAccountPro', () => {
+  const { supabase } = jest.requireMock('../supabase') as { supabase: { from: jest.Mock } };
+  const query = (result: unknown) => ({ select: jest.fn(() => ({ maybeSingle: jest.fn(async () => result) })) });
+
+  it('reads the RevenueCat columns', async () => {
+    supabase.from = jest.fn(() => query({ data: { is_pro: true, store: 'stripe', management_url: 'https://p' }, error: null }));
+    expect(await readAccountPro()).toMatchObject({ isPro: true, store: 'stripe', managementUrl: 'https://p' });
+  });
+
+  it('falls back to the base columns on a database without them', async () => {
+    supabase.from = jest.fn()
+      .mockReturnValueOnce(query({ data: null, error: { code: '42703', message: 'column entitlements.store does not exist' } }))
+      .mockReturnValueOnce(query({ data: { is_pro: true, expires_at: null, source: 'manual' }, error: null }));
+    expect(await readAccountPro()).toMatchObject({ isPro: true, store: null, source: 'manual' });
+  });
+
+  it('returns null on any other error, so the last answer stands', async () => {
+    supabase.from = jest.fn(() => query({ data: null, error: { code: 'PGRST301', message: 'JWT expired' } }));
+    expect(await readAccountPro()).toBeNull();
+    expect(supabase.from).toHaveBeenCalledTimes(1);
   });
 });
