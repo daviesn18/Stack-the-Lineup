@@ -11,7 +11,7 @@
 //  isn't always that tidy, so a bad cell is dropped and reported rather than
 //  failing the whole save.
 //
-//  The lineup model until Merge 2+3:
+//  The lineup model (Merge 2+3 kept it, translating at the edge):
 //    * Team.lineup is the lineup being edited. When currentGameID names a game
 //      on the schedule, it IS that game's lineup. iOS leaves a stale copy of the
 //      open game in gameLineups while it's open, which is ignored here.
@@ -209,7 +209,8 @@ nonisolated enum TeamRowMapper {
                                   lastName: $0.lastName, number: $0.number)
                 },
                 archivedAt: g.archivedAt.roundedToMilliseconds,
-                archivedBy: g.archivedBy, notes: g.notes)
+                archivedBy: g.archivedBy, notes: g.notes,
+                scheduledGameID: g.scheduledGameID)
             let counts = g.pitchCounts.filter { (0...200).contains($0.value) }.upperCasingUUIDKeys()
             if !counts.isEmpty { rows.pitchCounts[g.id] = counts }
         }
@@ -318,7 +319,8 @@ nonisolated enum TeamRowMapper {
                     },
                     archivedAt: g.archivedAt,
                     pitchCounts: rows.pitchCounts[g.id] ?? [:],
-                    archivedBy: g.archivedBy, notes: g.notes)
+                    archivedBy: g.archivedBy, notes: g.notes,
+                    scheduledGameID: g.scheduledGameID)
             }
 
         let team = Team(

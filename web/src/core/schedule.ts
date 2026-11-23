@@ -3,7 +3,7 @@
 //
 // Each scheduled game keeps its own lineup, which is what lets a coach build
 // both games of a doubleheader. On the web a lineup is a row in `lineups`
-// with scheduled_game_id set, and teams.current_lineup_id is the open one, so
+// with scheduled_game_id set, and the open one is this browser's own (core/openGame), so
 // "stashing" the outgoing lineup is free: it's already saved in its own row.
 
 import type { ScheduledGame } from './model';
