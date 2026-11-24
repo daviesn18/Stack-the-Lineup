@@ -225,6 +225,12 @@ extension LineupStore {
             Log.sync.notice("Removed team \(id, privacy: .public): deleted from the account elsewhere")
         }
 
+        // The first account teams to reach this device (the pass after a first
+        // sign-in): if the coach is looking at the empty team a fresh install
+        // makes, open the account's team instead. See `opensAccountTeam`.
+        let hadAccountTeams = !accountTeamIDs.isEmpty
+        var firstAddedID: UUID?
+
         for team in outcome.addedTeams {
             if adoptMovedTeam(team) {
                 changed = true
@@ -233,8 +239,18 @@ extension LineupStore {
             guard !teams.contains(where: { $0.id == team.id }) else { continue }
             teams.append(team)
             accountTeamIDs.insert(team.id)
+            if firstAddedID == nil { firstAddedID = team.id }
             changed = true
             Log.sync.notice("Added team \(team.id, privacy: .public) from the account")
+        }
+
+        if let id = firstAddedID,
+           Self.opensAccountTeam(hadAccountTeams: hadAccountTeams,
+                                 active: teams.first(where: { $0.id == activeTeamID }),
+                                 activeIsAccountTeam: activeTeamID.map(accountTeamIDs.contains) ?? false) {
+            activeTeamID = id
+            DeviceTokenManager.shared.refreshTokenForCurrentTeam(store: self)
+            Log.sync.notice("Opened account team \(id, privacy: .public) in place of the empty default team")
         }
 
         // A refused team can't be changed from this account: show it read-only
@@ -248,6 +264,50 @@ extension LineupStore {
 
         if changed { saveLocalOnly() }
         if editedDuringPass, let id = accountTeamIDs.first { accountSyncDebouncer.schedule(id) }
+    }
+
+    /// Whether a pass that added account teams should open one of them. Only
+    /// when these are the first account teams on the device, and the open
+    /// team is a device team with nothing in it: the "Unnamed Team" every
+    /// install starts with. A team the coach has put anything into stays open.
+    nonisolated static func opensAccountTeam(hadAccountTeams: Bool, active: Team?, activeIsAccountTeam: Bool) -> Bool {
+        guard !hadAccountTeams, !activeIsAccountTeam else { return false }
+        guard let active else { return true }
+        return active.isUntouchedDefault
+    }
+}
+
+extension Team {
+    /// True for a team nobody has put anything into: what `Team()` makes on a
+    /// fresh install. Any roster, lineup, schedule, history, template, name,
+    /// color or rule change counts as data. Shared teams never qualify.
+    nonisolated var isUntouchedDefault: Bool {
+        let blank = Team()
+        let lineupEmpty = lineup.opponent.isEmpty
+            && lineup.battingOrder.isEmpty
+            && lineup.absentPlayerIDs.isEmpty
+            && lineup.innings.allSatisfy { $0.assignments.isEmpty }
+        return name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && players.isEmpty
+            && gameLogs.isEmpty
+            && scheduledGames.isEmpty
+            && calendarSubscriptionURL == nil
+            && lineupTemplates.isEmpty
+            && gameLineups.isEmpty
+            && lineupEmpty
+            && colorHex == blank.colorHex
+            && gameInningCount == blank.gameInningCount
+            && !isReadOnly
+            && !isSharedParticipant
+            && Self.sameEncoding(fairPlayConfig, blank.fairPlayConfig)
+            && Self.sameEncoding(pitchingConfig, blank.pitchingConfig)
+    }
+
+    /// The rule configs aren't Equatable; compare their encodings.
+    private nonisolated static func sameEncoding<T: Encodable>(_ a: T, _ b: T) -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(a)) == (try? encoder.encode(b))
     }
 }
 
