@@ -274,9 +274,13 @@ nonisolated struct GameLogRecord: Codable, Hashable, Sendable {
     var archivedAt: Date
     var archivedBy: String
     var notes: String
+    /// Which scheduled game was archived (Merge 3). Who archived it is stamped
+    /// by the server and read separately (GameLogArchiver), never sent.
+    var scheduledGameID: UUID? = nil
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case id, opponent, innings, notes
+        case scheduledGameID = "scheduled_game_id"
         case teamID = "team_id"
         case gameDate = "game_date"
         case inningsPlayed = "innings_played"

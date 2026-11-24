@@ -51,6 +51,9 @@ nonisolated struct TeamSyncOutcome: Sendable {
     var addedTeams: [Team] = []
     /// Teams whose writes the server refuses: shown read-only.
     var refusedTeamIDs: Set<UUID> = []
+    /// Teams whose open game was archived elsewhere this pass (Merge 3): the
+    /// pass moved them on, and the app says so.
+    var archivedOpenGames: [UUID: OpenGame.Archived] = [:]
     var status: AccountSyncStatus
 }
 
@@ -78,6 +81,9 @@ actor SupabaseTeamSync {
     /// Set by sign-out before the folder is wiped, so a pass still running
     /// can't write sync.json back into it.
     private var closed = false
+    /// Who archived each game log, from the last full fetch (Merge 3). Kept
+    /// out of TeamRows: the server stamps it, and the device never sends it.
+    private var archivers: [UUID: GameLogArchiver] = [:]
 
     init(store: AccountTeamStore, client: SupabaseClient = supabase) {
         self.store = store
@@ -130,10 +136,11 @@ actor SupabaseTeamSync {
     func sync(teams: [Team], excluding: Set<UUID> = []) async -> TeamSyncOutcome {
         var status = AccountSyncStatus(lastSyncAt: nil, conflictCount: file.teams.values.reduce(0) { $0 + $1.conflicts })
 
-        guard (try? await client.auth.session) != nil else {
+        guard let session = try? await client.auth.session else {
             status.state = .signInNeeded
             return TeamSyncOutcome(status: status)
         }
+        let me = session.user.id
 
         await pushPendingDeletes()
 
@@ -160,7 +167,12 @@ actor SupabaseTeamSync {
 
             var slots = state.slots
             let snapshot = TeamRowMapper.rows(from: team, slots: &slots, base: state.base).rows
-            let serverRows = server[team.id]
+            // The open lineup is this device's own (Merge 3): the server's
+            // pointer, and the one in the last base, never move it.
+            let openLineupID = snapshot.team.currentLineupID
+            let openGameID = openLineupID.flatMap { snapshot.lineups[$0]?.scheduledGameID }
+            let serverRows = server[team.id].map { r in var r = r; r.team.currentLineupID = openLineupID; return r }
+            state.base?.team.currentLineupID = openLineupID
 
             // The server has no copy.
             if serverRows == nil, let base = state.base {
@@ -187,7 +199,20 @@ actor SupabaseTeamSync {
                     Log.sync.notice("Team \(team.id, privacy: .public): \(merge.conflicts, privacy: .public) conflict(s) settled for this device")
                 }
                 state.conflicts += merge.conflicts
-                var rebuilt = TeamRowMapper.team(from: merge.rows, local: team)
+                var mergedRows = merge.rows
+                let open = OpenGame.resolve(rows: mergedRows, openLineupID: openLineupID, openGameID: openGameID,
+                                            archivers: archivers, me: me, preferredAdhoc: slots.adhoc)
+                if open.lineupID != openLineupID {
+                    mergedRows.team.currentLineupID = open.lineupID
+                }
+                // Not only when the lineup changes: "Archive and start new game"
+                // keeps the same row open, carried forward to the next game.
+                // The next pass sees it as ad-hoc, so the note shows once.
+                if let archived = open.archived {
+                    outcome.archivedOpenGames[team.id] = archived
+                    Log.sync.notice("Team \(team.id, privacy: .public): the open game was archived elsewhere; opening the next one")
+                }
+                var rebuilt = TeamRowMapper.team(from: mergedRows, local: team)
                 slots = rebuilt.slots
                 rebuilt.team.updatedAt = team.updatedAt
                 mergedTeam = rebuilt.team
@@ -247,6 +272,9 @@ actor SupabaseTeamSync {
         // Teams in the account this device doesn't have yet.
         let known = Set(teams.map(\.id)).union(excluding).union(file.pendingDeletes)
         for (id, rows) in server where !known.contains(id) {
+            // A device seeing a team for the first time opens the default game.
+            var rows = rows
+            rows.team.currentLineupID = OpenGame.defaultLineup(in: rows)
             let (team, slots) = TeamRowMapper.team(from: rows, local: nil)
             var state = TeamSyncState()
             state.base = rows
@@ -292,6 +320,7 @@ actor SupabaseTeamSync {
             .is("game_logs.deleted_at", value: nil)
             .execute()
             .value
+        if id == nil { archivers = fetched.reduce(into: [:]) { $0.merge($1.archivers) { a, _ in a } } }
         return Dictionary(fetched.map { ($0.rows.teamID, $0.rows.normalized()) }, uniquingKeysWith: { a, _ in a })
     }
 
@@ -360,9 +389,10 @@ actor SupabaseTeamSync {
         if !c.deletedTemplates.isEmpty { try await softDelete("lineup_templates", c.deletedTemplates) }
         if !c.deletedGameLogs.isEmpty { try await softDelete("game_logs", c.deletedGameLogs) }
 
+        // teams.current_lineup_id is never written: which lineup is open is each
+        // device's own choice (Merge 3, OpenGame).
         if c.pointersChanged || c.isNewTeam {
             let pointers: [String: JSONValue] = [
-                "current_lineup_id": rows.team.currentLineupID.map { .string($0.uuidString) } ?? .null,
                 "default_template_id": rows.team.defaultTemplateID.map { .string($0.uuidString) } ?? .null,
             ]
             try await client.from("teams").update(pointers, returning: .minimal).eq("id", value: teamID).execute()
@@ -575,6 +605,8 @@ private nonisolated struct PitchCountParams: Encodable {
 /// The nested fetch: a team row with its children embedded.
 nonisolated struct ServerTeam: Decodable {
     let rows: TeamRows
+    /// Who archived each game log (stamped by the server), by log id.
+    let archivers: [UUID: GameLogArchiver]
 
     private enum Keys: String, CodingKey {
         case players
@@ -618,10 +650,19 @@ nonisolated struct ServerTeam: Decodable {
     private struct ServerLog: Decodable {
         let record: GameLogRecord
         let counts: [ServerPitchCount]
-        enum K: String, CodingKey { case counts = "pitch_counts" }
+        let archiver: GameLogArchiver
+        enum K: String, CodingKey {
+            case counts = "pitch_counts"
+            case archivedByUser = "archived_by_user"
+            case archivedByName = "archived_by_name"
+        }
         init(from decoder: Decoder) throws {
             record = try GameLogRecord(from: decoder)
-            counts = try decoder.container(keyedBy: K.self).decodeIfPresent([ServerPitchCount].self, forKey: .counts) ?? []
+            let c = try decoder.container(keyedBy: K.self)
+            counts = try c.decodeIfPresent([ServerPitchCount].self, forKey: .counts) ?? []
+            // Absent on a database without 20261123000000_game_log_archiver.
+            archiver = GameLogArchiver(userID: try c.decodeIfPresent(UUID.self, forKey: .archivedByUser),
+                                       name: try c.decodeIfPresent(String.self, forKey: .archivedByName) ?? "")
         }
     }
 
@@ -638,13 +679,16 @@ nonisolated struct ServerTeam: Decodable {
             rows.lineups[l.record.id] = l.record
             for cell in l.cells { rows.cells[l.record.id, default: [:]][cell.inning, default: [:]][cell.player_id] = cell.position }
         }
+        var archivers: [UUID: GameLogArchiver] = [:]
         for g in try c.decodeIfPresent([ServerLog].self, forKey: .gameLogs) ?? [] {
             rows.gameLogs[g.record.id] = g.record
+            archivers[g.record.id] = g.archiver
             if !g.counts.isEmpty {
                 rows.pitchCounts[g.record.id] = Dictionary(g.counts.map { ($0.player_id.uuidString, $0.pitches) },
                                                            uniquingKeysWith: { a, _ in a })
             }
         }
         self.rows = rows
+        self.archivers = archivers
     }
 }

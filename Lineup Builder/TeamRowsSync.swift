@@ -87,8 +87,9 @@ nonisolated enum TeamRowsDiff {
         bareBase?.currentLineupID = nil
         bareBase?.defaultTemplateID = nil
         if bareBase != bareTeam { c.team = working.team }
-        c.pointersChanged = b?.team.currentLineupID != working.team.currentLineupID
-            || b?.team.defaultTemplateID != working.team.defaultTemplateID
+        // The open lineup is each device's own (Merge 3, OpenGame), so only the
+        // default template is a pointer the server is sent.
+        c.pointersChanged = b?.team.defaultTemplateID != working.team.defaultTemplateID
 
         func split<V: Equatable>(_ old: [UUID: V], _ new: [UUID: V]) -> (upserts: [V], deletes: [UUID]) {
             let upserts = new.filter { old[$0.key] != $0.value }.sorted { $0.key.uuidString < $1.key.uuidString }.map(\.value)

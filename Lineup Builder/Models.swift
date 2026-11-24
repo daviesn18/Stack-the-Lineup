@@ -1043,6 +1043,11 @@ nonisolated struct GameLog: Identifiable, Codable, Sendable {
     /// Freeform coach notes captured at archive time. Optional — empty for games
     /// archived before v3.1. Editable retroactively from GameLogDetailView.
     var notes: String = ""
+    /// The scheduled game this lineup was for, when it was one (Merge 3). Lets
+    /// a coach's other devices tell that the game they have open was archived,
+    /// rather than just taken off the schedule. nil for ad-hoc games and for
+    /// logs archived before 4.1.
+    var scheduledGameID: UUID? = nil
 
     nonisolated var playedInnings: [InningAssignment] {
         Array(innings.prefix(inningsPlayed))
@@ -1067,12 +1072,13 @@ nonisolated struct GameLog: Identifiable, Codable, Sendable {
         pitchCounts    = (try? c.decodeIfPresent([String: Int].self, forKey: .pitchCounts)) ?? [:]
         archivedBy     = (try? c.decode(String.self, forKey: .archivedBy)) ?? ""
         notes          = (try? c.decodeIfPresent(String.self, forKey: .notes)) ?? ""
+        scheduledGameID = try? c.decodeIfPresent(UUID.self, forKey: .scheduledGameID)
     }
 
     init(id: UUID = UUID(), gameDate: Date, opponent: String, inningsPlayed: Int,
          battingOrder: [UUID], innings: [InningAssignment], playerSnapshot: [PlayerSnapshot],
          archivedAt: Date = Date(), pitchCounts: [String: Int] = [:], archivedBy: String = "",
-         notes: String = "") {
+         notes: String = "", scheduledGameID: UUID? = nil) {
         self.id             = id
         self.gameDate       = gameDate
         self.opponent       = opponent
@@ -1084,6 +1090,7 @@ nonisolated struct GameLog: Identifiable, Codable, Sendable {
         self.pitchCounts    = pitchCounts
         self.archivedBy     = archivedBy
         self.notes          = notes
+        self.scheduledGameID = scheduledGameID
     }
 }
 
@@ -2355,7 +2362,8 @@ class LineupStore: ObservableObject {
             innings: activeTeam.lineup.innings,
             playerSnapshot: snapshot,
             archivedBy: coachName,
-            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            scheduledGameID: activeTeam.currentGameID
         )
 
         activeTeam.gameLogs.append(log)
