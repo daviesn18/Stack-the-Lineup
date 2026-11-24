@@ -130,6 +130,24 @@ final class OpenGameTests: XCTestCase {
         XCTAssertEqual(result.archived?.message, "You archived the game vs Tigers on another device. Showing your next game.")
     }
 
+    /// "Archive and start new game" on the web keeps the open row and carries
+    /// it forward as the next ad-hoc game. With no scheduled game ahead, the
+    /// device follows that row, not an older ad-hoc lineup it kept a slot for.
+    func testArchiveAndStartNewGameFollowsTheCarriedForwardRow() {
+        var r = rows()
+        let open = addGame(&r, at: now.addingTimeInterval(-1 * hour), opponent: "Lions")
+        r.lineups[open.lineup]?.scheduledGameID = nil          // now the ad-hoc game vs Bears
+        let stale = UUID()
+        addLineup(&r, id: stale, game: nil)                    // an older ad-hoc lineup
+        let log = addLog(&r, for: open.game, opponent: "Lions")
+        let me = UUID()
+        let result = OpenGame.resolve(rows: r, openLineupID: open.lineup, openGameID: open.game,
+                                      archivers: [log: GameLogArchiver(userID: me, name: "")], me: me,
+                                      preferredAdhoc: stale, now: now, calendar: cal)
+        XCTAssertEqual(result.lineupID, open.lineup)
+        XCTAssertEqual(result.archived?.message, "You archived the game vs Lions on another device. Showing your next game.")
+    }
+
     func testAnArchiverWithNoNameIsAnotherCoach() {
         var r = rows()
         let open = addGame(&r, at: now, opponent: "")

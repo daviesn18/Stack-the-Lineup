@@ -84,7 +84,12 @@ nonisolated enum OpenGame {
         if let open = openLineupID, let l = rows.lineups[open], l.scheduledGameID == openGameID {
             return (open, nil)
         }
-        let next = defaultLineup(in: rows, preferredAdhoc: preferredAdhoc, now: now, calendar: calendar)
+        // Archiving can keep the row and detach it from its game: the web's
+        // "Archive and start new game" carries it forward as the next ad-hoc
+        // game. When no scheduled game comes first, that row is where this
+        // coach went next, not an older ad-hoc lineup this device kept.
+        let carriedForward = openLineupID.flatMap { rows.lineups[$0] }.flatMap { $0.scheduledGameID == nil ? $0.id : nil }
+        let next = defaultLineup(in: rows, preferredAdhoc: carriedForward ?? preferredAdhoc, now: now, calendar: calendar)
         guard let openGameID,
               let log = rows.gameLogs.values.first(where: { $0.scheduledGameID == openGameID }) else {
             return (next, nil)

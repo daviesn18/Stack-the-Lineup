@@ -82,7 +82,11 @@ export function resolveOpenLineup(args: {
     const l = lineups.find((x) => same(x.id, stored.lineupId));
     if (l && same(l.scheduledGameId, stored.gameId)) return { lineupId: l.id, archived: null };
   }
-  const next = defaultLineup(lineups, games, now, stored && !stored.gameId ? stored.lineupId : null);
+  // Archiving can keep the row and detach it from its game: "Archive and start
+  // new game" carries it forward as the next ad-hoc game. When no scheduled
+  // game comes first, that row is where this coach went next.
+  const carriedForward = stored ? lineups.find((x) => same(x.id, stored.lineupId) && !x.scheduledGameId) : undefined;
+  const next = defaultLineup(lineups, games, now, carriedForward?.id ?? null);
   const log = stored?.gameId ? logs.find((g) => same(g.scheduledGameId, stored.gameId)) : undefined;
   if (!log) return { lineupId: next, archived: null };
   const name = log.archivedByName.trim();

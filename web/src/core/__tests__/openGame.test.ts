@@ -102,6 +102,18 @@ describe('resolveOpenLineup', () => {
     expect(archivedMessage(r.archived!)).toBe('You archived the game vs Tigers on another device. Showing your next game.');
   });
 
+  it('follows the row "Archive and start new game" carried forward, not an older ad-hoc lineup', () => {
+    const s = setup();
+    const stale = id();
+    s.lineups.push({ id: stale, scheduledGameId: null }); // sorts first: the old fallback picked it
+    const open = s.addGame(hours(-1), { opponent: 'Lions' });
+    s.lineups.find((l) => l.id === open.lineup)!.scheduledGameId = null; // now the ad-hoc game vs Bears
+    s.addLog(open.game, { opponent: 'Lions', by: 'nick' });
+    const r = resolveOpenLineup({ ...s, stored: { lineupId: open.lineup, gameId: open.game }, me: 'nick', now });
+    expect(r.lineupId).toBe(open.lineup);
+    expect(archivedMessage(r.archived!)).toBe('You archived the game vs Lions on another device. Showing your next game.');
+  });
+
   it('names no one when the archiver has no name', () => {
     const s = setup();
     const open = s.addGame(now, { opponent: '' });

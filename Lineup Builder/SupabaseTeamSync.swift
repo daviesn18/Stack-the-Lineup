@@ -204,10 +204,13 @@ actor SupabaseTeamSync {
                                             archivers: archivers, me: me, preferredAdhoc: slots.adhoc)
                 if open.lineupID != openLineupID {
                     mergedRows.team.currentLineupID = open.lineupID
-                    if let archived = open.archived {
-                        outcome.archivedOpenGames[team.id] = archived
-                        Log.sync.notice("Team \(team.id, privacy: .public): the open game was archived elsewhere; opening the next one")
-                    }
+                }
+                // Not only when the lineup changes: "Archive and start new game"
+                // keeps the same row open, carried forward to the next game.
+                // The next pass sees it as ad-hoc, so the note shows once.
+                if let archived = open.archived {
+                    outcome.archivedOpenGames[team.id] = archived
+                    Log.sync.notice("Team \(team.id, privacy: .public): the open game was archived elsewhere; opening the next one")
                 }
                 var rebuilt = TeamRowMapper.team(from: mergedRows, local: team)
                 slots = rebuilt.slots
