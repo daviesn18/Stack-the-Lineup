@@ -852,6 +852,19 @@ struct TeamFormView: View {
         }.map { $0.offset + 1 } ?? 0
     }
 
+    /// A shared account team this coach doesn't own: its settings are the
+    /// head coach's (Merge 4, decision 1).
+    private var settingsLockedTo: String? {
+        guard case .edit(let id) = mode, let a = store.access(for: id), !a.canChangeSettings else { return nil }
+        return a.ownerDisplayName
+    }
+
+    /// Joined someone else's account team: leaving replaces deleting.
+    private var isJoinedAccountTeam: Bool {
+        guard case .edit(let id) = mode, let a = store.access(for: id) else { return false }
+        return !a.isOwner
+    }
+
     var isEditing: Bool {
         if case .edit = mode { return true }
         return false
@@ -877,7 +890,8 @@ struct TeamFormView: View {
 
                     // Coach Name — used to attribute lineup finalization in shared teams.
                     // Pre-filled from the device name on first launch; editable here.
-                    if isEditing {
+                    // On a team someone else owns it's theirs, so it isn't shown.
+                    if isEditing && settingsLockedTo == nil {
                         HStack {
                             Text("Your Name")
                             Spacer()
@@ -887,6 +901,7 @@ struct TeamFormView: View {
                         }
                     }
                 }
+                .disabled(settingsLockedTo != nil)
 
                 Section {
                     Picker("Game Length", selection: $gameInningCount) {
@@ -932,8 +947,13 @@ struct TeamFormView: View {
                 } header: {
                     Text("Game Settings")
                 } footer: {
-                    Text("Past archived games keep their original inning count.")
+                    if let owner = settingsLockedTo {
+                        Text("Only \(owner) can change team settings.")
+                    } else {
+                        Text("Past archived games keep their original inning count.")
+                    }
                 }
+                .disabled(settingsLockedTo != nil)
 
                 // Account (Merge 1): signed in only. A received team isn't
                 // the coach's to move, so it gets no row.
@@ -984,7 +1004,9 @@ struct TeamFormView: View {
                     // Account teams aren't shared through CloudKit (Merge 1
                     // slice 5): co-coaching on the account comes later, so the
                     // row is replaced with a note rather than vanishing.
-                    if !store.isCloudKitShareable(id) && !isReceivedTeam(id) {
+                    if store.accountTeamIDs.contains(id) {
+                        accountSharingSection(id)
+                    } else if !store.isCloudKitShareable(id) && !isReceivedTeam(id) {
                         Section {
                             Label("Assistant Coaches", systemImage: "person.2")
                                 .foregroundColor(.secondary)
@@ -1050,24 +1072,39 @@ struct TeamFormView: View {
                         } label: {
                             HStack {
                                 Spacer()
-                                Label("Delete Team", systemImage: "trash")
+                                if isJoinedAccountTeam {
+                                    Label("Leave Team", systemImage: "rectangle.portrait.and.arrow.right")
+                                } else {
+                                    Label("Delete Team", systemImage: "trash")
+                                }
                                 Spacer()
                             }
                         }
                         // Anchor the dialog to the button itself, not the whole Form
-                        .confirmationDialog("Delete Team?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-                            Button("Delete Team", role: .destructive) {
+                        .confirmationDialog(isJoinedAccountTeam ? "Leave Team?" : "Delete Team?",
+                                            isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+                            Button(isJoinedAccountTeam ? "Leave Team" : "Delete Team", role: .destructive) {
                                 if case .edit(let id) = mode {
+                                    // For a joined team this leaves it (the sync calls
+                                    // leave_team); the head coach's team is untouched.
                                     store.deleteTeam(id: id)
                                 }
                                 dismiss()
                             }
                             Button("Cancel", role: .cancel) {}
                         } message: {
-                            Text("This will permanently delete \"\(teamName)\" and all its data.")
+                            if isJoinedAccountTeam {
+                                Text("\"\(teamName)\" leaves this device and your account. The head coach can invite you again.")
+                            } else {
+                                Text("This will permanently delete \"\(teamName)\" and all its data.")
+                            }
                         }
                     } footer: {
-                        Text("Deleting a team removes all its players, lineup, and game history. This cannot be undone.")
+                        if isJoinedAccountTeam {
+                            Text("You'll lose access on every device. The team, its players and history stay with the head coach.")
+                        } else {
+                            Text("Deleting a team removes all its players, lineup, and game history. This cannot be undone.")
+                        }
                     }
                 }
             }
@@ -1176,6 +1213,48 @@ struct TeamFormView: View {
     }
 
     // MARK: - Account
+
+    /// Assistant coaches on an account team (Merge 4). The head coach needs Pro
+    /// to invite; a coach who joined always sees who shared it and can leave.
+    @ViewBuilder
+    private func accountSharingSection(_ id: UUID) -> some View {
+        let access = store.access(for: id)
+        Section {
+            // An already-shared team stays manageable after the owner's Pro
+            // lapses (decision 3): removing coaches and stopping sharing are free.
+            if purchaseManager.isPro || access.map({ !$0.isOwner || $0.isShared }) ?? false {
+                NavigationLink {
+                    AccountSharingView(teamID: id)
+                } label: {
+                    HStack {
+                        Label(access?.isOwner == false ? "Shared with You" : "Assistant Coaches", systemImage: "person.2")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if let access, access.isOwner, access.isShared {
+                            Text(access.coaches.count == 1 ? "1 coach" : "\(access.coaches.count) coaches")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            } else {
+                Button {
+                    showingSharedTeamsPaywall = true
+                } label: {
+                    HStack {
+                        Label("Assistant Coaches", systemImage: "person.2")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "lock.fill")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Sharing")
+        }
+    }
 
     @ViewBuilder
     private func accountSection(_ id: UUID) -> some View {

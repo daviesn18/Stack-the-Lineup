@@ -252,6 +252,10 @@ struct PositionSummaryView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.blue)
             }
+        } else if let owner = store.finalizeWaitingOn {
+            Text("Waiting for \(owner) to finalize")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.secondary)
         } else {
             Button { store.finalizeLineup() } label: {
                 Text("Finalize lineup →")

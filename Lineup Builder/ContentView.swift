@@ -269,6 +269,12 @@ struct ContentView: View {
         .onOpenURL { url in
             // Google sign-in's return URL first, so it's never taken for a file.
             if AccountManager.shared.handle(url) { return }
+            // An invite to coach a shared account team (Merge 4). SwiftUI hands
+            // universal links to onOpenURL too.
+            if let token = InviteLink.token(from: url) {
+                store.pendingInviteToken = token
+                return
+            }
             // App/widget/Spotlight/Siri deep links route; everything else is a
             // shared file that still goes down the import paths.
             if router.handle(url) {
@@ -283,6 +289,21 @@ struct ContentView: View {
         // arrive through onOpenURL — see STLRoute.fromSpotlightIdentifier.
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             handleSpotlightSelection(activity)
+        }
+        // A universal link (app.stackthelineup.com/join/<token>) delivered as a
+        // browsing activity rather than a URL.
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL, let token = InviteLink.token(from: url) {
+                store.pendingInviteToken = token
+            }
+        }
+        .sheet(isPresented: Binding(get: { store.pendingInviteToken != nil },
+                                    set: { if !$0 { store.pendingInviteToken = nil } })) {
+            if let token = store.pendingInviteToken {
+                JoinTeamSheet(token: token)
+                    .environmentObject(store)
+                    .environmentObject(AccountManager.shared)
+            }
         }
         // Both onAppear and onChange — a deep link that cold-launches the app can
         // set the route before this view is installed, and onChange alone would

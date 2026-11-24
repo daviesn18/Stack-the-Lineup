@@ -1543,6 +1543,12 @@ class LineupStore: ObservableObject {
 
     /// Which teams are account teams. Loaded with the teams.
     var accountTeamIDs: Set<UUID> = []
+    /// This coach's access to each account team (Merge 4): role, owner and
+    /// coaches. Kept between launches so the right controls show offline.
+    @Published var teamAccess: [UUID: TeamAccess] = LineupStore.loadTeamAccess()
+    /// An invite link opened from Messages, Mail or Safari, waiting for the
+    /// join sheet (Merge 4). Set by ContentView's URL handlers.
+    @Published var pendingInviteToken: String?
     /// Nil when signed out.
     var accountSync: SupabaseTeamSync?
     /// What Settings shows. Nil when signed out.
@@ -2315,6 +2321,9 @@ class LineupStore: ObservableObject {
     /// Marks the active lineup as finalized. Soft status only — editing remains possible
     /// and will automatically revert back to draft.
     func finalizeLineup() {
+        // Only the head coach finalizes a shared account team (Merge 4); the
+        // server refuses it too. The buttons are hidden, this is the backstop.
+        guard finalizeWaitingOn == nil else { return }
         activeTeam.lineup.status = .finalized
         // The banner asks the coach to review and finalize; finalizing is them
         // doing it, so it has nothing left to say.
