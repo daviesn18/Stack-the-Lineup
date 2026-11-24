@@ -248,8 +248,13 @@ extension LineupStore {
            Self.opensAccountTeam(hadAccountTeams: hadAccountTeams,
                                  active: teams.first(where: { $0.id == activeTeamID }),
                                  activeIsAccountTeam: activeTeamID.map(accountTeamIDs.contains) ?? false) {
+            let emptyID = activeTeamID
             activeTeamID = id
             DeviceTokenManager.shared.refreshTokenForCurrentTeam(store: self)
+            // The empty team was only there so the app had something to show.
+            // Deleted the normal way, so a CloudKit copy goes too and can't
+            // come back from the next fetch.
+            if let emptyID { deleteTeam(id: emptyID, signal: false) }
             Log.sync.notice("Opened account team \(id, privacy: .public) in place of the empty default team")
         }
 

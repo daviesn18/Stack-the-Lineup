@@ -60,9 +60,13 @@ final class SignInOpensAccountTeamTests: XCTestCase {
 
     private var store: LineupStore!
     private var previousAccount: String?
+    private var previousTombstones = TeamTombstones()
+    private var previousDeletions: Set<String> = []
 
     override func setUp() async throws {
         previousAccount = AccountTeamStore.signedInAccount()
+        previousTombstones = TeamStorage.loadTombstones()
+        previousDeletions = TeamStorage.loadPendingDeletions()
         AccountTeamStore.setSignedInAccount(nil)
         store = LineupStore()
         store.teams = [Team()]
@@ -72,6 +76,8 @@ final class SignInOpensAccountTeamTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        store.tombstones = previousTombstones
+        store.pendingRecordDeletions = previousDeletions
         store = nil
         AccountTeamStore.setSignedInAccount(previousAccount)
     }
@@ -89,12 +95,36 @@ final class SignInOpensAccountTeamTests: XCTestCase {
     }
 
     func testAFreshInstallOpensTheAccountTeam() {
+        let empty = store.teams[0].id
         let stripe = accountTeam("Stripe Test 2")
         apply(added: [stripe])
 
         XCTAssertEqual(store.activeTeamID, stripe.id)
         XCTAssertEqual(store.teamName, "Stripe Test 2")
-        XCTAssertEqual(store.teams.count, 2, "the empty team stays; nothing is deleted")
+        XCTAssertEqual(store.teams.map(\.id), [stripe.id], "the empty team is gone")
+        XCTAssertTrue(store.accountTeamIDs.contains(stripe.id))
+        XCTAssertTrue(store.tombstones.blocks(teamID: empty, recordName: nil), "so a CloudKit copy can't bring it back")
+    }
+
+    func testAnEmptyTeamInCloudKitIsQueuedForDeletion() {
+        let record = "team-\(store.teams[0].id.uuidString)"
+        store.teams[0].ckRecordName = record
+        apply(added: [accountTeam("Stripe Test 2")])
+
+        XCTAssertEqual(store.teams.count, 1)
+        XCTAssertTrue(store.pendingRecordDeletions.contains(record), "the server record goes too")
+    }
+
+    func testOtherDeviceTeamsStay() {
+        // Only the open, empty team goes; any other device team is the coach's.
+        var reds = Team()
+        reds.name = "Reds"
+        store.teams.append(reds)
+        let stripe = accountTeam("Stripe Test 2")
+        apply(added: [stripe])
+
+        XCTAssertEqual(Set(store.teams.map(\.id)), [reds.id, stripe.id])
+        XCTAssertEqual(store.activeTeamID, stripe.id)
     }
 
     func testWithSeveralAccountTeamsTheFirstOpens() {
@@ -111,6 +141,7 @@ final class SignInOpensAccountTeamTests: XCTestCase {
         apply(added: [accountTeam("Stripe Test 2")])
 
         XCTAssertEqual(store.activeTeamID, local)
+        XCTAssertEqual(store.teams.count, 2, "nothing deleted")
         XCTAssertEqual(store.teams[0].players.count, 1, "untouched")
     }
 
@@ -126,6 +157,7 @@ final class SignInOpensAccountTeamTests: XCTestCase {
         apply(added: [accountTeam("Added on the web")])
 
         XCTAssertEqual(store.activeTeamID, blank)
+        XCTAssertTrue(store.teams.contains { $0.id == blank }, "a team made on purpose stays")
     }
 
     func testAPassThatAddsNothingChangesNothing() {
