@@ -34,7 +34,7 @@ export function Workbench({ demo }: { demo?: boolean }) {
 
 function Frame({ demo }: { demo?: boolean }) {
   const w = useWorkbench();
-  const { saveError, dismissSaveError, saving } = useTeam();
+  const { saveError, dismissSaveError, saving, notice, dismissNotice } = useTeam();
   const [accountOpen, setAccountOpen] = useState(false);
   useKeyboard();
   return (
@@ -47,6 +47,12 @@ function Frame({ demo }: { demo?: boolean }) {
             <div role="alert" style={{ background: 'rgba(255,59,48,0.09)', color: C.red, fontSize: 14, padding: '8px 20px', display: 'flex', gap: 12, borderBottom: C.hair }}>
               <span style={{ flex: 1 }}>{saveError}</span>
               <button className="h-link" onClick={dismissSaveError} style={{ color: C.blue }}>Dismiss</button>
+            </div>
+          )}
+          {notice && (
+            <div role="status" style={{ background: 'rgba(0,122,255,0.08)', color: C.label, fontSize: 14, padding: '8px 20px', display: 'flex', gap: 12, borderBottom: C.hair }}>
+              <span style={{ flex: 1 }}>{notice}</span>
+              <button className="h-link" onClick={dismissNotice} style={{ color: C.blue }}>Dismiss</button>
             </div>
           )}
           <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>

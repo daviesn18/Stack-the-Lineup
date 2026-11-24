@@ -269,6 +269,23 @@ extension LineupStore {
 
         if changed { saveLocalOnly() }
         if editedDuringPass, let id = accountTeamIDs.first { accountSyncDebouncer.schedule(id) }
+
+        // The game this coach had open was archived elsewhere and the pass moved
+        // on (Merge 3). Say so, and who, for the team on screen; another team
+        // just opens its next game when the coach goes to it.
+        if let id = activeTeamID, let archived = outcome.archivedOpenGames[id] {
+            showSyncNote(archived.message)
+            Analytics.signal("lineup.openGame.archivedElsewhere", parameters: ["byMe": archived.byMe ? "true" : "false"])
+        }
+    }
+
+    /// A short note at the bottom of the screen, gone after a few seconds.
+    private func showSyncNote(_ text: String) {
+        reuseToast = text
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            if reuseToast == text { reuseToast = nil }
+        }
     }
 
     /// Whether a pass that added account teams should open one of them. Only

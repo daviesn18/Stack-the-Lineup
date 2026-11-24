@@ -48,7 +48,10 @@ final class TeamRowsSyncTests: XCTestCase {
         let c = TeamRowsDiff.changes(from: nil, to: baseRows())
         XCTAssertTrue(c.isNewTeam)
         XCTAssertNotNil(c.team)
-        XCTAssertTrue(c.pointersChanged)
+        // The open lineup is no longer sent (Merge 3) and this team has no
+        // default template, so no pointer changed; push still writes pointers
+        // for a new team because it checks isNewTeam.
+        XCTAssertFalse(c.pointersChanged)
         XCTAssertEqual(c.players.count, 3)
         XCTAssertEqual(c.innings[lineupID]?.count, 6, "every inning, empty ones as clears")
         XCTAssertEqual(c.innings[lineupID]?[2], [:])
