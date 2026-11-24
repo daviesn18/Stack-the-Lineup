@@ -3358,7 +3358,9 @@ class LineupStore: ObservableObject {
         }
     }
 
-    func deleteTeam(id: UUID) {
+    /// `signal: false` for a delete the coach didn't ask for (the empty
+    /// default team replaced by an account team), so it isn't counted as one.
+    func deleteTeam(id: UUID, signal: Bool = true) {
         guard teams.count > 1 else { return }
         guard let team = teams.first(where: { $0.id == id }) else { return }
 
@@ -3417,7 +3419,9 @@ class LineupStore: ObservableObject {
         // CloudKit failure here shouldn't block it.
         Task { await DeviceTokenManager.shared.removeTokens(for: id.uuidString) }
 
-        Analytics.signal("team.deleted", parameters: ["remainingTeams": "\(teams.count)"])
+        if signal {
+            Analytics.signal("team.deleted", parameters: ["remainingTeams": "\(teams.count)"])
+        }
         save()
     }
 
