@@ -1928,9 +1928,16 @@ class LineupStore: ObservableObject {
         // If the stored game date is in the past and the lineup is still a draft,
         // reset it to today. A finalized lineup keeps its date so the archive
         // nudge can fire correctly.
+        //
+        // Not for account teams. Their lineup belongs to a game the coaches
+        // share, and the date is the game's: changing it here was a silent edit
+        // on every launch, which the sync then sent, and on a shared team it
+        // undid the head coach's finalize from an assistant's phone (Merge 5
+        // test, 2026-11-24). Which game opens is Merge 3's open-game rule.
         let today = Calendar.current.startOfDay(for: Date())
         let storedDate = Calendar.current.startOfDay(for: activeTeam.lineup.gameDate)
-        if storedDate < today && activeTeam.lineup.status == .draft {
+        if storedDate < today && activeTeam.lineup.status == .draft
+            && !accountTeamIDs.contains(activeTeam.id) {
             activeTeam.lineup.gameDate = Date()
         }
     }

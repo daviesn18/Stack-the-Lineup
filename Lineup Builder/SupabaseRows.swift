@@ -251,6 +251,11 @@ nonisolated struct LineupRecord: Codable, Hashable, Sendable {
         case lastFinalizedAt = "last_finalized_at"
         case defaultTemplateID = "default_template_id"
     }
+
+    /// Merged as one field (TeamRowsMerge): a finalize is its status, who and when.
+    static let finalizeFields: Set<String> = [
+        CodingKeys.status.rawValue, CodingKeys.lastFinalizedBy.rawValue, CodingKeys.lastFinalizedAt.rawValue,
+    ]
 }
 
 /// One entry of game_logs.player_snapshot, in the web's shape (upper-case id).

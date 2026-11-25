@@ -158,29 +158,42 @@ nonisolated enum TeamRowsMerge {
     static func merge(base: TeamRows, local: TeamRows, server: TeamRows) -> Result {
         var conflicts = 0
 
-        func pick<V: Equatable>(_ b: V?, _ l: V?, _ s: V?) -> V? {
+        func pick<V: Equatable>(_ b: V?, _ l: V?, _ s: V?, byField: ((V, V, V) -> V)? = nil) -> V? {
             if l == b { return s }          // only the server moved (or nobody did)
             if s == b || s == l { return l } // only the device moved, or both agree
+            // Both edited the same row: merge it field by field when it allows,
+            // so a change to one field on each side keeps both.
+            if let byField, let b, let l, let s { return byField(b, l, s) }
             conflicts += 1
             if l == nil { return s }        // device deleted, server edited: keep the edit
             return l                        // otherwise the device wins
         }
 
-        func mergeMap<K: Hashable, V: Equatable>(_ b: [K: V], _ l: [K: V], _ s: [K: V]) -> [K: V] {
+        func mergeMap<K: Hashable, V: Equatable>(_ b: [K: V], _ l: [K: V], _ s: [K: V],
+                                                 byField: ((V, V, V) -> V)? = nil) -> [K: V] {
             var out: [K: V] = [:]
             for k in Set(b.keys).union(l.keys).union(s.keys) {
-                if let v = pick(b[k], l[k], s[k]) { out[k] = v }
+                if let v = pick(b[k], l[k], s[k], byField: byField) { out[k] = v }
             }
             return out
         }
 
         var rows = local
         rows.team = mergeTeam(base.team, local.team, server.team, conflicts: &conflicts)
-        rows.players = mergeMap(base.players, local.players, server.players)
+        rows.players = mergeMap(base.players, local.players, server.players,
+                                byField: { mergeFields($0, $1, $2, conflicts: &conflicts) })
         rows.scheduledGames = mergeMap(base.scheduledGames, local.scheduledGames, server.scheduledGames)
         rows.templates = mergeMap(base.templates, local.templates, server.templates)
         rows.locks = mergeMap(base.locks, local.locks, server.locks)
-        rows.lineups = mergeMap(base.lineups, local.lineups, server.lineups)
+        // A lineup merges field by field, with its finalize (status, by, at) as
+        // one field: on a shared team the head coach finalizing and an
+        // assistant changing something else must both survive. Before this, the
+        // whole row went to the device, so an assistant's phone could undo a
+        // finalize it never touched.
+        rows.lineups = mergeMap(base.lineups, local.lineups, server.lineups,
+                                byField: { mergeFields($0, $1, $2, together: LineupRecord.finalizeFields,
+                                                       unordered: [LineupRecord.CodingKeys.absentPlayerIDs.rawValue],
+                                                       conflicts: &conflicts) })
         rows.gameLogs = mergeMap(base.gameLogs, local.gameLogs, server.gameLogs)
         rows.pitchCounts = mergeMap(base.pitchCounts, local.pitchCounts, server.pitchCounts)
 
@@ -214,6 +227,40 @@ nonisolated enum TeamRowsMerge {
         }
 
         return Result(rows: rows, conflicts: conflicts)
+    }
+
+    /// Merges one row field by field (as the team row is): a field only one
+    /// side changed takes that side; a field both changed differently goes to
+    /// the device and counts as a conflict. Fields in `together` move as one,
+    /// so a status never lands without its "finalized by" and "at".
+    /// `unordered`: array fields that are sets on iOS (encoded in no fixed
+    /// order), compared regardless of order.
+    static func mergeFields<T: Codable>(_ b: T, _ l: T, _ s: T, together: Set<String> = [],
+                                        unordered: Set<String> = [], conflicts: inout Int) -> T {
+        func object(_ v: T) -> [String: JSONValue]? {
+            guard var o = try? JSONValue.encoding(v).objectValue else { return nil }
+            for k in unordered {
+                if case .array(let items)? = o[k] { o[k] = .array(items.sorted { "\($0)" < "\($1)" }) }
+            }
+            return o
+        }
+        guard let bo = object(b), let lo = object(l), let so = object(s)
+        else { conflicts += 1; return l }
+        var out: [String: JSONValue] = [:]
+        func merge(_ keys: [String]) {
+            let pick = { (o: [String: JSONValue]) in keys.map { o[$0] } }
+            let (bv, lv, sv) = (pick(bo), pick(lo), pick(so))
+            let chosen: [JSONValue?]
+            if lv == bv { chosen = sv }
+            else if sv == bv || sv == lv { chosen = lv }
+            else { conflicts += 1; chosen = lv }
+            for (k, v) in zip(keys, chosen) { out[k] = v }
+        }
+        let all = Set(bo.keys).union(lo.keys).union(so.keys)
+        let grouped = all.intersection(together)
+        if !grouped.isEmpty { merge(grouped.sorted()) }
+        for k in all.subtracting(grouped) { merge([k]) }
+        return (try? JSONValue.object(out.compactMapValues { $0 }).decoded(as: T.self)) ?? l
     }
 
     /// The team row merges field by field: a rename on the web and a fair-play

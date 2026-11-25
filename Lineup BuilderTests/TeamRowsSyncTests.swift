@@ -157,6 +157,78 @@ final class TeamRowsSyncTests: XCTestCase {
         XCTAssertEqual(r.conflicts, 1)
     }
 
+    // MARK: - Shared teams: rows merge field by field (Merge 5 test, 2026-11-24)
+
+    /// The bug: the head coach finalized on the web while an assistant's phone
+    /// held a lineup it had changed on its own (its date, reset at launch). The
+    /// whole row went to the device, so the phone put the lineup back to draft.
+    func testAFinalizeSurvivesADeviceThatChangedSomethingElse() {
+        var l = baseRows(), s = baseRows()
+        l.lineups[lineupID]?.gameDate = Date(timeIntervalSince1970: 1_795_000_000)
+        let at = Date(timeIntervalSince1970: 1_795_000_100)
+        s.lineups[lineupID]?.status = "finalized"
+        s.lineups[lineupID]?.lastFinalizedBy = "Sam"
+        s.lineups[lineupID]?.lastFinalizedAt = at
+        let r = TeamRowsMerge.merge(base: baseRows(), local: l, server: s)
+        let m = r.rows.lineups[lineupID]
+        XCTAssertEqual(m?.status, "finalized", "the head coach's finalize stands")
+        XCTAssertEqual(m?.lastFinalizedBy, "Sam")
+        XCTAssertEqual(m?.lastFinalizedAt, at)
+        XCTAssertEqual(m?.gameDate, Date(timeIntervalSince1970: 1_795_000_000), "and the device's own change too")
+        XCTAssertEqual(r.conflicts, 0)
+        // What the device then sends is only its date: nothing that undoes the finalize.
+        let changes = TeamRowsDiff.changes(from: s, to: r.rows)
+        XCTAssertEqual(changes.lineups.map(\.status), ["finalized"])
+    }
+
+    func testAFinalizeMovesAsOneWhenBothSidesChangedIt() {
+        // The device reopened the lineup (an edit) while the server finalized
+        // it again: the device wins the finalize as a whole, never half of it.
+        var b = baseRows(), l = baseRows(), s = baseRows()
+        b.lineups[lineupID]?.status = "finalized"; b.lineups[lineupID]?.lastFinalizedBy = "Sam"
+        b.lineups[lineupID]?.lastFinalizedAt = Date(timeIntervalSince1970: 1_795_000_000)
+        l = b; s = b
+        l.lineups[lineupID]?.status = "draft"; l.lineups[lineupID]?.lastFinalizedBy = nil; l.lineups[lineupID]?.lastFinalizedAt = nil
+        s.lineups[lineupID]?.lastFinalizedAt = Date(timeIntervalSince1970: 1_795_000_500)
+        let r = TeamRowsMerge.merge(base: b, local: l, server: s)
+        XCTAssertEqual(r.rows.lineups[lineupID]?.status, "draft")
+        XCTAssertNil(r.rows.lineups[lineupID]?.lastFinalizedBy)
+        XCTAssertNil(r.rows.lineups[lineupID]?.lastFinalizedAt)
+        XCTAssertEqual(r.conflicts, 1)
+    }
+
+    func testAbsentPlayersCompareAsASet() {
+        var b = baseRows(), l = baseRows(), s = baseRows()
+        b.lineups[lineupID]?.absentPlayerIDs = [p1, p2, p3]
+        l = b; s = b
+        l.lineups[lineupID]?.opponent = "Tigers"
+        s.lineups[lineupID]?.battingOrder = [p3, p2, p1]
+        let r = TeamRowsMerge.merge(base: b, local: l, server: s)
+        XCTAssertEqual(r.rows.lineups[lineupID]?.opponent, "Tigers")
+        XCTAssertEqual(r.rows.lineups[lineupID]?.battingOrder, [p3, p2, p1])
+        XCTAssertEqual(r.rows.lineups[lineupID]?.absentPlayerIDs, [p1, p2, p3])
+        XCTAssertEqual(r.conflicts, 0)
+    }
+
+    func testPlayerFieldsMergeOneByOne() {
+        var l = baseRows(), s = baseRows()
+        l.players[p1]?.number = "7"
+        s.players[p1]?.firstName = "Avery"
+        let r = TeamRowsMerge.merge(base: baseRows(), local: l, server: s)
+        XCTAssertEqual(r.rows.players[p1]?.number, "7")
+        XCTAssertEqual(r.rows.players[p1]?.firstName, "Avery")
+        XCTAssertEqual(r.conflicts, 0)
+    }
+
+    func testTheSameFieldChangedOnBothSidesStillGoesToTheDevice() {
+        var l = baseRows(), s = baseRows()
+        l.lineups[lineupID]?.opponent = "Tigers"
+        s.lineups[lineupID]?.opponent = "Lions"
+        let r = TeamRowsMerge.merge(base: baseRows(), local: l, server: s)
+        XCTAssertEqual(r.rows.lineups[lineupID]?.opponent, "Tigers")
+        XCTAssertEqual(r.conflicts, 1)
+    }
+
     func testTeamFieldsMergeOneByOne() {
         var l = baseRows(), s = baseRows()
         l.team.fairPlayConfig = .object(["equalBenchTime": .bool(true)])
