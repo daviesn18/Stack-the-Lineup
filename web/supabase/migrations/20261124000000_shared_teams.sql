@@ -224,7 +224,9 @@ begin
   end if;
   return query
     select t.id, t.name, t.color_hex,
-           coalesce(nullif(public.coach_display_name(t.owner_id), ''), btrim(t.coach_name)),
+           -- The name the head coach gave the team (Your Name), as both apps
+           -- show it inside the team; the account's name when it's blank.
+           coalesce(nullif(btrim(t.coach_name), ''), public.coach_display_name(t.owner_id)),
            i.role,
            (t.owner_id = u or exists (select 1 from public.team_members m where m.team_id = t.id and m.user_id = u))
     from public.team_invites i join public.teams t on t.id = i.team_id

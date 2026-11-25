@@ -172,10 +172,19 @@ describe('the invite link', () => {
     const p = (await asUser(db, coach, (d) => d.query('select * from public.team_invite_preview($1)', [token]))).rows[0];
     assert.equal(p.team_id, t.team);
     assert.equal(p.team_name, 'Cubs');
-    assert.equal(p.owner_name, 'Sam Rivera');
+    assert.equal(p.owner_name, 'Sam', "the team's coach name, as inside the team");
     assert.equal(p.role, 'editor');
     assert.equal(p.is_member, false);
     assert.equal((await asUser(db, coach, (d) => d.query('select * from public.team_invite_preview($1)', ['nope']))).rows.length, 0);
+  });
+
+  test("preview falls back to the account's name when the team has no coach name", async () => {
+    const t = await makeTeam('Cubs');
+    await db.query(`update public.teams set coach_name = '  ' where id = $1`, [t.team]);
+    const coach = await createUser(db);
+    const token = await invite(t.owner, t.team);
+    const p = (await asUser(db, coach, (d) => d.query('select * from public.team_invite_preview($1)', [token]))).rows[0];
+    assert.equal(p.owner_name, 'Sam Rivera');
   });
 
   test('too many bad links in a row are refused for a while', async () => {
