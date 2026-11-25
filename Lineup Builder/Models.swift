@@ -2334,7 +2334,10 @@ class LineupStore: ObservableObject {
         save()
         Analytics.signal("lineup.finalized")
 
-        // Notify other coaches via Cloudflare Worker -> APNs.
+        // Notify other coaches via Cloudflare Worker -> APNs. CloudKit teams
+        // only: for an account team the database sends it when the finalize
+        // reaches the server (Merge 5), so sending here would double it.
+        guard !accountTeamIDs.contains(activeTeam.id) else { return }
         let opponent = activeTeam.lineup.opponent
         let gameDate = activeTeam.lineup.gameDate.formatted(
             Date.FormatStyle().month(.abbreviated).day()
