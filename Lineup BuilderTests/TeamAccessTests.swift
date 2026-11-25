@@ -1,3 +1,4 @@
+import Auth
 import XCTest
 @testable import Lineup_Builder
 
@@ -70,6 +71,31 @@ final class TeamAccessTests: XCTestCase {
                   "file:///tmp/Cubs.stlteam"] {
             XCTAssertNil(InviteLink.token(from: URL(string: s)!), s)
         }
+    }
+
+    func testABareTokenIsCheckedLikeALink() {
+        XCTAssertEqual(InviteLink.token(fromToken: token.uppercased()), token)
+        XCTAssertNil(InviteLink.token(fromToken: "short"))
+        XCTAssertNil(InviteLink.token(fromToken: String(repeating: "z", count: 64)))
+    }
+
+    // MARK: - An invite waiting for an account
+
+    func testAPendingInviteOutlivesTheSheetForAMonth() {
+        PendingInvite.clear()
+        defer { PendingInvite.clear() }
+        PendingInvite.save(token)
+        XCTAssertEqual(PendingInvite.load(), token, "kept until the coach signs in")
+        XCTAssertEqual(PendingInvite.load(now: Date().addingTimeInterval(29 * 24 * 3600)), token)
+        XCTAssertNil(PendingInvite.load(now: Date().addingTimeInterval(31 * 24 * 3600)), "a month later it's dropped")
+        XCTAssertNil(PendingInvite.load(), "and forgotten")
+    }
+
+    func testAnEmailSignUpCarriesTheInviteOnTheAccount() {
+        XCTAssertEqual(PendingInvite.fromAccount([PendingInvite.metadataKey: .string(token)]), token)
+        XCTAssertNil(PendingInvite.fromAccount([PendingInvite.metadataKey: .string("not-a-token")]))
+        XCTAssertNil(PendingInvite.fromAccount([PendingInvite.metadataKey: .null]))
+        XCTAssertNil(PendingInvite.fromAccount([:]))
     }
 
     // MARK: - Wire format

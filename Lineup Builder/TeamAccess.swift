@@ -92,8 +92,11 @@ nonisolated enum InviteLink {
             return nil
         }
         guard parts.count == 2, parts[0].lowercased() == "join" else { return nil }
-        let token = parts[1]
-        // Server tokens are 64 hex characters; anything else isn't one of ours.
+        return token(fromToken: parts[1])
+    }
+
+    /// A bare token, lower-cased; nil unless it's 64 hex characters, as the server makes them.
+    static func token(fromToken token: String) -> String? {
         guard token.count == 64, token.allSatisfy(\.isHexDigit) else { return nil }
         return token.lowercased()
     }

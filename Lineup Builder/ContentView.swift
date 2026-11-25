@@ -1,3 +1,5 @@
+import Auth
+import Combine
 import CoreSpotlight
 import SwiftUI
 import TipKit
@@ -11,6 +13,8 @@ struct ContentView: View {
     /// outside the view tree, potentially before this view is ever constructed.
     @ObservedObject private var router = AppRouter.shared
     @EnvironmentObject var purchaseManager: PurchaseManager
+    /// The invite sheet joins without asking (see JoinTeamSheet.autoJoin).
+    @State private var inviteAutoJoin = false
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.scenePhase) var scenePhase
 
@@ -297,10 +301,20 @@ struct ContentView: View {
                 store.pendingInviteToken = token
             }
         }
+        // An invite opened before the coach had an account (Merge 4): once
+        // they're signed in, by any route and even after a relaunch, join it.
+        .onReceive(AccountManager.shared.$user.map { $0?.id }.removeDuplicates()) { userID in
+            guard userID != nil, store.pendingInviteToken == nil,
+                  let token = PendingInvite.load()
+                    ?? AccountManager.shared.user.flatMap({ PendingInvite.fromAccount($0.userMetadata) })
+            else { return }
+            inviteAutoJoin = true
+            store.pendingInviteToken = token
+        }
         .sheet(isPresented: Binding(get: { store.pendingInviteToken != nil },
-                                    set: { if !$0 { store.pendingInviteToken = nil } })) {
+                                    set: { if !$0 { store.pendingInviteToken = nil; inviteAutoJoin = false } })) {
             if let token = store.pendingInviteToken {
-                JoinTeamSheet(token: token)
+                JoinTeamSheet(token: token, autoJoin: inviteAutoJoin)
                     .environmentObject(store)
                     .environmentObject(AccountManager.shared)
             }

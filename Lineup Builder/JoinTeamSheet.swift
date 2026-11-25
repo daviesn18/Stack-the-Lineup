@@ -4,9 +4,12 @@
 //
 //  Merge 4: opening an invite link (app.stackthelineup.com/join/<token>).
 //
-//  Joining needs an account, so a signed-out coach signs in first. Then the
-//  sheet shows who invited them to which team and what they'll be able to do,
-//  joins, waits for the sync to bring the team down, and opens it.
+//  Joining needs an account, so a signed-out coach makes one (or signs in)
+//  first, right from the sheet. The invite is kept (PendingInvite) until they
+//  join, so leaving to confirm an email or closing the app doesn't lose it:
+//  the moment they're signed in, they join and the team opens, without
+//  opening the link again. A coach who was already signed in sees who invited
+//  them to which team and what they'll be able to do, and taps Join.
 //
 
 import Auth
@@ -14,6 +17,9 @@ import SwiftUI
 
 struct JoinTeamSheet: View {
     let token: String
+    /// Join without asking: the coach opened this link before they had an
+    /// account, and has just signed in (see ContentView).
+    var autoJoin = false
 
     @EnvironmentObject var store: LineupStore
     @EnvironmentObject var account: AccountManager
@@ -30,6 +36,9 @@ struct JoinTeamSheet: View {
         case joinedPending(String)
     }
     @State private var phase: Phase = .loading
+    /// The coach was signed out when this sheet opened, so signing in here
+    /// joins straight away.
+    @State private var signedInHere = false
 
     var body: some View {
         NavigationStack {
@@ -40,11 +49,15 @@ struct JoinTeamSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }
+                        Button("Cancel") {
+                            // Declined: don't join later behind their back.
+                            Task { await PendingInvite.finished() }
+                            dismiss()
+                        }
                     }
                 }
         }
-        .task(id: account.user?.id) { await load() }
+        .task(id: "\(account.isLoaded)-\(account.user?.id.uuidString ?? "")") { await load() }
     }
 
     @ViewBuilder
@@ -52,14 +65,21 @@ struct JoinTeamSheet: View {
         switch phase {
         case .signedOut:
             VStack(spacing: 16) {
-                header(systemImage: "person.2.badge.key", title: "Sign in to join",
-                       detail: "A head coach invited you to their team. Sign in, or create a free account, and the team shows up on your phone, iPad and the web.")
+                header(systemImage: "person.2.badge.key", title: "Make a free account to join",
+                       detail: "A head coach invited you to their team. It takes a minute, and you'll join as soon as you're in. Your teams on this iPhone stay as they are.")
                 NavigationLink {
-                    SignInView()
+                    SignInView(startCreating: true, invite: token)
                 } label: {
-                    Text("Sign In").frame(maxWidth: .infinity)
+                    Text("Create Free Account").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                NavigationLink {
+                    SignInView(invite: token)
+                } label: {
+                    Text("I Already Have an Account").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
                 .controlSize(.large)
             }
         case .loading:
@@ -123,15 +143,26 @@ struct JoinTeamSheet: View {
     }
 
     private func load() async {
+        guard account.isLoaded else {
+            phase = .loading
+            return
+        }
         guard account.isSignedIn else {
+            signedInHere = true
+            PendingInvite.save(token)
             phase = .signedOut
             return
         }
         phase = .loading
         do {
             if let p = try await AccountSharing.preview(token: token) {
-                phase = .ready(p)
+                if autoJoin || signedInHere {
+                    join(p)
+                } else {
+                    phase = .ready(p)
+                }
             } else {
+                await PendingInvite.finished()
                 phase = .invalid
             }
         } catch {
@@ -144,9 +175,11 @@ struct JoinTeamSheet: View {
         Task {
             do {
                 guard let teamID = try await AccountSharing.accept(token: token, name: myCoachName) else {
+                    await PendingInvite.finished()
                     phase = .invalid
                     return
                 }
+                await PendingInvite.finished()
                 if !p.isMember { Analytics.signal("sharing.account.joined", parameters: ["role": p.role.rawValue]) }
                 if await store.openJoinedTeam(teamID) {
                     dismiss()

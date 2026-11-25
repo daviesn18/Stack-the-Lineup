@@ -130,6 +130,51 @@ nonisolated enum AccountSharing {
     }
 }
 
+// MARK: - An invite waiting for an account
+
+/// An invite link opened before the coach had an account (or before they'd
+/// signed in on this device). It outlives the join sheet and the app, so a
+/// coach who leaves to create an account, confirm their email, or sign in
+/// joins as soon as they're signed in, without opening the link again.
+///
+/// Email sign-up also stores the token on the new account (user metadata,
+/// `pending_invite`), so confirming the email on the web joins there too, and
+/// signing in on a different device still finds it.
+nonisolated enum PendingInvite {
+    private static let key = "pendingInvite.v1"
+    static let metadataKey = "pending_invite"
+    /// An invite older than this is dropped: the coach has moved on.
+    private static let lifetime: TimeInterval = 30 * 24 * 3600
+
+    private struct Saved: Codable { let token: String; let savedAt: Date }
+
+    static func save(_ token: String) {
+        guard let data = try? JSONEncoder().encode(Saved(token: token, savedAt: Date())) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func load(now: Date = Date()) -> String? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return nil }
+        guard now.timeIntervalSince(saved.savedAt) < lifetime else { clear(); return nil }
+        return saved.token
+    }
+
+    static func clear() { UserDefaults.standard.removeObject(forKey: key) }
+
+    /// The token an email sign-up left on the account, if it's still a token.
+    static func fromAccount(_ metadata: [String: AnyJSON]) -> String? {
+        metadata[metadataKey]?.stringValue.flatMap(InviteLink.token(fromToken:))
+    }
+
+    /// Joined, or the link no longer works: forget it here and on the account.
+    static func finished() async {
+        clear()
+        guard let user = supabase.auth.currentUser, user.userMetadata[metadataKey] != nil else { return }
+        _ = try? await supabase.auth.update(user: UserAttributes(data: [metadataKey: .null]))
+    }
+}
+
 // MARK: - What the screens ask the store
 
 extension LineupStore {
