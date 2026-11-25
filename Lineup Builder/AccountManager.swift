@@ -71,6 +71,8 @@ final class AccountManager: ObservableObject {
         TelemetryDeck.updateDefaultUserID(to: user?.id.uuidString.lowercased())
         // After the TelemetryDeck ID, which RevenueCat is handed (hashed).
         RevenueCatSync.accountDidChange(to: user?.id)
+        // Account-team pushes reach this device once its token is on the account (Merge 5).
+        DeviceTokenManager.shared.registerWithAccount(userID: user?.id)
     }
 
     // MARK: - Sign in
@@ -133,6 +135,8 @@ final class AccountManager: ObservableObject {
     // MARK: - Sign out and delete
 
     func signOut() async {
+        // First, while the session still proves whose token it is.
+        await DeviceTokenManager.shared.unregisterFromAccount()
         GIDSignIn.sharedInstance.signOut()
         // Local scope: this device only, like the web's Sign out.
         try? await supabase.auth.signOut(scope: .local)

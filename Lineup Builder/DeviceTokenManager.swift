@@ -1,4 +1,5 @@
 import CloudKit
+import Supabase
 import UIKit
 import os
 
@@ -75,6 +76,66 @@ final class DeviceTokenManager {
         cachedTokenHex = deviceToken.map { String(format: "%02x", $0) }.joined()
         needsFlush = true
         Log.push.info("Received APNs device token")
+        registerWithAccount(userID: AccountManager.shared.user?.id)
+    }
+
+    // MARK: - Account teams (Merge 5)
+    //
+    // Pushes for account teams are sent by the database (20261125000000_push):
+    // it picks the coaches from team_members and their devices from
+    // device_tokens. So a signed-in device registers its token with the
+    // account, every launch and whenever the account changes, and removes it
+    // on sign-out so the next coach on this phone doesn't get the last one's.
+    // CloudKit DeviceToken records (above and below) are untouched: they serve
+    // CloudKit-shared teams.
+
+    /// The (account, token) pair last registered, so a repeat is skipped.
+    private var accountRegistration: (user: UUID, token: String)?
+
+    /// Debug builds get sandbox APNs tokens; TestFlight and App Store builds
+    /// production ones. The Worker sends each token to its own host.
+    nonisolated static var apnsEnvironment: String {
+        #if DEBUG
+        "sandbox"
+        #else
+        "production"
+        #endif
+    }
+
+    private struct RegisterParams: Encodable, Sendable {
+        let p_token: String, p_platform: String, p_apns_env: String, p_app_version: String
+    }
+    private struct TokenParam: Encodable, Sendable { let p_token: String }
+
+    /// Registers this device with the signed-in account. Called when APNs hands
+    /// over a token and when the account changes (AccountManager); whichever
+    /// comes second does the work. No-ops signed out or before APNs answers.
+    func registerWithAccount(userID: UUID?) {
+        guard let userID else { accountRegistration = nil; return }
+        guard let hex = cachedTokenHex else { return }
+        if let done = accountRegistration, done.user == userID, done.token == hex { return }
+        accountRegistration = (userID, hex)
+        let params = RegisterParams(
+            p_token: hex, p_platform: "ios", p_apns_env: Self.apnsEnvironment,
+            p_app_version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+        Task {
+            do {
+                try await supabase.rpc("register_device_token", params: params).execute()
+                Log.push.info("Registered device token with the account")
+            } catch {
+                // Retried at the next launch or account change.
+                self.accountRegistration = nil
+                Log.push.error("Account token registration failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Removes this device from the account's pushes. Call before signing out,
+    /// while the session can still prove whose token it is.
+    func unregisterFromAccount() async {
+        accountRegistration = nil
+        guard let hex = cachedTokenHex else { return }
+        _ = try? await supabase.rpc("unregister_device_token", params: TokenParam(p_token: hex)).execute()
     }
 
     /// Writes the cached token to CloudKit for every team the coach is on.
