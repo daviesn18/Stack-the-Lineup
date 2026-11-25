@@ -3,7 +3,7 @@
 
 import { Body, Page, Title } from '@/ui/kit';
 
-export function JoinPage(_: { token: string | undefined }) {
+export function JoinPage(_: { token: string | undefined; resume?: boolean }) {
   return (
     <Page width={440}>
       <Title>Open this link on the web</Title>

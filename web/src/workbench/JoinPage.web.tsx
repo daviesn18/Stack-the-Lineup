@@ -3,16 +3,20 @@
 // opens the app instead (apple-app-site-association); everywhere else it lands
 // here.
 //
-// Joining needs an account, so a signed-out coach signs in first, on this
-// page. Then the card shows who invited them to which team and what they'll be
-// able to do; Join adds them (accept_team_invite) and opens the team.
+// Joining needs an account, so a signed-out coach signs in (or makes one with
+// Apple or Google) first, on this page. The invite waits (data/pendingInvite)
+// until they're in, and then they join straight away and the team opens, with
+// no second click and without opening the link again. A coach who was already
+// signed in sees who invited them to which team and what they'll be able to
+// do, and clicks Join.
 
 import { useRouter } from 'expo-router';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { signal } from '@/data/analytics';
 import { useAuth } from '@/data/auth';
-import { forgetInvite, rememberInvite } from '@/data/pendingInvite';
+import { forgetInvite, inviteFromAccount, METADATA_KEY, rememberInvite } from '@/data/pendingInvite';
+import { supabase } from '@/data/supabase';
 import { acceptInvite, inviteToken, previewInvite, ROLE_TEXT, type InvitePreview } from '@/data/sharing';
 
 import { SignInPage } from './AuthPages.web';
@@ -28,30 +32,35 @@ type Phase =
   | { kind: 'invalid' }
   | { kind: 'failed'; message: string };
 
-export function JoinPage({ token: raw }: { token: string | undefined }) {
+export function JoinPage({ token: raw, resume }: { token: string | undefined; resume?: boolean }) {
   const { session } = useAuth();
   const token = inviteToken(raw);
+  // Signed out when the page opened: signing in here joins straight away.
+  // (Set during render, React's pattern for state that follows a prop.)
+  const [signedOutHere, setSignedOutHere] = useState(false);
+  if (session === null && !signedOutHere) setSignedOutHere(true);
 
   // Signed out: keep the link for after Apple or Google sign-in brings the coach back.
   useEffect(() => { if (session === null && token) rememberInvite(token); }, [session, token]);
-  useEffect(() => { if (session) forgetInvite(); }, [session]);
 
   if (session === undefined) return null;
   if (!session) {
     return token ? (
       <SignInPage
-        intro={{ title: 'Sign in to join a team', sub: 'A head coach invited you to their team. Sign in and it opens here, on your iPhone and on your iPad.' }}
-        footer="New to Stack the Lineup? Continue with Apple or Google to make a free account." />
+        intro={{ title: 'Make a free account to join', sub: "A head coach invited you to their team. Continue with Apple or Google to make an account, or sign in if you have one. You'll join as soon as you're in." }}
+        footer="Your account works on the web, iPhone and iPad." />
     ) : <AppFrameless><Invalid /></AppFrameless>;
   }
   return (
     <AppFrame width={560}>
-      {token ? <SignedIn token={token} defaultName={accountName(session.user.user_metadata)} /> : <Invalid />}
+      {token
+        ? <SignedIn token={token} defaultName={accountName(session.user.user_metadata)} auto={!!resume || signedOutHere} />
+        : <Invalid />}
     </AppFrame>
   );
 }
 
-function SignedIn({ token, defaultName }: { token: string; defaultName: string }) {
+function SignedIn({ token, defaultName, auto }: { token: string; defaultName: string; auto: boolean }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [name, setName] = useState(defaultName);
@@ -63,7 +72,11 @@ function SignedIn({ token, defaultName }: { token: string; defaultName: string }
   useEffect(() => {
     let live = true;
     previewInvite(token).then(
-      (preview) => { if (live) setPhase(preview ? { kind: 'ready', preview } : { kind: 'invalid' }); },
+      (preview) => {
+        if (!live) return;
+        if (!preview) void finished();
+        setPhase(preview ? { kind: 'ready', preview } : { kind: 'invalid' });
+      },
       (e: Error) => { if (live) setPhase({ kind: 'failed', message: e.message }); },
     );
     return () => { live = false; };
@@ -73,18 +86,27 @@ function SignedIn({ token, defaultName }: { token: string; defaultName: string }
   const open = (id: string) => router.replace({ pathname: '/team/[id]', params: { id } });
 
   const join = async (p: InvitePreview) => {
-    if (p.isMember) { open(p.teamId); return; }
+    if (p.isMember) { await finished(); open(p.teamId); return; }
     setJoining(true); setJoinError(null);
     try {
       const id = await acceptInvite(token, name.trim());
+      await finished();
       if (!id) { setPhase({ kind: 'invalid' }); return; }
-      signal('sharing.account.joined', { role: p.role });
+      signal('sharing.account.joined', { role: p.role, via: auto ? 'afterSignIn' : 'link' });
       open(id);
     } catch (e) {
       setJoinError((e as Error).message);
       setJoining(false);
     }
   };
+
+  // Back from signing in (or making an account): join without a second click.
+  const autoJoined = useRef(false);
+  useEffect(() => {
+    if (!auto || autoJoined.current || phase.kind !== 'ready') return;
+    autoJoined.current = true;
+    void join(phase.preview);
+  });
 
   if (phase.kind === 'loading') return <div style={{ fontSize: 14, color: SUB }}>Checking the invite…</div>;
   if (phase.kind === 'invalid') return <Invalid />;
@@ -116,6 +138,9 @@ function SignedIn({ token, defaultName }: { token: string; defaultName: string }
                 <span style={{ fontWeight: 600 }}>{ROLE_TEXT[p.role].title}.</span> {ROLE_TEXT[p.role].participant}
               </span>
             </div>
+            <p style={{ margin: '-4px 2px 0', fontSize: 13, lineHeight: 1.45, color: SUB }}>
+              Coach from your iPhone too: update Stack the Lineup from the App Store, then sign in with this account and the team is there.
+            </p>
             <Group label="Your name">
               <Row label="Name" help={`${owner} and the other coaches see this.`}>
                 <TextInput value={name} onChange={setName} placeholder="Coach name" label="Your name" width={220} />
@@ -126,7 +151,7 @@ function SignedIn({ token, defaultName }: { token: string; defaultName: string }
         {joinError && <Note kind="error">{joinError}</Note>}
       </div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px', borderTop: '1px solid rgba(60,60,67,0.08)' }}>
-        <SecondaryButton height={36} onClick={() => router.replace('/')}>Not now</SecondaryButton>
+        <SecondaryButton height={36} onClick={() => { void finished(); router.replace('/'); }}>Not now</SecondaryButton>
         <PrimaryButton onClick={() => void join(p)} disabled={joining}>
           {p.isMember ? 'Open team' : joining ? 'Joining…' : `Join ${p.teamName || 'team'}`}
         </PrimaryButton>
@@ -167,6 +192,15 @@ function AppFrameless({ children }: { children: ReactNode }) {
       <div style={{ width: '100%', maxWidth: 520 }}>{children}</div>
     </div>
   );
+}
+
+/** Joined, declined, or the link no longer works: forget it here and on the account. */
+async function finished() {
+  forgetInvite();
+  const { data } = await supabase.auth.getSession();
+  if (inviteFromAccount(data.session?.user.user_metadata)) {
+    await supabase.auth.updateUser({ data: { [METADATA_KEY]: null } });
+  }
 }
 
 /** The name Apple or Google gave the account, as a starting point. */

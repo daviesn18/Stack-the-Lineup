@@ -11,7 +11,7 @@ import { DEFAULT_INNING_COUNT } from '@/core/model';
 import { useAuth, useIsPro } from '@/data/auth';
 import { signal } from '@/data/analytics';
 import { teamToAutoOpen } from '@/data/landing';
-import { takeInvite } from '@/data/pendingInvite';
+import { inviteFromAccount, takeInvite } from '@/data/pendingInvite';
 import { supabase } from '@/data/supabase';
 import { createTeam, importTeam, listTeams, previewImport, type ImportOutcome, type ImportPreview, type TeamSummary } from '@/data/teams';
 
@@ -26,21 +26,24 @@ import { C, CSS } from './theme';
 
 export function TeamsPage() {
   const router = useRouter();
+  const { session } = useAuth();
+  // An invite opened before signing in (back from Apple or Google), or one an
+  // email sign-up left on the account: finish joining without the link. Read
+  // once, so a later focus or session refresh can't fall through to opening a team.
+  const [invite] = useState(() => takeInvite() ?? inviteFromAccount(session?.user.user_metadata));
   const [teams, setTeams] = useState<TeamSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   useFocusEffect(useCallback(() => {
-    // An invite opened while signed out, back from Apple or Google sign-in: finish joining.
-    const invite = takeInvite();
-    if (invite) { router.replace({ pathname: '/join/[token]', params: { token: invite } }); return; }
+    if (invite) { router.replace({ pathname: '/join/[token]', params: { token: invite, resume: '1' } }); return; }
     listTeams().then((list) => {
       // Signing in with one team goes straight to it; with more, the coach picks.
       const only = teamToAutoOpen(list);
       if (only) router.replace({ pathname: '/team/[id]', params: { id: only.id } });
       else setTeams(list);
     }, (e: Error) => setError(e.message));
-  }, [router]));
+  }, [router, invite]));
 
   const open = (id: string) => router.push({ pathname: '/team/[id]', params: { id } });
   const actions = (
