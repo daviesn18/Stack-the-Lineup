@@ -96,6 +96,7 @@ struct DefensiveGridView: View {
                             LineupStatusStrip(
                                 status: store.lineup.status,
                                 isReadOnly: isReadOnly,
+                                waitingOn: store.finalizeWaitingOn,
                                 lastFinalizedBy: store.lineup.lastFinalizedBy,
                                 lastFinalizedAt: store.lineup.lastFinalizedAt,
                                 onFinalize: { store.finalizeLineup() },
@@ -138,6 +139,7 @@ struct DefensiveGridView: View {
                             LineupStatusStrip(
                                 status: store.lineup.status,
                                 isReadOnly: isReadOnly,
+                                waitingOn: store.finalizeWaitingOn,
                                 lastFinalizedBy: store.lineup.lastFinalizedBy,
                                 lastFinalizedAt: store.lineup.lastFinalizedAt,
                                 onFinalize: { store.finalizeLineup() },
@@ -203,6 +205,7 @@ struct DefensiveGridView: View {
                             LineupStatusStrip(
                                 status: store.lineup.status,
                                 isReadOnly: isReadOnly,
+                                waitingOn: store.finalizeWaitingOn,
                                 lastFinalizedBy: store.lineup.lastFinalizedBy,
                                 lastFinalizedAt: store.lineup.lastFinalizedAt,
                                 onFinalize: { store.finalizeLineup() },
@@ -1282,6 +1285,9 @@ struct ChipFlowLayout: Layout {
 struct LineupStatusStrip: View {
     let status: LineupStatus
     var isReadOnly: Bool = false
+    /// The head coach's name when this coach can't finalize (a shared account
+    /// team, Merge 4). Shown instead of the Finalize button.
+    var waitingOn: String? = nil
     var lastFinalizedBy: String? = nil
     var lastFinalizedAt: Date? = nil
     let onFinalize: () -> Void
@@ -1331,6 +1337,12 @@ struct LineupStatusStrip: View {
                 Button("Reopen", action: onReopen)
                     .font(.caption.bold())
                     .foregroundColor(.blue)
+            } else if let waitingOn {
+                Text("Waiting for \(waitingOn) to finalize")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             } else {
                 Button(action: onFinalize) {
                     Text("Finalize lineup →")

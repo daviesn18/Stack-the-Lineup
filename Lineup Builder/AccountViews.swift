@@ -152,7 +152,17 @@ struct SignInView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private enum Mode { case signIn, create, reset }
-    @State private var mode: Mode = .signIn
+    @State private var mode: Mode
+
+    /// A team invite waiting on this account (Merge 4): the screen opens on
+    /// Create Account when `startCreating`, and an email sign-up carries the
+    /// invite so the coach joins after confirming.
+    private let invite: String?
+
+    init(startCreating: Bool = false, invite: String? = nil) {
+        _mode = State(initialValue: startCreating ? .create : .signIn)
+        self.invite = invite
+    }
     @State private var email = ""
     @State private var password = ""
     @State private var busy = false
@@ -167,6 +177,8 @@ struct SignInView: View {
                 VStack(spacing: 20) {
                     Text(mode == .reset
                          ? "Enter your email and we'll send a link to choose a new password."
+                         : invite != nil && mode == .create
+                         ? "Make a free account to join the team. Your teams on this iPhone stay as they are."
                          : "Use the same account on iPhone, iPad and app.stackthelineup.com.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -330,8 +342,10 @@ struct SignInView: View {
             run { try await account.signIn(email: email, password: password) }
         case .create:
             run {
-                if try await !account.signUp(email: email, password: password) {
-                    notice = "Check your email to confirm your account, then sign in here."
+                if try await !account.signUp(email: email, password: password, invite: invite) {
+                    notice = invite == nil
+                        ? "Check your email to confirm your account, then sign in here."
+                        : "Check your email to confirm your account, then sign in here. You'll join the team as soon as you do."
                     mode = .signIn
                 }
             }

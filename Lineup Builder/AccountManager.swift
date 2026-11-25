@@ -116,8 +116,11 @@ final class AccountManager: ObservableObject {
 
     /// Returns true when the account is ready now, false when the coach must
     /// confirm their email first (the link opens the web app; then they sign in here).
-    func signUp(email: String, password: String) async throws -> Bool {
-        let response = try await supabase.auth.signUp(email: email, password: password, redirectTo: SupabaseConfig.webAppURL)
+    /// `invite`: a team invite the coach opened before making the account. It's
+    /// kept on the account so they join wherever they confirm and sign in.
+    func signUp(email: String, password: String, invite: String? = nil) async throws -> Bool {
+        let data: [String: AnyJSON]? = invite.map { [PendingInvite.metadataKey: .string($0)] }
+        let response = try await supabase.auth.signUp(email: email, password: password, data: data, redirectTo: SupabaseConfig.webAppURL)
         Analytics.signal("account.signedUp", parameters: ["method": "email", "needsConfirmation": response.session == nil ? "true" : "false"])
         return response.session != nil
     }

@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["6R6HA6RU2S.com.nickdavies.LineupBuilder.Lineup-Builder"],
+        "components": [
+          { "/": "/join/*", "comment": "Invite links to coach a shared team (Merge 4)" }
+        ]
+      }
+    ]
+  }
+}

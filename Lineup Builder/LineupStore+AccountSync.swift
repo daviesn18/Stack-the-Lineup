@@ -83,6 +83,7 @@ extension LineupStore {
         let ids = accountTeamIDs
         accountTeamIDs = []
         accountEditCounts = [:]
+        setTeamAccess([:])
         teams.removeAll { ids.contains($0.id) }
         if let id = activeTeamID, ids.contains(id) { activeTeamID = teams.first?.id }
         do { try store?.wipe() } catch {
@@ -211,6 +212,9 @@ extension LineupStore {
             }
         }
 
+        // Lost access to someone else's team: say so, by name, before it goes.
+        let lostNames = outcome.lostAccessTeamIDs.compactMap { id in teams.first(where: { $0.id == id })?.name }
+
         for id in outcome.removedTeamIDs where accountTeamIDs.contains(id) {
             // Never remove the last team: the app always has one to show.
             guard teams.count > 1 else {
@@ -267,8 +271,26 @@ extension LineupStore {
             }
         }
 
+        // A viewer's team is read-only, and an editor's isn't (Merge 4). The
+        // role can change (the owner switches the link), so this runs every pass.
+        for (id, access) in outcome.access {
+            guard let idx = teams.firstIndex(where: { $0.id == id }) else { continue }
+            let readOnly = !access.canEdit || outcome.refusedTeamIDs.contains(id)
+            if teams[idx].isReadOnly != readOnly {
+                teams[idx].isReadOnly = readOnly
+                changed = true
+            }
+        }
+        if outcome.accessFetched {
+            setTeamAccess(outcome.access.filter { accountTeamIDs.contains($0.key) })
+        }
+
         if changed { saveLocalOnly() }
         if editedDuringPass, let id = accountTeamIDs.first { accountSyncDebouncer.schedule(id) }
+        if let name = lostNames.first {
+            showSyncNote(lostNames.count == 1 ? "You no longer have access to \(name)."
+                                              : "You no longer have access to \(lostNames.count) shared teams.")
+        }
 
         // The game this coach had open was archived elsewhere and the pass moved
         // on (Merge 3). Say so, and who, for the team on screen; another team

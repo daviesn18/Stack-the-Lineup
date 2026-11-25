@@ -1226,6 +1226,7 @@ struct DetailPaneView: View {
                         LineupStatusStrip(
                             status: store.lineup.status,
                             isReadOnly: isReadOnly,
+                            waitingOn: store.finalizeWaitingOn,
                             onFinalize: { store.finalizeLineup() },
                             onReopen: { store.reopenLineup() }
                         )

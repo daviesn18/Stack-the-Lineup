@@ -50,6 +50,9 @@ nonisolated struct TeamSyncState: Codable, Equatable, Sendable {
     /// The rows the server last rejected as invalid. While the team still maps
     /// to exactly these, the push isn't retried; the next edit retries it.
     var stuckRows: TeamRows?
+    /// This coach's role when the team was last fetched (Merge 4). Lets a pass
+    /// tell "the owner deleted it" from "I lost access to someone else's team".
+    var role: TeamRole?
 }
 
 nonisolated struct AccountSyncFile: Codable, Equatable, Sendable {

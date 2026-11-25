@@ -54,6 +54,14 @@ nonisolated struct TeamSyncOutcome: Sendable {
     /// Teams whose open game was archived elsewhere this pass (Merge 3): the
     /// pass moved them on, and the app says so.
     var archivedOpenGames: [UUID: OpenGame.Archived] = [:]
+    /// This coach's access to each account team the server returned (Merge 4).
+    var access: [UUID: TeamAccess] = [:]
+    /// Teams this coach didn't own that the server stopped returning: removed
+    /// from the team, the team was deleted, or they left on another device.
+    var lostAccessTeamIDs: Set<UUID> = []
+    /// The pass reached the server, so `access` is complete (an offline pass
+    /// leaves it empty, and that mustn't erase what the device knows).
+    var accessFetched = false
     var status: AccountSyncStatus
 }
 
@@ -84,6 +92,8 @@ actor SupabaseTeamSync {
     /// Who archived each game log, from the last full fetch (Merge 3). Kept
     /// out of TeamRows: the server stamps it, and the device never sends it.
     private var archivers: [UUID: GameLogArchiver] = [:]
+    /// Each fetched team's owner and coaches, from the last full fetch (Merge 4).
+    private var memberships: [UUID: ServerTeam.Membership] = [:]
 
     init(store: AccountTeamStore, client: SupabaseClient = supabase) {
         self.store = store
@@ -155,6 +165,12 @@ actor SupabaseTeamSync {
         }
 
         var outcome = TeamSyncOutcome(status: status)
+        outcome.accessFetched = true
+        for (id, m) in memberships where server[id] != nil {
+            if let a = TeamAccess.resolve(ownerID: m.ownerID, ownerName: m.ownerName, coaches: m.coaches, me: me) {
+                outcome.access[id] = a
+            }
+        }
         var pending = 0
         var lastFailure: AccountSyncStatus.State?
 
@@ -175,6 +191,16 @@ actor SupabaseTeamSync {
             state.base?.team.currentLineupID = openLineupID
 
             // The server has no copy.
+            if serverRows == nil, state.base != nil, let role = state.role, role != .owner {
+                // Not ours: the coach lost access (removed, left, or the owner
+                // deleted it). Their edits can't be sent anywhere; recreating it
+                // would make a copy they own of someone else's team.
+                Log.sync.notice("Team \(team.id, privacy: .public): no longer shared with this coach; removing it")
+                outcome.removedTeamIDs.insert(team.id)
+                outcome.lostAccessTeamIDs.insert(team.id)
+                file.teams[team.id] = nil
+                continue
+            }
             if serverRows == nil, let base = state.base {
                 if snapshot == base {
                     // Deleted elsewhere, untouched here: remove it here too.
@@ -200,6 +226,13 @@ actor SupabaseTeamSync {
                 }
                 state.conflicts += merge.conflicts
                 var mergedRows = merge.rows
+                // Team settings are the owner's (Merge 4, decision 1): a coach's
+                // device always takes the server's team row and never sends one.
+                if let access = outcome.access[team.id], !access.canChangeSettings {
+                    let open = mergedRows.team.currentLineupID
+                    mergedRows.team = serverRows.team
+                    mergedRows.team.currentLineupID = open
+                }
                 let open = OpenGame.resolve(rows: mergedRows, openLineupID: openLineupID, openGameID: openGameID,
                                             archivers: archivers, me: me, preferredAdhoc: slots.adhoc)
                 if open.lineupID != openLineupID {
@@ -219,9 +252,17 @@ actor SupabaseTeamSync {
                 working = TeamRowMapper.rows(from: mergedTeam, slots: &slots, base: serverRows).rows
             }
             state.slots = slots
+            let access = outcome.access[team.id]
+            state.role = access?.role
 
-            // 4. Push what the server doesn't have.
-            let changes = TeamRowsDiff.changes(from: serverRows, to: working)
+            // 4. Push what the server doesn't have. A viewer has nothing to send
+            // (the server would refuse it); a coach never sends the team row.
+            var changes = TeamRowsDiff.changes(from: serverRows, to: working)
+            if let access, !access.isOwner {
+                changes.team = nil
+                changes.pointersChanged = false
+                if !access.canEdit { changes = TeamChangeSet() }
+            }
             if !changes.isEmpty {
                 if state.lastError != nil, state.stuckRows == working {
                     // Rejected before and unchanged since: don't hammer the server.
@@ -277,6 +318,7 @@ actor SupabaseTeamSync {
             rows.team.currentLineupID = OpenGame.defaultLineup(in: rows)
             let (team, slots) = TeamRowMapper.team(from: rows, local: nil)
             var state = TeamSyncState()
+            state.role = outcome.access[id]?.role
             state.base = rows
             state.slots = slots
             state.lastPullAt = Date()
@@ -300,7 +342,8 @@ actor SupabaseTeamSync {
         *, players(*), scheduled_games(*), \
         lineup_templates!lineup_templates_team_id_fkey(*, template_locks(*)), \
         lineups!lineups_team_id_fkey(*, lineup_cells(inning, player_id, position)), \
-        game_logs(*, pitch_counts(player_id, pitches))
+        game_logs(*, pitch_counts(player_id, pitches)), \
+        team_members(user_id, role, name, joined_at)
         """
 
     private func fetchAllTeams() async throws -> [UUID: TeamRows] {
@@ -320,7 +363,11 @@ actor SupabaseTeamSync {
             .is("game_logs.deleted_at", value: nil)
             .execute()
             .value
-        if id == nil { archivers = fetched.reduce(into: [:]) { $0.merge($1.archivers) { a, _ in a } } }
+        if id == nil {
+            archivers = fetched.reduce(into: [:]) { $0.merge($1.archivers) { a, _ in a } }
+            memberships = Dictionary(fetched.compactMap { t in t.membership.map { (t.rows.teamID, $0) } },
+                                     uniquingKeysWith: { a, _ in a })
+        }
         return Dictionary(fetched.map { ($0.rows.teamID, $0.rows.normalized()) }, uniquingKeysWith: { a, _ in a })
     }
 
@@ -419,6 +466,11 @@ actor SupabaseTeamSync {
         guard !file.pendingDeletes.isEmpty else { return }
         for id in file.pendingDeletes {
             do {
+                // A coach "deleting" a shared team leaves it (Merge 4); for the
+                // owner there's no membership, so it does nothing. Best effort:
+                // a database without 20261124000000_shared_teams has no
+                // leave_team, and that mustn't hold up the owner's delete.
+                _ = try? await client.rpc("leave_team", params: ["p_team": id.uuidString]).execute()
                 // A hard delete (cascades), as on the web. Zero rows (already
                 // gone, or not ours) is done too.
                 try await client.from("teams").delete(returning: .minimal).eq("id", value: id.uuidString).execute()
@@ -607,8 +659,27 @@ nonisolated struct ServerTeam: Decodable {
     let rows: TeamRows
     /// Who archived each game log (stamped by the server), by log id.
     let archivers: [UUID: GameLogArchiver]
+    /// Nil only when the row came without owner_id (test fixtures).
+    let membership: Membership?
+
+    /// The team's owner and coaches (Merge 4).
+    struct Membership: Sendable {
+        var ownerID: UUID
+        var ownerName: String
+        var coaches: [TeamCoach]
+    }
+
+    private struct ServerMember: Decodable {
+        let user_id: UUID
+        let role: String
+        let name: String?
+        let joined_at: Date?
+    }
 
     private enum Keys: String, CodingKey {
+        case ownerID = "owner_id"
+        case coachName = "coach_name"
+        case members = "team_members"
         case players
         case scheduledGames = "scheduled_games"
         case templates = "lineup_templates"
@@ -690,5 +761,16 @@ nonisolated struct ServerTeam: Decodable {
         }
         self.rows = rows
         self.archivers = archivers
+        // Absent on a database without 20261124000000_shared_teams: then the
+        // owner is the only coach.
+        let members = (try? c.decodeIfPresent([ServerMember].self, forKey: .members)) ?? nil
+        membership = try c.decodeIfPresent(UUID.self, forKey: .ownerID).map { owner in
+            Membership(
+                ownerID: owner,
+                ownerName: try c.decodeIfPresent(String.self, forKey: .coachName) ?? "",
+                coaches: (members ?? []).compactMap { m in
+                    TeamRole(rawValue: m.role).map { TeamCoach(userID: m.user_id, role: $0, name: m.name ?? "", joinedAt: m.joined_at) }
+                })
+        }
     }
 }
