@@ -11,10 +11,12 @@ import { lastAssignedInning } from '@/core/lineupOps';
 import { POSITION_NAMES, type FairPlayConfig, type FieldPosition } from '@/core/model';
 import { signal } from '@/data/analytics';
 import { downloadTeamFile } from '@/data/teamExport';
+import { canChangeSettings, isOwner, ownerDisplayName } from '@/data/sharing';
 import { deleteTeam } from '@/data/teams';
 import { useTeam } from '@/data/teamStore';
 
 import { ConfirmDelete } from './AccountDialog';
+import { CoachesSection } from './CoachesSection';
 import { Icon } from './Icon';
 import {
   CANVAS, ColorSwatches, Fade, GameLength, Group, HAIR, HeaderButton, Heading, Master, NumInput, Row, Seg, Stepper, TextInput, Toggle,
@@ -27,7 +29,7 @@ import {
 } from './teamSettings';
 import { C } from './theme';
 
-type Section = 'team' | 'fair' | 'pitch';
+type Section = 'team' | 'fair' | 'pitch' | 'coaches';
 
 const INFIELD = new Set<FieldPosition>(['P', 'C', '1B', '2B', 'SS', '3B']);
 const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'}`;
@@ -40,6 +42,8 @@ export function SettingsScreen() {
   const [section, setSection] = useState<Section>('team');
   const [confirmShorten, setConfirmShorten] = useState(false);
 
+  // Merge 4: settings are the head coach's. Others see them, can't change them.
+  const locked = !canChangeSettings(w.access);
   const changes = changeCount(saved, draft);
   const problems = draftProblems(draft);
   const assignedThrough = lastAssignedInning(w.lineup);
@@ -69,11 +73,23 @@ export function SettingsScreen() {
   const status = railStatus(draft);
   const rail: [Section, string, string][] = [
     ['team', 'Team', 'person.3.fill'], ['fair', 'Fair play', 'checkmark.shield.fill'], ['pitch', 'Pitching', 'figure.baseball.pitcher'],
+    ['coaches', 'Coaches', 'person.2.fill'],
   ];
+  const coachCount = w.access.coaches.length;
+  const rows: Record<Section, string> = {
+    ...status,
+    coaches: isOwner(w.access)
+      ? (coachCount ? `${coachCount} ${coachCount === 1 ? 'coach' : 'coaches'}` : 'Invite your assistants')
+      : `Shared by ${ownerDisplayName(w.access)}`,
+  };
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      <PageHeader right={confirmShorten ? (
+      <PageHeader right={section === 'coaches' ? null : locked ? (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: SUB }}>
+          <Icon name="lock.fill" size={13} color={SUB} />Only {ownerDisplayName(w.access)} can change team settings
+        </span>
+      ) : confirmShorten ? (
         <>
           <span style={{ fontSize: 13, color: C.label, maxWidth: 420 }}>
             Your lineup has positions through inning {assignedThrough}. Shortening to {draft.gameLen} removes them.
@@ -105,7 +121,7 @@ export function SettingsScreen() {
                 <Icon name={icon} size={16} color={on ? C.blue : SUB} style={{ marginTop: 2 }} />
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{label}</span>
-                  <span className="ellipsis" style={{ display: 'block', fontSize: 12, color: SUB }}>{status[id]}</span>
+                  <span className="ellipsis" style={{ display: 'block', fontSize: 12, color: SUB }}>{rows[id]}</span>
                 </span>
               </button>
             );
@@ -113,9 +129,14 @@ export function SettingsScreen() {
         </nav>
         <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '24px 32px 56px 12px' }}>
           <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {section === 'team' && <TeamSection d={draft} set={set} />}
-            {section === 'fair' && <FairSection d={draft} set={set} />}
-            {section === 'pitch' && <PitchSection d={draft} set={set} />}
+            {section === 'coaches' ? <CoachesSection /> : (
+              // A disabled fieldset turns off every control inside it at once.
+              <fieldset disabled={locked} style={{ border: 0, margin: 0, padding: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24, opacity: locked ? 0.7 : 1 }}>
+                {section === 'team' && <TeamSection d={draft} set={set} />}
+                {section === 'fair' && <FairSection d={draft} set={set} />}
+                {section === 'pitch' && <PitchSection d={draft} set={set} />}
+              </fieldset>
+            )}
           </div>
         </div>
       </div>
@@ -142,7 +163,7 @@ function TeamSection({ d, set }: SectionProps) {
       <Heading title="Team" sub="Name, color and length of games." />
       <Group label="Team info">
         <Row label="Team name"><TextInput value={d.name} onChange={(name) => set({ name })} placeholder="e.g. Mudcats 10U" label="Team name" /></Row>
-        <Row label="Your name" help="See who finalized the lineup."><TextInput value={d.coach} onChange={(coach) => set({ coach })} placeholder="Coach name" label="Your name" /></Row>
+        {isOwner(w.access) && <Row label="Your name" help="See who finalized the lineup."><TextInput value={d.coach} onChange={(coach) => set({ coach })} placeholder="Coach name" label="Your name" /></Row>}
         <Row label="Team color" help="Used in the team menu and on the Coaches Guide." stacked>
           <div style={{ marginTop: 12 }}><ColorSwatches value={d.color} onChange={(color) => set({ color })} /></div>
         </Row>
@@ -157,11 +178,11 @@ function TeamSection({ d, set }: SectionProps) {
           <ExportTeamButton />
         </Row>
       </Group>
-      <Group label="Delete team">
+      {isOwner(w.access) && <Group label="Delete team">
         <Row label="Delete this team" help="Removes the team from the web with its roster, lineups and game history. The iPhone app's copy is not affected.">
           <HeaderButton kind="danger" onClick={() => setDeleting(true)}>Delete team…</HeaderButton>
         </Row>
-      </Group>
+      </Group>}
       {deleting && (
         <ConfirmDelete title={`Delete ${name}?`} action="Delete team" onClose={() => setDeleting(false)} run={removeTeam}>
           This erases {name} from the web: {plural(w.players.length, 'player')}, the lineup you&apos;re building

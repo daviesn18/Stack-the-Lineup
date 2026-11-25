@@ -4,13 +4,18 @@
 import type { CSSProperties } from 'react';
 
 import {
-  Archive, ArrowRight, Calendar, CreditCard, Smartphone, Check, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, CircleMinus, CirclePlus, Diamond, Download,
+  Archive, ArrowRight, Copy, Link, LogOut, Eye, Calendar, CreditCard, Smartphone, Check, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, CircleMinus, CirclePlus, Diamond, Download,
   FileText, GripVertical, History, Info, Layers, ListOrdered, Lock, Pencil, Star, PersonStanding, Plus, Settings, Share, ShieldCheck, Trash2, TriangleAlert, UserPlus, Users, Zap,
   type LucideIcon,
 } from 'lucide-react';
 
 const MAP: Record<string, LucideIcon> = {
   'person.3.fill': Users,
+  'person.2.fill': Users,
+  link: Link,
+  'doc.on.doc': Copy,
+  'rectangle.portrait.and.arrow.right': LogOut,
+  eye: Eye,
   'list.number': ListOrdered,
   'baseball.diamond.bases': Diamond,
   'clock.arrow.circlepath': History,

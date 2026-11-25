@@ -14,20 +14,25 @@ export interface TeamSummary {
   archivedGames: number;
   /** The open lineup's game, when it has an opponent. */
   nextGame: { opponent: string; gameDate: Date } | null;
+  /** Merge 4: the head coach's name on a team another coach shared with this one; null on the coach's own. */
+  sharedBy: string | null;
+  /** Coaches who joined, not counting the head coach. */
+  coachCount: number;
 }
 
 /** Postgres returns uuids lower-case; the app (like iOS) works in upper-case. */
 export const upperId = (id: string) => id.toUpperCase();
 
 export async function listTeams(): Promise<TeamSummary[]> {
-  const { data, error } = await supabase
+  const [{ data, error }, session] = await Promise.all([supabase
     .from('teams')
-    .select('id, name, color_hex, players(count), game_logs(count), current:lineups!teams_current_lineup_fk(opponent, game_date)')
+    .select('id, name, color_hex, owner_id, coach_name, players(count), game_logs(count), team_members(user_id), current:lineups!teams_current_lineup_fk(opponent, game_date)')
     .is('deleted_at', null)
     .is('players.deleted_at', null)
     .is('game_logs.deleted_at', null)
-    .order('name');
+    .order('name'), supabase.auth.getSession()]);
   if (error) throw new Error(error.message);
+  const me = session.data.session?.user.id;
   return (data ?? []).map((t) => ({
     id: upperId(t.id),
     name: t.name,
@@ -35,6 +40,8 @@ export async function listTeams(): Promise<TeamSummary[]> {
     playerCount: (t.players as unknown as { count: number }[])[0]?.count ?? 0,
     archivedGames: (t.game_logs as unknown as { count: number }[])[0]?.count ?? 0,
     nextGame: nextGameOf(t.current as unknown),
+    sharedBy: me && t.owner_id !== me ? (t.coach_name?.trim() || 'the head coach') : null,
+    coachCount: ((t.team_members as unknown as unknown[]) ?? []).length,
   }));
 }
 

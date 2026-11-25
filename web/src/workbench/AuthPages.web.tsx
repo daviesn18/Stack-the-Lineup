@@ -19,7 +19,11 @@ import { C, CSS } from './theme';
 
 const NAVY = '#1B2C5D';
 
-export function SignInPage() {
+/**
+ * `intro` and `footer` replace the greeting and the invite-only note: the
+ * /join page signs a coach in on its way to joining a team.
+ */
+export function SignInPage({ intro, footer }: { intro?: { title: string; sub: string }; footer?: string } = {}) {
   const [mode, setMode] = useState<'signIn' | 'reset' | 'sent'>('signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -59,10 +63,10 @@ export function SignInPage() {
   }
 
   return (
-    <Frame footer="Stack the Lineup on the web is invite-only while we test it with a few coaches.">
+    <Frame footer={footer ?? 'Stack the Lineup on the web is invite-only while we test it with a few coaches.'}>
       {mode === 'signIn' && (
         <form onSubmit={signIn} style={FORM}>
-          <Heading title="Sign in" sub="Welcome back, coach." />
+          <Heading title={intro?.title ?? 'Sign in'} sub={intro?.sub ?? 'Welcome back, coach.'} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <OAuthButton provider="apple" busy={provider === 'apple'} disabled={!!provider} onClick={() => void continueWith('apple')} />
             <OAuthButton provider="google" busy={provider === 'google'} disabled={!!provider} onClick={() => void continueWith('google')} />

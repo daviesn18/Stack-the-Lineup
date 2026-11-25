@@ -5,6 +5,7 @@
 import { useState, type DragEvent } from 'react';
 
 import { finalize, moveBatter, restoreAbsent, toggleAbsent } from '@/core/lineupOps';
+import { isOwner, ownerDisplayName } from '@/data/sharing';
 import { signal } from '@/data/analytics';
 import { battingOrderPdf, coachesGuidePdf, pdfFilename } from '@/print/lineupPdf';
 import { downloadPdf, openPdfTab } from '@/print/openPdf';
@@ -43,11 +44,13 @@ export function GameScreen() {
       .catch((e: Error) => setPrintError(`Couldn't make the printout: ${e.message}`));
   };
 
+  // Merge 4: on a shared team only the head coach finalizes (the server refuses anyone else).
+  const waitingOn = isOwner(w.access) ? null : ownerDisplayName(w.access);
   const foot = {
     1: st.here === st.total ? 'Everyone is coming' : `${st.here} of ${st.total} coming. Auto-Fill will fill the open spots.`,
     2: 'Batting order carries over to next week',
     3: !st.started ? 'Set positions, or let Auto-Fill do it' : st.fpOk ? `All ${n} innings pass fair play` : 'Fix the issues above, or continue anyway',
-    4: st.finalized ? 'Finalized and ready to print.' : 'Finalizing locks the lineup. Any edit reopens it.',
+    4: st.finalized ? 'Finalized and ready to print.' : waitingOn ? `${waitingOn} finalizes the lineup. You can still print it.` : 'Finalizing locks the lineup. Any edit reopens it.',
   }[w.step];
 
   const next = () => {
@@ -97,7 +100,9 @@ export function GameScreen() {
         <span style={{ flex: 1, textAlign: 'center', fontSize: 13, color: SUB }}>{foot}</span>
         {w.step === 4 && st.finalized
           ? <PrimaryButton color={C.green} icon="checkmark.circle.fill" title="Any edit returns the lineup to Draft">Finalized</PrimaryButton>
-          : <PrimaryButton onClick={next}>{w.step < 4 ? `Continue to ${LABELS[w.step].toLowerCase()}` : 'Finalize lineup'}</PrimaryButton>}
+          : w.step === 4 && waitingOn
+            ? <PrimaryButton disabled title={`Only ${waitingOn} can finalize the lineup`}>Waiting for {waitingOn}</PrimaryButton>
+            : <PrimaryButton onClick={next}>{w.step < 4 ? `Continue to ${LABELS[w.step].toLowerCase()}` : 'Finalize lineup'}</PrimaryButton>}
       </footer>
       {gameOpen && <GameModal onClose={() => setGameOpen(false)} />}
     </div>

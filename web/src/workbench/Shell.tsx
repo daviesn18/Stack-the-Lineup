@@ -41,7 +41,9 @@ export function Sidebar({ demo, onAccount }: { demo?: boolean; onAccount(): void
   const [account, setAccount] = useState(false);
   const st = gameStatus(w);
   const meta = (s: Screen) => (s === 'game' ? String(1 + w.gameLogs.length) : s === 'roster' ? String(w.players.length) : '');
-  const initials = (w.team.coachName || 'Coach').split(/\s+/).map((x) => x.charAt(0)).join('').slice(0, 2).toUpperCase();
+  // A coach who joined goes by the name they joined with, not the head coach's (Merge 4).
+  const myName = (w.access.role === 'owner' ? w.team.coachName : w.access.myName) || 'Coach';
+  const initials = myName.split(/\s+/).map((x) => x.charAt(0)).join('').slice(0, 2).toUpperCase();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -107,7 +109,7 @@ export function Sidebar({ demo, onAccount }: { demo?: boolean; onAccount(): void
         <button className="h-side" onClick={() => setAccount((v) => !v)} aria-haspopup="menu" aria-expanded={account} title="Account"
           style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, padding: 3, margin: -3, borderRadius: 8 }}>
           <span style={{ width: 28, height: 28, borderRadius: 14, background: C.gray5, fontSize: 11, fontWeight: 600, color: SUB, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{initials}</span>
-          <span className="ellipsis" style={{ flex: 1, fontSize: 13, fontWeight: 500, textAlign: 'left' }}>{w.team.coachName || 'Coach'}</span>
+          <span className="ellipsis" style={{ flex: 1, fontSize: 13, fontWeight: 500, textAlign: 'left' }}>{myName}</span>
           <Icon name="chevron.up" size={12} color={SUB} />
         </button>
         <button className={w.screen === 'settings' ? '' : 'h-side'} title="Team settings" aria-label="Team settings"

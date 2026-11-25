@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 
+import { canEdit, ownerDisplayName } from '@/data/sharing';
 import { useTeam } from '@/data/teamStore';
 
 import { AccountDialog } from './AccountDialog';
@@ -13,6 +14,7 @@ import { HistoryScreen } from './HistoryScreen';
 import { HomeScreen } from './HomeScreen';
 import { NewGameDialog } from './NewGameDialog';
 import { Intro } from './IntroDialog';
+import { Icon } from './Icon';
 import { Overlays } from './Overlays';
 import { ProProvider } from './pro';
 import { PlayerPanel, RosterScreen } from './RosterScreen';
@@ -43,6 +45,12 @@ function Frame({ demo }: { demo?: boolean }) {
       <div style={{ minWidth: 1024, height: '100%', minHeight: 600, display: 'flex' }}>
         <Sidebar demo={demo} onAccount={() => setAccountOpen(true)} />
         <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          {!canEdit(w.access) && (
+            <div role="status" style={{ background: C.gray6, color: C.label, fontSize: 14, padding: '8px 20px', display: 'flex', gap: 8, alignItems: 'center', borderBottom: C.hair }}>
+              <Icon name="eye" size={15} color={C.label2} />
+              <span>View only. {ownerDisplayName(w.access)} shared this team with you to see and print, not change.</span>
+            </div>
+          )}
           {saveError && (
             <div role="alert" style={{ background: 'rgba(255,59,48,0.09)', color: C.red, fontSize: 14, padding: '8px 20px', display: 'flex', gap: 12, borderBottom: C.hair }}>
               <span style={{ flex: 1 }}>{saveError}</span>

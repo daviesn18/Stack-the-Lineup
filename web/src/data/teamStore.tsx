@@ -19,6 +19,7 @@ import { planOpenGame, type SavedGameLineup } from '../core/schedule';
 import { addGameLog, gameLogFrom, nextGameLineup, type ArchiveInput } from '../core/newGame';
 import { signal, takeTallies, teamOpened } from './analytics';
 import { readOpenLineup, rememberOpenLineup } from './openLineup';
+import { canChangeSettings, canEdit, isOwner, ownerDisplayName, resolveAccess, type MemberRow, type TeamAccess } from './sharing';
 import { supabase } from './supabase';
 import { upperId } from './teams';
 
@@ -47,6 +48,8 @@ export interface TeamData {
   savedGames: Record<string, SavedGameLineup>;
   /** Set once, when the game this browser had open was archived elsewhere and the next one opened instead. */
   archivedNotice?: string;
+  /** This coach's role on the team (Merge 4): owner, or a coach who joined from the invite link. */
+  access: TeamAccess;
 }
 
 function toScheduledGame(g: Row): ScheduledGame {
@@ -117,7 +120,7 @@ async function must<T>(p: PromiseLike<{ data: T; error: { message: string } | nu
 
 export async function loadTeam(teamId: string): Promise<TeamData> {
   const [t, lineupRefs, logs, games, session] = await Promise.all([
-    must(supabase.from('teams').select('*').eq('id', teamId).single()),
+    must(supabase.from('teams').select('*, team_members(user_id, role, name, joined_at)').eq('id', teamId).single()),
     must(supabase.from('lineups').select('id, scheduled_game_id').eq('team_id', teamId).is('deleted_at', null)),
     must(supabase.from('game_logs').select('*, pitch_counts(player_id, pitches)').eq('team_id', teamId)
       .is('deleted_at', null).order('game_date', { ascending: false })),
@@ -140,7 +143,15 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
     stored: readOpenLineup(teamId),
     me: session.data.session?.user.id ?? null,
   });
+  const me = session.data.session?.user.id ?? null;
+  const access: TeamAccess = resolveAccess(t.owner_id, t.coach_name ?? '', (t.team_members ?? []) as MemberRow[], me)
+    // Readable but not resolvable: treat as view only rather than guess at more.
+    ?? { role: 'viewer', ownerId: upperId(t.owner_id), ownerName: t.coach_name ?? '', coaches: [], myName: '' };
+  const writable = canEdit(access);
   let lineupId = open.lineupId;
+  if (!lineupId && !writable) {
+    throw new Error('This team has no game set up yet. Ask the head coach to start one');
+  }
   if (!lineupId) {
     // A team with no lineup at all (new team, or every one archived away): start one.
     lineupId = crypto.randomUUID().toUpperCase();
@@ -169,13 +180,13 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
   const roster = (players as Row[]).map(toPlayer);
   const saved = toLineup(lineup);
   const complete = { ...completeBattingOrder(saved, roster), id: saved.id };
-  if (complete.battingOrder !== saved.battingOrder) {
+  if (writable && complete.battingOrder !== saved.battingOrder) {
     // Repair a partial batting order once, so every screen and printout has everyone.
     await must(supabase.from('lineups').update({ batting_order: complete.battingOrder }).eq('id', saved.id));
   }
   const fairPlayConfig = { ...defaultFairPlayConfig(), ...(t.fair_play_config ?? {}) };
   const benched = { ...benchUnplaced(complete, roster, fairPlayConfig), id: saved.id };
-  if (benched.innings !== complete.innings && saved.status === 'draft') {
+  if (writable && benched.innings !== complete.innings && saved.status === 'draft') {
     // Lineups filled by hand before benchUnplaced ran: store their sitters as Bench once.
     await saveLineup(complete, benched);
   }
@@ -193,6 +204,7 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
     ...(lineup.scheduled_game_id ? { currentGameId: upperId(lineup.scheduled_game_id) } : {}),
     savedGames,
     ...(open.archived ? { archivedNotice: archivedMessage(open.archived) } : {}),
+    access,
   };
 }
 
@@ -309,11 +321,27 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
     }).finally(() => setPending((n) => n - 1));
   }, [reload, demo]);
 
+  /**
+   * Merge 4: refuses a change this coach's role doesn't allow, with a note
+   * saying why, before it reaches the screen. The server refuses it too.
+   */
+  const blocked = useCallback((now: TeamData, need: 'edit' | 'settings' | 'finalize') => {
+    const a = now.access;
+    const ok = need === 'edit' ? canEdit(a) : need === 'settings' ? canChangeSettings(a) : isOwner(a);
+    if (ok) return false;
+    const owner = ownerDisplayName(a);
+    setNotice(need === 'edit' ? `You can view this team. Only ${owner} and coaches who can make changes can edit it.`
+      : need === 'settings' ? `Only ${owner} can change team settings.`
+        : `Only ${owner} can finalize the lineup.`);
+    return true;
+  }, []);
+
   const editLineup = useCallback((edit: (l: Lineup) => Lineup) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'edit')) return;
     // Sitters in a full inning are stored as Bench, so BN and fair play count them.
     const next = { ...benchUnplaced(edit(now.lineup), now.players, now.team.fairPlayConfig), id: now.lineup.id };
+    if (now.lineup.status !== 'finalized' && next.status === 'finalized' && blocked(now, 'finalize')) return;
     set({ ...now, lineup: next });
     if (now.lineup.status !== 'finalized' && next.status === 'finalized') {
       // assignDrag / assignPicker / assignMenu / assignKey are web only: how positions were set for this game.
@@ -322,11 +350,11 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       signal('lineup.reverted_to_draft', { trigger: 'edit' });
     }
     enqueue(() => saveLineup(now.lineup, next));
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const addPlayer = useCallback((fields: Omit<Player, 'id'>) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'edit')) return;
     const player: Player = { ...fields, id: crypto.randomUUID().toUpperCase() };
     const lineup = { ...benchUnplaced(addToBattingOrder(now.lineup, player.id), [...now.players, player], now.team.fairPlayConfig), id: now.lineup.id };
     set({ ...now, players: [...now.players, player], lineup });
@@ -334,18 +362,18 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       await must(supabase.from('players').insert({ ...playerRow(player), team_id: now.team.id, roster_order: now.players.length }));
       await saveLineup(now.lineup, lineup);
     });
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const updatePlayer = useCallback((player: Player) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'edit')) return;
     set({ ...now, players: now.players.map((p) => (p.id === player.id ? player : p)) });
     enqueue(async () => { await must(supabase.from('players').update(playerRow(player)).eq('id', player.id)); });
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const deletePlayer = useCallback((id: string) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'edit')) return;
     const lineup = { ...removePlayer(now.lineup, id), id: now.lineup.id };
     set({ ...now, players: now.players.filter((p) => p.id !== id), lineup });
     enqueue(async () => {
@@ -354,11 +382,11 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       await must(supabase.from('lineup_cells').delete().eq('player_id', id));
       await saveLineup({ ...now.lineup, innings: lineup.innings }, lineup);
     });
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const updateTeam = useCallback((team: TeamInfo) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'settings')) return;
     const kept = new Set(activeFieldPositions(team.fairPlayConfig));
     const removed = activeFieldPositions(now.team.fairPlayConfig).filter((p) => !kept.has(p));
     const resized = resizeInnings(dropPositions(now.lineup, removed), team.gameInningCount);
@@ -392,11 +420,11 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       // Sends any cleared positions, then the new inning_count (and draft status).
       await saveLineup(now.lineup, lineup);
     });
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const startNewGame = useCallback((next: { opponent: string; gameDate: Date }, archive?: Omit<ArchiveInput, 'id' | 'archivedAt'>) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'edit')) return;
     const count = now.team.gameInningCount;
     const log = archive && gameLogFrom(now.lineup, now.players, count, now.team.coachName, {
       ...archive, id: crypto.randomUUID().toUpperCase(), archivedAt: new Date(),
@@ -429,11 +457,11 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       const archived = nextGameLineup(now.lineup, count, now.lineup);
       await saveLineup({ ...archived, battingOrder: now.lineup.battingOrder, absentPlayerIDs: now.lineup.absentPlayerIDs }, lineup);
     });
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const updateGameLog = useCallback((id: string, change: { notes?: string; pitchCounts?: Record<string, number> }) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'edit')) return;
     const notes = change.notes?.trim();
     const pitchCounts = change.pitchCounts && Object.fromEntries(Object.entries(change.pitchCounts).filter(([, n]) => n > 0));
     set({
@@ -448,21 +476,21 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
       if (notes !== undefined) await must(supabase.from('game_logs').update({ notes }).eq('id', id));
       if (pitchCounts) await must(supabase.rpc('replace_pitch_counts', { p_game_log_id: id, p_counts: pitchCounts }));
     });
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const deleteGameLog = useCallback((id: string) => {
     const now = current.current;
-    if (!now) return;
+    if (!now || blocked(now, 'edit')) return;
     set({ ...now, gameLogs: now.gameLogs.filter((g) => g.id !== id) });
     enqueue(async () => {
       await must(supabase.from('game_logs').update({ deleted_at: new Date().toISOString() }).eq('id', id));
     });
-  }, [enqueue]);
+  }, [enqueue, blocked]);
 
   const openScheduledGame = useCallback((gameId: string) => new Promise<void>((resolve) => {
     const now = current.current;
     const game = now?.scheduledGames.find((g) => g.id === gameId);
-    if (!now || !game || demo) { resolve(); return; }
+    if (!now || !game || demo || blocked(now, 'edit')) { resolve(); return; }
     const plan = planOpenGame(gameId, now.currentGameId, now.savedGames);
     if (plan.kind === 'noop') { resolve(); return; }
     signal('schedule.game.applied');
@@ -496,7 +524,7 @@ export function TeamProvider({ teamId, demo, children }: { teamId: string; demo?
         resolve();
       }
     });
-  }), [enqueue, demo, teamId]);
+  }), [enqueue, demo, teamId, blocked]);
 
   const store: TeamStore = {
     data, loadError, saveError, saving: pending > 0, dismissSaveError: () => setSaveError(null),
