@@ -146,7 +146,7 @@ export async function loadTeam(teamId: string): Promise<TeamData> {
   const me = session.data.session?.user.id ?? null;
   const access: TeamAccess = resolveAccess(t.owner_id, t.coach_name ?? '', (t.team_members ?? []) as MemberRow[], me)
     // Readable but not resolvable: treat as view only rather than guess at more.
-    ?? { role: 'viewer', ownerId: upperId(t.owner_id), ownerName: t.coach_name ?? '', coaches: [] };
+    ?? { role: 'viewer', ownerId: upperId(t.owner_id), ownerName: t.coach_name ?? '', coaches: [], myName: '' };
   const writable = canEdit(access);
   let lineupId = open.lineupId;
   if (!lineupId && !writable) {

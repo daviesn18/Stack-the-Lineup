@@ -23,6 +23,8 @@ export interface TeamAccess {
   ownerName: string;
   /** Everyone but the owner, oldest first. */
   coaches: TeamCoach[];
+  /** The name this coach joined with; empty for the owner (their name is the team's coach name). */
+  myName: string;
 }
 
 /** A team_members row as the nested fetch returns it. */
@@ -41,17 +43,17 @@ export const canEdit = (a: TeamAccess) => a.role !== 'viewer';
 export const ownerDisplayName = (a: TeamAccess) => a.ownerName.trim() || 'the head coach';
 export const coachDisplayName = (c: TeamCoach) => c.name.trim() || 'Coach';
 
-/** What the role lets a coach do, in the iOS sharing screen's words. */
+/** What the role lets a coach do, in the iPhone app's words (TeamSharePermission). */
 export const ROLE_TEXT: Record<Exclude<TeamRole, 'owner'>, { title: string; explanation: string; participant: string }> = {
   editor: {
-    title: 'Can make changes',
-    explanation: 'Coaches can build lineups, edit the roster and archive games. Only you can change team settings or finalize a lineup.',
-    participant: 'You can build lineups, edit the roster and archive games. The head coach finalizes lineups and changes team settings.',
+    title: 'Can edit',
+    explanation: 'They can add players and build positions. Finalizing the lineup stays with you.',
+    participant: 'You can add players and build positions. The head coach finalizes the lineup.',
   },
   viewer: {
     title: 'View only',
-    explanation: 'Coaches can see the roster, lineups and game history, and print, but not change anything.',
-    participant: 'You can see the roster, lineups and game history, and print. Only the head coach can make changes.',
+    explanation: "They can see the roster and the lineup, but can't change anything.",
+    participant: 'You can see the roster and the lineup. Only the head coach can make changes.',
   },
 };
 
@@ -71,9 +73,9 @@ export function resolveAccess(ownerId: string, ownerName: string, members: Membe
   const owner = upperId(ownerId);
   const self = me ? upperId(me) : null;
   if (!self) return null;
-  if (self === owner) return { role: 'owner', ownerId: owner, ownerName, coaches };
+  if (self === owner) return { role: 'owner', ownerId: owner, ownerName, coaches, myName: '' };
   const mine = coaches.find((c) => c.userId === self);
-  return mine ? { role: mine.role, ownerId: owner, ownerName, coaches } : null;
+  return mine ? { role: mine.role, ownerId: owner, ownerName, coaches, myName: mine.name.trim() } : null;
 }
 
 // MARK: - Invite links

@@ -31,6 +31,7 @@ describe('resolveAccess', () => {
     expect(a.role).toBe('editor');
     expect(canEdit(a)).toBe(true);
     expect(canChangeSettings(a)).toBe(false);
+    expect(a.myName).toBe('Jo');
   });
 
   test('a viewer changes nothing', () => {
