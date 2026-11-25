@@ -78,5 +78,6 @@ export function demoTeam(): TeamData {
     scheduledGames,
     currentGameId: scheduledGames[0].id,
     savedGames: { [scheduledGames[1].id]: { lineupId: 'DEMO-LINEUP-2', status: 'draft', hasContent: true } },
+    access: { role: 'owner', ownerId: 'DEMO-OWNER', ownerName: 'Coach Davies', coaches: [] },
   };
 }

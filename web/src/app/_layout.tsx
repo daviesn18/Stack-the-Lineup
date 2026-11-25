@@ -45,6 +45,8 @@ function Routes() {
       </Stack.Protected>
       {/* Email links: open signed in or out; the page moves on once the link is used. */}
       <Stack.Screen name="auth/confirm" />
+      {/* Invite links (Merge 4): signed out, the page signs the coach in first. */}
+      <Stack.Screen name="join/[token]" />
       {/* Development-only preview on a made-up in-memory team (renders nothing in production). */}
       <Stack.Protected guard={__DEV__}>
         <Stack.Screen name="dev-grid" />

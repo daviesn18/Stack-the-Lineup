@@ -10,7 +10,7 @@ export type ProFeature =
   | 'player_preferences'  // Position Preferences and Hitting Archetypes
   | 'lineup_template'     // more than one template (templates aren't on web yet: Web 12)
   | 'pdf_export'          // Coaches Guide PDF; the lineup card stays free
-  | 'shared_teams'        // inviting a coach (sharing isn't on web yet: Web 14)
+  | 'shared_teams'        // making a team's invite link (joining needs no Pro)
   | 'game_history'        // Season stats and the game log
   | 'pitch_tracking'      // entering pitch counts; pitching rules stay free
   | 'account';            // "See Pro" in the Account dialog (not a gate)

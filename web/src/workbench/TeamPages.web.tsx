@@ -11,6 +11,7 @@ import { DEFAULT_INNING_COUNT } from '@/core/model';
 import { useAuth, useIsPro } from '@/data/auth';
 import { signal } from '@/data/analytics';
 import { teamToAutoOpen } from '@/data/landing';
+import { takeInvite } from '@/data/pendingInvite';
 import { supabase } from '@/data/supabase';
 import { createTeam, importTeam, listTeams, previewImport, type ImportOutcome, type ImportPreview, type TeamSummary } from '@/data/teams';
 
@@ -30,6 +31,9 @@ export function TeamsPage() {
   const [creating, setCreating] = useState(false);
 
   useFocusEffect(useCallback(() => {
+    // An invite opened while signed out, back from Apple or Google sign-in: finish joining.
+    const invite = takeInvite();
+    if (invite) { router.replace({ pathname: '/join/[token]', params: { token: invite } }); return; }
     listTeams().then((list) => {
       // Signing in with one team goes straight to it; with more, the coach picks.
       const only = teamToAutoOpen(list);
@@ -98,6 +102,12 @@ function TeamCard({ t, onOpen }: { t: TeamSummary; onOpen(): void }) {
           <span style={{ display: 'block', fontSize: 13, color: SUB, marginTop: 2 }}>
             {plural(t.playerCount, 'player')}{t.archivedGames > 0 && ` · ${plural(t.archivedGames, 'game')} played`}
           </span>
+          {(t.sharedBy || t.coachCount > 0) && (
+            <span className="ellipsis" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: C.blue, marginTop: 3 }}>
+              <Icon name="person.2.fill" size={12} color={C.blue} />
+              {t.sharedBy ? `Shared by ${t.sharedBy}` : `Shared with ${t.coachCount} ${t.coachCount === 1 ? 'coach' : 'coaches'}`}
+            </span>
+          )}
         </span>
         <Icon name="chevron.right" size={16} color={C.label3} />
       </span>
@@ -111,7 +121,7 @@ function TeamCard({ t, onOpen }: { t: TeamSummary; onOpen(): void }) {
   );
 }
 
-function TeamBadge({ name, hex, size = 44 }: { name: string; hex: string; size?: number }) {
+export function TeamBadge({ name, hex, size = 44 }: { name: string; hex: string; size?: number }) {
   const initials = (name.trim() || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
     <span style={{ width: size, height: size, borderRadius: size * 0.27, background: `#${hex}`, color: '#fff', fontSize: size * 0.36, fontWeight: 700, display: 'grid', placeItems: 'center', flexShrink: 0, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.08)' }}>
@@ -295,7 +305,7 @@ function Tile({ n, label }: { n: number; label: string }) {
 
 // MARK: - Frame and pieces
 
-function AppFrame({ children, width = 1040 }: { children: ReactNode; width?: number }) {
+export function AppFrame({ children, width = 1040 }: { children: ReactNode; width?: number }) {
   const { session } = useAuth();
   const isPro = useIsPro();
   const [account, setAccount] = useState(false);
@@ -319,7 +329,7 @@ function AppFrame({ children, width = 1040 }: { children: ReactNode; width?: num
   );
 }
 
-function Note({ kind, children }: { kind: 'warn' | 'error'; children: ReactNode }) {
+export function Note({ kind, children }: { kind: 'warn' | 'error'; children: ReactNode }) {
   const [bg, fg] = kind === 'error' ? ['rgba(255,59,48,0.08)', C.red] : ['rgba(255,149,0,0.10)', 'rgb(133,79,10)'];
   return (
     <div role={kind === 'error' ? 'alert' : undefined} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, background: bg, color: fg, fontSize: 13, lineHeight: 1.4 }}>
