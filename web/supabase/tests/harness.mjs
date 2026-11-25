@@ -32,6 +32,19 @@ const SUPABASE_STUB = `
   grant usage on schema auth to anon, authenticated, service_role;
   grant execute on function auth.uid() to anon, authenticated, service_role;
 
+  -- Vault, as Supabase exposes it (decrypted view); tests insert secrets.
+  create schema vault;
+  create table vault.decrypted_secrets (name text primary key, decrypted_secret text);
+
+  -- pg_net stand-in: records each call instead of making it (net.calls).
+  create schema net;
+  create table net.calls (id bigserial primary key, url text, body jsonb, headers jsonb);
+  create function net.http_post(url text, body jsonb default '{}', params jsonb default '{}',
+                                headers jsonb default '{}', timeout_milliseconds int default 5000)
+  returns bigint language sql as $$
+    insert into net.calls (url, body, headers) values (url, body, headers) returning id
+  $$;
+
   -- Supabase grants these by default; the migration must revoke what it doesn't want.
   grant usage on schema public to anon, authenticated, service_role;
   alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
