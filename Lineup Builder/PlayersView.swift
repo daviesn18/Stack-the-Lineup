@@ -917,7 +917,7 @@ struct TeamFormView: View {
                         } label: {
                             HStack {
                                 Text("Fair Play Rules")
-                                    .foregroundColor(.primary)
+                                    .foregroundColor(settingsLockedTo == nil ? .primary : .secondary)
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.caption)
@@ -933,7 +933,7 @@ struct TeamFormView: View {
                         } label: {
                             HStack {
                                 Text("Pitching Rules")
-                                    .foregroundColor(.primary)
+                                    .foregroundColor(settingsLockedTo == nil ? .primary : .secondary)
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.caption)
@@ -1294,7 +1294,9 @@ struct TeamFormView: View {
         } header: {
             Text("Account")
         } footer: {
-            Text(store.accountTeamIDs.contains(id) && store.movingTeamID != id
+            Text(store.access(for: id).map { !$0.isOwner } == true
+                 ? "\(store.access(for: id)!.ownerDisplayName) shared this team with your account. It stays in theirs."
+                 : store.accountTeamIDs.contains(id) && store.movingTeamID != id
                  ? "This team is saved to your Stack the Lineup account."
                  : store.isMovedElsewhere(id)
                  ? "This team was moved to an account on another device. This copy is read-only."

@@ -99,6 +99,7 @@ struct AccountSharingView: View {
         }
 
         Section {
+            LabeledContent("\(access.ownerDisplayName) (you)", value: "Head coach")
             if access.coaches.isEmpty {
                 Text("No one has joined yet")
                     .foregroundColor(.secondary)
@@ -107,6 +108,7 @@ struct AccountSharingView: View {
                     coachRow(coach)
                         .swipeActions {
                             Button("Remove", role: .destructive) { removing = coach }
+                                .tint(.red)
                         }
                         .contextMenu {
                             Button("Remove Coach", role: .destructive) { removing = coach }
