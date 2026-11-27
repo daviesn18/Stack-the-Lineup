@@ -36,10 +36,12 @@ Deno.serve(async (req) => {
   const header = req.headers.get('Authorization');
   if (!authorized(header, expectedAuth)) {
     // Lengths and short hash prefixes only, never the values: enough to tell a
-    // missing header or a different token from a formatting slip.
+    // missing header or a different token from a formatting slip. They go to
+    // the function log (Supabase → Edge Functions → Logs), not the response:
+    // the URL is public, so a caller learns nothing about the expected token.
     const mismatch = await authMismatch(header, expectedAuth);
     console.warn('revenuecat-webhook: unauthorized', JSON.stringify(mismatch));
-    return json(401, { error: 'Unauthorized', ...mismatch });
+    return json(401, { error: 'Unauthorized' });
   }
 
   let body: unknown;
