@@ -20,7 +20,7 @@ import { C, CSS } from './theme';
 const NAVY = '#1B2C5D';
 
 /**
- * `intro` and `footer` replace the greeting and the invite-only note: the
+ * `intro` and `footer` replace the greeting and the new-account note: the
  * /join page signs a coach in on its way to joining a team.
  */
 export function SignInPage({ intro, footer }: { intro?: { title: string; sub: string }; footer?: string } = {}) {
@@ -63,7 +63,7 @@ export function SignInPage({ intro, footer }: { intro?: { title: string; sub: st
   }
 
   return (
-    <Frame footer={footer ?? 'Stack the Lineup on the web is invite-only while we test it with a few coaches.'}>
+    <Frame footer={footer ?? 'New here? Continue with Apple or Google to make a free account. Already coach on iPhone or iPad? Sign in the same way to see your teams.'}>
       {mode === 'signIn' && (
         <form onSubmit={signIn} style={FORM}>
           <Heading title={intro?.title ?? 'Sign in'} sub={intro?.sub ?? 'Welcome back, coach.'} />
