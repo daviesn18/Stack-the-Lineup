@@ -8,7 +8,8 @@ describe('Apple / Google sign-in errors', () => {
   it('explains sign-ups being off in coach terms', () => {
     const byCode = oauthMessage({ code: 'signup_disabled', description: 'Signups not allowed for this instance' });
     expect(byCode).toMatch(/isn't linked to a Stack the Lineup account/);
-    expect(byCode).toMatch(/invite-only/);
+    expect(byCode).toMatch(/new accounts can't be made/);
+    expect(byCode).not.toMatch(/invite/);
     // Older servers send only the description.
     expect(oauthMessage({ code: 'server_error', description: 'Signups not allowed for this instance' })).toBe(byCode);
   });
